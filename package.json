@@ -1,0 +1,19 @@
+{
+  "name": "ems-education-management-system",
+  "version": "1.0.0",
+  "description": "Education Management System (EMS) - Chuẩn quy chế FAP FPT",
+  "scripts": {
+    "install:backend": "cd backend && npm install",
+    "install:frontend": "cd frontend && npm install",
+    "install:all": "npm run install:backend && npm run install:frontend",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "prisma:generate": "cd backend && npm run prisma:generate",
+    "prisma:push": "cd backend && npm run prisma:push",
+    "prisma:seed": "cd backend && npm run prisma:seed",
+    "prisma:studio": "cd backend && npm run prisma:studio"
+  },
+  "keywords": ["ems", "education", "management", "fpt", "fap", "react", "express", "prisma", "tidb"],
+  "author": "EMS Team",
+  "license": "ISC"
+}

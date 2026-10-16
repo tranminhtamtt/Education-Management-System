@@ -1,0 +1,94 @@
+:root {
+  --primary-color: #F26F21;
+  --primary-hover: #FA8C16;
+  --bg-color: #F0F2F5;
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-family);
+  background-color: var(--bg-color);
+  color: #1f1f1f;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Tùy chỉnh thanh cuộn đẹp mắt */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+::-webkit-scrollbar-thumb {
+  background: #c8c8c8;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #999;
+}
+
+/* Card hiệu ứng bóng đổ tinh tế */
+.ant-card {
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: all 0.3s ease;
+}
+
+.ant-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+/* Bảng thời khóa biểu ma trận */
+.schedule-matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.schedule-matrix-table th {
+  background: #fafafa;
+  padding: 12px 8px;
+  text-align: center;
+  font-weight: 600;
+  border: 1px solid #f0f0f0;
+}
+
+.schedule-matrix-table td {
+  padding: 8px;
+  height: 80px;
+  vertical-align: top;
+  border: 1px solid #f0f0f0;
+  transition: background-color 0.2s;
+}
+
+.schedule-cell-item {
+  background: #FFF7E6;
+  border-left: 3px solid #FA8C16;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.schedule-cell-item:hover {
+  background: #FFE7BA;
+}
+
+/* Header thương hiệu */
+.ems-header-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 18px;
+  color: #F26F21;
+}

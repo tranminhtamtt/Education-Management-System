@@ -1,0 +1,321 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  TEACHER
+  STUDENT
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum ClassStatus {
+  UPCOMING
+  ONGOING
+  COMPLETED
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  DROPPED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT_EXCUSED
+  ABSENT_UNEXCUSED
+  LATE
+}
+
+enum InvoiceStatus {
+  UNPAID
+  PARTIAL
+  PAID
+}
+
+enum NotificationType {
+  ASSIGNMENT
+  GRADE
+  TUITION
+  REQUEST
+  SYSTEM
+}
+
+enum RequestType {
+  ABSENCE
+  REMARK
+  CONFIRMATION
+}
+
+enum CourseStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum SubmissionStatus {
+  SUBMITTED
+  LATE_SUBMITTED
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// 1. users
+model User {
+  id           Int         @id @default(autoincrement())
+  code         String      @unique @db.VarChar(50)
+  email        String      @unique @db.VarChar(100)
+  passwordHash String      @map("password_hash") @db.VarChar(255)
+  fullName     String      @map("full_name") @db.VarChar(100)
+  role         Role        @default(STUDENT)
+  phone        String?     @db.VarChar(20)
+  avatar       String?     @db.VarChar(255)
+  status       UserStatus  @default(ACTIVE)
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  studentProfile  StudentProfile?
+  teacherProfile  TeacherProfile?
+  teachingClasses Class[]          @relation("TeacherClasses")
+  enrollments     Enrollment[]
+  attendances     Attendance[]
+  submissions     Submission[]
+  tuitionInvoices TuitionInvoice[]
+  notifications   Notification[]
+  studentRequests StudentRequest[]
+
+  @@map("users")
+}
+
+// 2. student_profiles
+model StudentProfile {
+  userId         Int      @id @map("user_id")
+  dob            DateTime? @db.Date
+  gender         Gender?   @default(MALE)
+  address        String?  @db.VarChar(255)
+  enrollmentYear Int      @default(2026) @map("enrollment_year")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("student_profiles")
+}
+
+// 3. teacher_profiles
+model TeacherProfile {
+  userId    Int     @id @map("user_id")
+  degree    String? @db.VarChar(100) // Cử nhân, Thạc sĩ, Tiến sĩ
+  specialty String? @db.VarChar(150)
+  bio       String? @db.Text
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("teacher_profiles")
+}
+
+// 4. courses
+model Course {
+  id             Int      @id @default(autoincrement())
+  courseCode     String   @unique @map("course_code") @db.VarChar(50)
+  name           String   @db.VarChar(150)
+  credits        Int      @default(3)
+  totalSessions  Int      @default(30) @map("total_sessions")
+  baseTuitionFee Decimal  @default(0.00) @map("base_tuition_fee") @db.Decimal(12, 2)
+  description    String?      @db.Text
+  syllabusUrl    String?      @map("syllabus_url") @db.VarChar(255)
+  status         CourseStatus @default(ACTIVE)
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  classes Class[]
+
+  @@map("courses")
+}
+
+// 5. classes
+model Class {
+  id          Int         @id @default(autoincrement())
+  classCode   String      @unique @map("class_code") @db.VarChar(50)
+  courseId    Int         @map("course_id")
+  teacherId   Int         @map("teacher_id")
+  semester    String      @db.VarChar(20) // SP26, SU26, FA26
+  maxStudents Int         @default(30) @map("max_students")
+  status      ClassStatus @default(UPCOMING)
+  createdAt   DateTime    @default(now()) @map("created_at")
+
+  course      Course           @relation(fields: [courseId], references: [id])
+  teacher     User             @relation("TeacherClasses", fields: [teacherId], references: [id])
+  enrollments Enrollment[]
+  schedules   Schedule[]
+  attendances Attendance[]
+  assignments Assignment[]
+  requests    StudentRequest[]
+
+  @@map("classes")
+}
+
+// 6. enrollments
+model Enrollment {
+  id         Int              @id @default(autoincrement())
+  classId    Int              @map("class_id")
+  studentId  Int              @map("student_id")
+  enrolledAt DateTime         @default(now()) @map("enrolled_at")
+  status     EnrollmentStatus @default(ACTIVE)
+
+  class          Class           @relation(fields: [classId], references: [id])
+  student        User            @relation(fields: [studentId], references: [id])
+  grade          Grade?
+  tuitionInvoice TuitionInvoice?
+
+  @@unique([classId, studentId])
+  @@map("enrollments")
+}
+
+// 7. schedules
+model Schedule {
+  id        Int      @id @default(autoincrement())
+  classId   Int      @map("class_id")
+  dayOfWeek Int      @map("day_of_week") // 2: Thứ 2 ... 8: Chủ nhật
+  shift     Int      @default(1) // Slot 1 - 6
+  startTime DateTime @map("start_time") @db.Time(0)
+  endTime   DateTime @map("end_time") @db.Time(0)
+  room      String   @db.VarChar(50)
+
+  class Class @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@map("schedules")
+}
+
+// 8. attendances
+model Attendance {
+  id          Int              @id @default(autoincrement())
+  classId     Int              @map("class_id")
+  studentId   Int              @map("student_id")
+  sessionDate DateTime         @map("session_date") @db.Date
+  status      AttendanceStatus @default(PRESENT)
+  note        String?          @db.VarChar(255)
+
+  class   Class @relation(fields: [classId], references: [id])
+  student User  @relation(fields: [studentId], references: [id])
+
+  @@unique([classId, studentId, sessionDate])
+  @@map("attendances")
+}
+
+// 9. assignments
+model Assignment {
+  id          Int      @id @default(autoincrement())
+  classId     Int      @map("class_id")
+  title       String   @db.VarChar(200)
+  description String?  @db.Text
+  fileUrl     String?  @map("file_url") @db.VarChar(255)
+  dueDate     DateTime @map("due_date")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  class       Class        @relation(fields: [classId], references: [id], onDelete: Cascade)
+  submissions Submission[]
+
+  @@map("assignments")
+}
+
+// 10. submissions
+model Submission {
+  id              Int      @id @default(autoincrement())
+  assignmentId    Int      @map("assignment_id")
+  studentId       Int      @map("student_id")
+  fileUrl         String           @map("file_url") @db.VarChar(255)
+  submittedAt     DateTime         @default(now()) @map("submitted_at")
+  status          SubmissionStatus @default(SUBMITTED)
+  score           Decimal?         @db.Decimal(4, 2)
+  teacherFeedback String?          @map("teacher_feedback") @db.Text
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  student    User       @relation(fields: [studentId], references: [id])
+
+  @@unique([assignmentId, studentId])
+  @@map("submissions")
+}
+
+// 11. grades
+model Grade {
+  id              Int      @id @default(autoincrement())
+  enrollmentId    Int      @unique @map("enrollment_id")
+  attendanceScore Decimal? @default(10.00) @map("attendance_score") @db.Decimal(4, 2)
+  midtermScore    Decimal? @map("midterm_score") @db.Decimal(4, 2)
+  finalScore      Decimal? @map("final_score") @db.Decimal(4, 2)
+  totalScore      Decimal? @map("total_score") @db.Decimal(4, 2)
+  isPassed        Boolean  @default(false) @map("is_passed")
+  isBanned        Boolean  @default(false) @map("is_banned") // Cấm thi nếu vắng >= 20%
+
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  @@map("grades")
+}
+
+// 12. tuition_invoices
+model TuitionInvoice {
+  id           Int           @id @default(autoincrement())
+  studentId    Int           @map("student_id")
+  enrollmentId Int           @unique @map("enrollment_id")
+  amount       Decimal       @default(0.00) @db.Decimal(12, 2)
+  paidAmount   Decimal       @default(0.00) @map("paid_amount") @db.Decimal(12, 2)
+  dueDate      DateTime      @map("due_date") @db.Date
+  status       InvoiceStatus @default(UNPAID)
+  paidAt       DateTime?     @map("paid_at")
+
+  student    User       @relation(fields: [studentId], references: [id])
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  @@map("tuition_invoices")
+}
+
+// 13. notifications
+model Notification {
+  id        Int              @id @default(autoincrement())
+  userId    Int?             @map("user_id") // Null nếu gửi toàn hệ thống
+  title     String           @db.VarChar(200)
+  message   String           @db.Text
+  type      NotificationType @default(SYSTEM)
+  isRead    Boolean          @default(false) @map("is_read")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+// 14. student_requests
+model StudentRequest {
+  id            Int           @id @default(autoincrement())
+  studentId     Int           @map("student_id")
+  classId       Int?          @map("class_id")
+  requestType   RequestType   @map("request_type")
+  sessionDate   DateTime?     @map("session_date") @db.Date
+  reason        String        @db.Text
+  attachmentUrl String?       @map("attachment_url") @db.VarChar(255)
+  status        RequestStatus @default(PENDING)
+  adminResponse String?       @map("admin_response") @db.Text
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  student User   @relation(fields: [studentId], references: [id])
+  class   Class? @relation(fields: [classId], references: [id])
+
+  @@map("student_requests")
+}
