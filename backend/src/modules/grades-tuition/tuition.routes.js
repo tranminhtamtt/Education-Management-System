@@ -60,8 +60,6 @@ const mapInvoice = (inv) => {
   return {
     id: inv.id,
     student: inv.student,
-    enrollmentId: inv.enrollmentId,
-    classId: inv.enrollment.class.id,
     classCode: inv.enrollment.class.classCode,
     semester: inv.enrollment.class.semester,
     courseCode: inv.enrollment.class.course.courseCode,
@@ -71,8 +69,6 @@ const mapInvoice = (inv) => {
     remainingAmount,
     status: inv.status,
     dueDate: inv.dueDate,
-    paidAt: inv.paidAt,
-    createdAt: inv.createdAt,
     isOverdue: inv.status !== 'PAID' && new Date(inv.dueDate) < startOfToday(),
     payments: (inv.payments || []).map(mapPayment)
   };
@@ -92,13 +88,11 @@ router.get(
   async (req, res) => {
     try {
       const { role, id: userId } = req.user;
-      const { status, studentId, classId, semester, search, overdue } = req.query;
+      const { status, classId, search, overdue } = req.query;
 
       const where = {};
       if (role === 'STUDENT') {
         where.studentId = userId;
-      } else if (studentId) {
-        where.studentId = parseInt(studentId);
       }
 
       if (status) {
@@ -107,13 +101,8 @@ router.get(
         where.status = statuses.length > 1 ? { in: statuses } : statuses[0];
       }
 
-      if (classId || semester) {
-        where.enrollment = {
-          class: {
-            ...(classId ? { id: parseInt(classId) } : {}),
-            ...(semester ? { semester } : {})
-          }
-        };
+      if (classId) {
+        where.enrollment = { class: { id: parseInt(classId) } };
       }
 
       if (search && role !== 'STUDENT') {
@@ -159,24 +148,6 @@ router.get(
     }
   }
 );
-
-// Chi tiết 1 hóa đơn kèm lịch sử các đợt thu
-router.get('/tuition-invoices/:id', authenticateJWT, async (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    const invoice = await prisma.tuitionInvoice.findUnique({ where: { id }, include: INVOICE_INCLUDE });
-
-    if (!invoice) return errorResponse(res, 'Không tìm thấy hóa đơn học phí', 404);
-    if (!canViewInvoice(req.user, invoice)) {
-      return errorResponse(res, 'Bạn không có quyền xem hóa đơn này', 403);
-    }
-
-    return successResponse(res, mapInvoice(invoice), 'Lấy chi tiết hóa đơn thành công');
-  } catch (error) {
-    console.error('Error fetching invoice detail:', error);
-    return errorResponse(res, 'Lỗi lấy chi tiết hóa đơn', 500);
-  }
-});
 
 // ==========================================
 // UC9.2: Ghi nhận thanh toán (cộng dồn paid_amount, UNPAID -> PARTIAL -> PAID)
@@ -390,8 +361,7 @@ router.get('/tuition-invoices/:id/vietqr', authenticateJWT, async (req, res) => 
       amount: remaining,
       studentCode: invoice.student.code,
       courseCode: invoice.enrollment.class.course.courseCode,
-      classCode: invoice.enrollment.class.classCode,
-      invoiceId: invoice.id
+      classCode: invoice.enrollment.class.classCode
     });
 
     return successResponse(
