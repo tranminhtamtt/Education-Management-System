@@ -8,6 +8,7 @@ const classesSchedulesRouter = require('./modules/classes-schedules');
 const attendanceAssignmentsRouter = require('./modules/attendance-assignments');
 const gradesTuitionRouter = require('./modules/grades-tuition');
 const notificationsAnalyticsRouter = require('./modules/notifications-analytics');
+const studentRouter = require('./modules/student');
 
 const path = require('path');
 
@@ -41,6 +42,7 @@ app.use('/api/v1', classesSchedulesRouter);
 app.use('/api/v1', attendanceAssignmentsRouter);
 app.use('/api/v1', gradesTuitionRouter);
 app.use('/api/v1', notificationsAnalyticsRouter);
+app.use('/api/v1', studentRouter); // Cổng Học viên (Người 5)
 
 // 404 Handler
 app.use((req, res) => {

@@ -38,7 +38,7 @@ const calculateGrade = (attendanceScore, midtermScore, finalScore, isBanned) => 
 // ==========================================
 
 // UC8.1: Lấy bảng điểm đầy đủ của lớp học phần
-router.get('/classes/:id/grades', authenticateJWT, async (req, res) => {
+router.get('/classes/:id/grades', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
   try {
     const classId = parseInt(req.params.id);
 
@@ -154,64 +154,7 @@ router.put('/classes/:id/grades', authenticateJWT, authorizeRoles('ADMIN', 'TEAC
   }
 });
 
-// UC8.4: Học viên xem bảng điểm cá nhân và tính GPA
-router.get('/students/my-grades', authenticateJWT, async (req, res) => {
-  try {
-    const studentId = req.user.id;
-
-    const enrollments = await prisma.enrollment.findMany({
-      where: { studentId },
-      include: {
-        class: {
-          include: {
-            course: true,
-            teacher: { select: { fullName: true } }
-          }
-        },
-        grade: true
-      },
-      orderBy: { class: { semester: 'desc' } }
-    });
-
-    const grades = enrollments.map(e => ({
-      enrollmentId: e.id,
-      classCode: e.class.classCode,
-      courseCode: e.class.course.courseCode,
-      courseName: e.class.course.name,
-      credits: e.class.course.credits,
-      semester: e.class.semester,
-      teacherName: e.class.teacher?.fullName || 'Chưa phân công',
-      grade: e.grade ? {
-        attendanceScore: e.grade.attendanceScore !== null ? Number(e.grade.attendanceScore) : null,
-        midtermScore: e.grade.midtermScore !== null ? Number(e.grade.midtermScore) : null,
-        finalScore: e.grade.finalScore !== null ? Number(e.grade.finalScore) : null,
-        totalScore: e.grade.totalScore !== null ? Number(e.grade.totalScore) : null,
-        isPassed: e.grade.isPassed,
-        isBanned: e.grade.isBanned
-      } : null
-    }));
-
-    // Tính điểm trung bình tích lũy (GPA thang 10)
-    const validGrades = grades.filter(g => g.grade && g.grade.totalScore !== null);
-    const totalCredits = validGrades.reduce((sum, g) => sum + g.credits, 0);
-    const weightedTotal = validGrades.reduce((sum, g) => sum + (g.grade.totalScore * g.credits), 0);
-    const gpa = totalCredits > 0 ? (weightedTotal / totalCredits).toFixed(2) : '0.00';
-
-    return successResponse(
-      res,
-      {
-        gpa: parseFloat(gpa),
-        totalCredits,
-        totalCourses: enrollments.length,
-        grades
-      },
-      'Lấy bảng điểm cá nhân thành công'
-    );
-  } catch (error) {
-    console.error('Error fetching my grades:', error);
-    return errorResponse(res, 'Lỗi lấy bảng điểm', 500);
-  }
-});
+// UC8.4: Học viên xem bảng điểm cá nhân & GPA -> chuyển sang module student (GET /students/my-grades)
 
 // ==========================================
 // 2. TUITION MANAGEMENT (UC9.1 - UC9.4*, UC10.2, UC11.1b*)
