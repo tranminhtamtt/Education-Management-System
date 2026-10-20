@@ -13,7 +13,8 @@ import {
   TrophyOutlined,
   DollarCircleOutlined,
   AuditOutlined,
-  NotificationOutlined
+  NotificationOutlined,
+  BarChartOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../context/AuthContext';
 
@@ -23,7 +24,15 @@ const Sidebar = () => {
   const { user } = useAuth();
   const role = user?.role;
 
-  const items = [
+  const items = role === 'ACCOUNTANT'
+    ? [
+        // Accountant (Người 3): chỉ các chức năng tài chính học phí
+        { key: '/dashboard', icon: <DashboardOutlined />, label: 'Tổng quan Tài chính' },
+        { key: '/tuition', icon: <DollarCircleOutlined />, label: 'Công nợ & Thu Học phí' },
+        { key: '/tuition-report', icon: <BarChartOutlined />, label: 'Báo cáo Doanh thu' },
+        { key: '/notifications', icon: <NotificationOutlined />, label: 'Thông báo' }
+      ]
+    : [
     {
       key: '/dashboard',
       icon: <DashboardOutlined />,
@@ -83,13 +92,13 @@ const Sidebar = () => {
       icon: <TrophyOutlined />,
       label: role === 'STUDENT' ? 'Bảng điểm & GPA' : 'Quản lý Điểm số'
     },
-    // Học phí (Admin & Student)
+    // Học phí (Admin xem, Student xem công nợ cá nhân)
     ...(['ADMIN', 'STUDENT'].includes(role)
       ? [
           {
             key: '/tuition',
             icon: <DollarCircleOutlined />,
-            label: role === 'ADMIN' ? 'Quản lý Học phí' : 'Học phí & VietQR'
+            label: role === 'ADMIN' ? 'Học phí (Chỉ xem)' : 'Học phí & VietQR'
           }
         ]
       : []),

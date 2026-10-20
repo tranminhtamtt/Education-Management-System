@@ -92,3 +92,12 @@ body {
   font-size: 18px;
   color: #F26F21;
 }
+
+/* Học phí: tô nền hóa đơn quá hạn */
+.tuition-row-overdue > td {
+  background: #fff1f0 !important;
+}
+
+.tuition-row-overdue:hover > td {
+  background: #ffe7e6 !important;
+}

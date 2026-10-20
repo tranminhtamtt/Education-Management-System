@@ -25,6 +25,7 @@ import AssignmentsPage from './pages/attendance-assignments/AssignmentsPage';
 // Cụm 4: Khảo thí & Tài chính
 import GradesPage from './pages/grades-tuition/GradesPage';
 import TuitionPage from './pages/grades-tuition/TuitionPage';
+import TuitionReportPage from './pages/grades-tuition/TuitionReportPage';
 
 // Cụm 5: Tương tác, Đơn từ & Báo cáo
 import RequestsPage from './pages/notifications-analytics/RequestsPage';
@@ -68,6 +69,7 @@ const App = () => {
               {/* Cụm 4 */}
               <Route path="grades" element={<GradesPage />} />
               <Route path="tuition" element={<TuitionPage />} />
+              <Route path="tuition-report" element={<TuitionReportPage />} />
 
               {/* Cụm 5 */}
               <Route path="requests" element={<RequestsPage />} />

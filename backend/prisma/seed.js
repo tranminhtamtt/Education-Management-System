@@ -12,6 +12,7 @@ async function main() {
   // 1. Dọn sạch dữ liệu cũ theo thứ tự quan hệ
   await prisma.studentRequest.deleteMany();
   await prisma.notification.deleteMany();
+  await prisma.tuitionPayment.deleteMany();
   await prisma.tuitionInvoice.deleteMany();
   await prisma.grade.deleteMany();
   await prisma.submission.deleteMany();
@@ -37,6 +38,36 @@ async function main() {
       status: 'ACTIVE'
     }
   });
+
+  // 2b. Tạo Kế toán (Accountant - Người 3)
+  const accountant = await prisma.user.create({
+    data: {
+      code: 'ACC001',
+      email: 'ketoan@fpt.edu.vn',
+      passwordHash,
+      fullName: 'Phòng Kế toán - Tài chính',
+      role: 'ACCOUNTANT',
+      phone: '02473005599',
+      status: 'ACTIVE'
+    }
+  });
+
+  let receiptSeq = 0;
+  const createPayment = async (invoiceId, amount, paidAt, method, note) => {
+    receiptSeq += 1;
+    const ym = `${paidAt.getFullYear()}${String(paidAt.getMonth() + 1).padStart(2, '0')}`;
+    await prisma.tuitionPayment.create({
+      data: {
+        invoiceId,
+        receiptNo: `PT-${ym}-${String(receiptSeq).padStart(5, '0')}`,
+        amount,
+        method,
+        note,
+        collectedById: accountant.id,
+        paidAt
+      }
+    });
+  };
 
   // 3. Tạo 3 Giảng viên
   const teachersData = [
@@ -196,17 +227,25 @@ async function main() {
     });
 
     // Tự sinh Hóa đơn học phí
-    await prisma.tuitionInvoice.create({
+    const isPaid = i % 2 === 0;
+    const invoice1 = await prisma.tuitionInvoice.create({
       data: {
         studentId: student.id,
         enrollmentId: enrollment.id,
         amount: 4500000,
-        paidAmount: i % 2 === 0 ? 4500000 : 0,
-        dueDate: new Date('2026-03-30'),
-        status: i % 2 === 0 ? 'PAID' : 'UNPAID',
-        paidAt: i % 2 === 0 ? new Date() : null
+        paidAmount: isPaid ? 4500000 : 0,
+        dueDate: new Date('2026-09-15'),
+        status: isPaid ? 'PAID' : 'UNPAID',
+        paidAt: isPaid ? new Date('2026-09-05T10:00:00') : null,
+        createdAt: new Date('2026-08-15T08:00:00')
       }
     });
+
+    if (isPaid) {
+      // Đóng 2 đợt: đợt 1 tháng 8, đợt 2 tháng 9
+      await createPayment(invoice1.id, 2000000, new Date('2026-08-20T09:00:00'), 'CASH', 'Thu đợt 1');
+      await createPayment(invoice1.id, 2500000, new Date('2026-09-05T10:00:00'), 'VIETQR', 'Thu đợt 2 - hoàn tất');
+    }
   }
 
   for (let i = 5; i < 10; i++) {
@@ -231,17 +270,20 @@ async function main() {
       }
     });
 
-    await prisma.tuitionInvoice.create({
+    const invoice2 = await prisma.tuitionInvoice.create({
       data: {
         studentId: student.id,
         enrollmentId: enrollment.id,
         amount: 4500000,
         paidAmount: 2000000,
-        dueDate: new Date('2026-03-30'),
+        dueDate: new Date('2026-10-30'),
         status: 'PARTIAL',
-        paidAt: new Date()
+        paidAt: null,
+        createdAt: new Date('2026-09-10T08:00:00')
       }
     });
+
+    await createPayment(invoice2.id, 2000000, new Date('2026-10-02T14:00:00'), 'BANK_TRANSFER', 'Thu đợt 1');
   }
 
   // 9. Tạo 1 Bài tập mẫu
@@ -275,6 +317,7 @@ async function main() {
 
   console.log('✅ Seed data created successfully!');
   console.log('   - 1 Admin: admin@fpt.edu.vn | Pass: 123456');
+  console.log('   - 1 Accountant: ketoan@fpt.edu.vn | Pass: 123456');
   console.log('   - 3 Teachers: thaynam@fpt.edu.vn, colinh@fpt.edu.vn, thaytuan@fpt.edu.vn | Pass: 123456');
   console.log('   - 10 Students: namnvhe170001@fpt.edu.vn ... | Pass: 123456');
 }

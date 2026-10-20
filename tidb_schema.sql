@@ -12,6 +12,7 @@ SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS student_requests;
 DROP TABLE IF EXISTS notifications;
+DROP TABLE IF EXISTS tuition_payments;
 DROP TABLE IF EXISTS tuition_invoices;
 DROP TABLE IF EXISTS grades;
 DROP TABLE IF EXISTS submissions;
@@ -38,7 +39,7 @@ CREATE TABLE users (
     email VARCHAR(100) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
     full_name VARCHAR(100) NOT NULL,
-    role ENUM('ADMIN', 'TEACHER', 'STUDENT') NOT NULL DEFAULT 'STUDENT',
+    role ENUM('ADMIN', 'TEACHER', 'STUDENT', 'ACCOUNTANT') NOT NULL DEFAULT 'STUDENT',
     phone VARCHAR(20),
     avatar VARCHAR(255),
     status ENUM('ACTIVE', 'INACTIVE', 'SUSPENDED') NOT NULL DEFAULT 'ACTIVE',
@@ -184,8 +185,24 @@ CREATE TABLE tuition_invoices (
     due_date DATE NOT NULL,
     status ENUM('UNPAID', 'PARTIAL', 'PAID') NOT NULL DEFAULT 'UNPAID',
     paid_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (enrollment_id) REFERENCES enrollments(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- BẢNG 12b: tuition_payments (Lịch sử từng đợt thu học phí - Phiếu thu/Biên lai)
+CREATE TABLE tuition_payments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    invoice_id INT NOT NULL,
+    receipt_no VARCHAR(50) NOT NULL UNIQUE,
+    amount DECIMAL(12, 2) NOT NULL,
+    method ENUM('CASH', 'BANK_TRANSFER', 'VIETQR') NOT NULL DEFAULT 'BANK_TRANSFER',
+    note VARCHAR(255),
+    collected_by INT,
+    paid_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_payment_paid_at (paid_at),
+    FOREIGN KEY (invoice_id) REFERENCES tuition_invoices(id) ON DELETE CASCADE,
+    FOREIGN KEY (collected_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- BẢNG 13: notifications (Hệ thống thông báo In-App)
@@ -225,6 +242,10 @@ CREATE TABLE student_requests (
 -- ADMIN
 INSERT INTO users (id, code, email, password_hash, full_name, role, phone, status) VALUES
 (1, 'ADM001', 'admin@fpt.edu.vn', '$2a$10$wT0lHlSvdvYw8nfxz5m6.Oq0Jp0C0tNfe2WbVjZ3BqK4B5eRzY5O6', 'Phòng Quản Lý Đào Tạo FAP', 'ADMIN', '02473005588', 'ACTIVE');
+
+-- KẾ TOÁN (ACCOUNTANT)
+INSERT INTO users (id, code, email, password_hash, full_name, role, phone, status) VALUES
+(10, 'ACC001', 'ketoan@fpt.edu.vn', '$2a$10$wT0lHlSvdvYw8nfxz5m6.Oq0Jp0C0tNfe2WbVjZ3BqK4B5eRzY5O6', 'Phòng Kế toán - Tài chính', 'ACCOUNTANT', '02473005599', 'ACTIVE');
 
 -- GIẢNG VIÊN (TEACHERS)
 INSERT INTO users (id, code, email, password_hash, full_name, role, phone, status) VALUES
@@ -297,6 +318,12 @@ INSERT INTO tuition_invoices (id, student_id, enrollment_id, amount, paid_amount
 (3, 7, 3, 4500000.00, 0.00, '2026-03-30', 'UNPAID', NULL),
 (4, 5, 4, 4500000.00, 4500000.00, '2026-03-30', 'PAID', '2026-02-15 09:30:00'),
 (5, 8, 5, 4500000.00, 0.00, '2026-03-30', 'UNPAID', NULL);
+
+-- LỊCH SỬ THU HỌC PHÍ (TUITION PAYMENTS)
+INSERT INTO tuition_payments (invoice_id, receipt_no, amount, method, note, collected_by, paid_at) VALUES
+(1, 'PT-202602-0001', 4500000.00, 'VIETQR', 'Thu đủ học phí', 10, '2026-02-15 09:30:00'),
+(2, 'PT-202602-0002', 2000000.00, 'CASH', 'Thu đợt 1', 10, '2026-02-18 14:00:00'),
+(4, 'PT-202602-0003', 4500000.00, 'BANK_TRANSFER', 'Thu đủ học phí', 10, '2026-02-15 09:30:00');
 
 -- BÀI TẬP (ASSIGNMENTS)
 INSERT INTO assignments (id, class_id, title, description, file_url, due_date) VALUES

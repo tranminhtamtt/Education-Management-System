@@ -11,6 +11,13 @@ enum Role {
   ADMIN
   TEACHER
   STUDENT
+  ACCOUNTANT
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  VIETQR
 }
 
 enum UserStatus {
@@ -102,6 +109,7 @@ model User {
   tuitionInvoices TuitionInvoice[]
   notifications   Notification[]
   studentRequests StudentRequest[]
+  collectedPayments TuitionPayment[] @relation("PaymentCollector")
 
   @@map("users")
 }
@@ -279,11 +287,31 @@ model TuitionInvoice {
   dueDate      DateTime      @map("due_date") @db.Date
   status       InvoiceStatus @default(UNPAID)
   paidAt       DateTime?     @map("paid_at")
+  createdAt    DateTime      @default(now()) @map("created_at")
 
-  student    User       @relation(fields: [studentId], references: [id])
-  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  student    User             @relation(fields: [studentId], references: [id])
+  enrollment Enrollment       @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  payments   TuitionPayment[]
 
   @@map("tuition_invoices")
+}
+
+// 12b. tuition_payments (Lịch sử từng đợt thu học phí - Phiếu thu/Biên lai)
+model TuitionPayment {
+  id            Int           @id @default(autoincrement())
+  invoiceId     Int           @map("invoice_id")
+  receiptNo     String        @unique @map("receipt_no") @db.VarChar(50)
+  amount        Decimal       @db.Decimal(12, 2)
+  method        PaymentMethod @default(BANK_TRANSFER)
+  note          String?       @db.VarChar(255)
+  collectedById Int?          @map("collected_by")
+  paidAt        DateTime      @default(now()) @map("paid_at")
+
+  invoice     TuitionInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  collectedBy User?          @relation("PaymentCollector", fields: [collectedById], references: [id], onDelete: SetNull)
+
+  @@index([paidAt])
+  @@map("tuition_payments")
 }
 
 // 13. notifications
