@@ -5,7 +5,7 @@
  * DF32 (EMS -> Payment System): Số tiền còn nợ + Nội dung CK "STU2026001 WEB101"
  * DF33 (Payment System -> EMS): Ảnh mã VietQR tĩnh trả về (qrImageUrl)
  */
-const generateVietQRData = ({ amount, studentCode, courseCode, classCode, invoiceId }) => {
+const generateVietQRData = ({ amount, studentCode, courseCode, classCode }) => {
   const bankId = process.env.VIETQR_BANK_ID || 'MB'; // Mặc định MBBank
   const accountNo = process.env.VIETQR_ACCOUNT_NO || '0981234567';
   const accountName = process.env.VIETQR_ACCOUNT_NAME || 'DAI HOC FPT - EMS TUITION';
@@ -20,7 +20,6 @@ const generateVietQRData = ({ amount, studentCode, courseCode, classCode, invoic
   const qrImageUrl = `https://img.vietqr.io/image/${bankId}-${accountNo}-${template}.png?amount=${Math.round(amount)}&addInfo=${encodedDesc}&accountName=${encodedName}`;
 
   return {
-    invoiceId,
     bankId,
     accountNo,
     accountName,

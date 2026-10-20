@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Row, Col, Card, Statistic, Typography, Table, Tag, Space, Alert, Progress, Spin } from 'antd';
+import { Row, Col, Card, Statistic, Typography, Table, Tag, Alert, Progress, Spin } from 'antd';
 import {
   UserOutlined,
   TeamOutlined,
   ApartmentOutlined,
   DollarCircleOutlined,
-  ClockCircleOutlined,
   TrophyOutlined
 } from '@ant-design/icons';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, PieChart, Pie, Cell } from 'recharts';
