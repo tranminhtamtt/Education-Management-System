@@ -11,9 +11,15 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, PieC
 import apiClient from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 import TuitionReportPage from '../grades-tuition/TuitionReportPage';
 
+dayjs.extend(utc);
+
 const { Title, Text } = Typography;
+
+// Cột TIME do Prisma trả về dạng 1970-01-01THH:mm:00.000Z -> "HH:mm"
+const fmtTime = (t) => (t && String(t).includes('T') ? dayjs(t).utc().format('HH:mm') : t || '');
 
 const DashboardPage = () => {
   const { user } = useAuth();
@@ -236,7 +242,7 @@ const DashboardPage = () => {
                   pagination={false}
                   columns={[
                     { title: 'Ca học', dataIndex: 'shift', render: (s) => <Tag color="orange">Slot {s}</Tag> },
-                    { title: 'Thời gian', render: (_, r) => `${r.startTime} - ${r.endTime}` },
+                    { title: 'Thời gian', render: (_, r) => `${fmtTime(r.startTime)} - ${fmtTime(r.endTime)}` },
                     { title: 'Môn học', dataIndex: 'courseName' },
                     { title: 'Phòng', dataIndex: 'room', render: (r) => <Tag color="blue">{r}</Tag> }
                   ]}
@@ -289,7 +295,7 @@ const DashboardPage = () => {
                   pagination={false}
                   columns={[
                     { title: 'Ca học', dataIndex: 'shift', render: (s) => <Tag color="orange">Slot {s}</Tag> },
-                    { title: 'Thời gian', render: (_, r) => `${r.startTime} - ${r.endTime}` },
+                    { title: 'Thời gian', render: (_, r) => `${fmtTime(r.startTime)} - ${fmtTime(r.endTime)}` },
                     { title: 'Lớp', dataIndex: 'classCode', render: (c) => <Text strong>{c}</Text> },
                     { title: 'Môn học', dataIndex: 'courseName' },
                     { title: 'Phòng học', dataIndex: 'room', render: (r) => <Tag color="blue">{r}</Tag> }

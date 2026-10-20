@@ -1,0 +1,342 @@
+# TÀI LIỆU ĐẶC TẢ YÊU CẦU & THIẾT KẾ HỆ THỐNG
+**Dự án: Hệ thống Quản lý Giáo dục (Education Management System - EMS)**
+
+* **Quy mô nhóm:** 5 thành viên (Mỗi thành viên phụ trách 1 Actor chính từ A → Z)
+* **Công nghệ sử dụng (Tech Stack):** Express.js (Backend), React + Vite + Ant Design (Frontend), MySQL 8.0 (Database), Docker & Docker Compose
+* **Định hướng phạm vi (Scope):** MVP hoàn chỉnh gồm 11 module chính, tập trung vào luồng nghiệp vụ cốt lõi (Core Business Flow), phân tách theo 5 Actor chuẩn hóa để 5 thành viên phát triển song song.
+
+---
+
+## PHẦN 1: TỔNG QUAN & PHÂN QUYỀN HỆ THỐNG (5 ACTORS & ROLES)
+
+Hệ thống sử dụng cơ chế phân quyền dựa trên vai trò (RBAC - Role-Based Access Control) với **5 vai trò (Actor) chính** (kèm theo các hệ thống phụ trợ bên ngoài như *Payment System - VietQR* và *File Storage - X1*):
+
+### 1. SYSTEM ADMIN (Quản trị hệ thống — Phụ trách: Người 1)
+* Quản lý xác thực (Authentication), cấp phát JWT token và phân quyền vai trò (Role) cho toàn bộ người dùng (`UC0.1`).
+* Quản lý tài khoản người dùng: Khóa / Mở khóa tài khoản (`is_active`), cập nhật phân quyền (`UC1.2a*`).
+* Tạo và phát hành thông báo toàn hệ thống hoặc theo lớp học (loại `SYSTEM` - `UC10.1`).
+* Xem Dashboard tổng quan hệ thống: 4 thẻ KPI tổng (Tổng HV, Tổng GV, Số lớp đang mở, Tổng doanh thu) và Biểu đồ tròn tỷ lệ qua môn / trượt môn (`UC11.1a`).
+
+### 2. ACADEMIC STAFF (Giáo vụ đào tạo — Phụ trách: Người 2)
+* Quản lý hồ sơ Học viên: Danh sách, tìm kiếm (`UC1.1`), thêm/sửa hồ sơ kèm tự sinh mã `STU2026xxx` (`UC1.2b`), Import/Export Excel (`UC1.3`), xem hồ sơ chi tiết 360° (`UC1.4`).
+* Quản lý hồ sơ Giảng viên (`TEA001`, `TEA002` - `UC2.1`) và tra cứu lịch dạy / lớp phụ trách (`UC2.2`).
+* Quản lý danh mục Môn học gốc (`WEB101`, `JS201`, số buổi, học phí cơ bản, file syllabus - `UC3.1`).
+* Mở lớp học phần, gán giảng viên, thiết lập sĩ số tối đa (`UC4.1`) và quản lý ghi danh học viên vào lớp (`Enrollment` - `UC4.2`).
+* Xếp lịch học cho lớp (`UC5.1`), kiểm tra xung đột lịch trùng phòng / trùng giảng viên (`UC5.2`), xem thời khóa biểu lưới tuần (`UC5.3`) và xem bảng điểm lớp ở chế độ chỉ đọc (`UC8.5*`).
+
+### 3. ACCOUNTANT (Kế toán tài chính — Phụ trách: Người 3)
+* Theo dõi và tra cứu công nợ học phí được hệ thống tự động sinh ra khi học viên ghi danh vào lớp (`UC9.1`).
+* Ghi nhận thanh toán học phí theo từng đợt (cộng dồn `paid_amount`), tự động chuyển trạng thái hóa đơn `UNPAID → PARTIAL → PAID` (`UC9.2`).
+* Tích hợp Payment System để tạo mã VietQR tĩnh theo số tiền còn nợ và xuất/in phiếu thu, biên lai trên trình duyệt (`UC9.3`).
+* Phát thông báo nhắc đóng học phí (loại `TUITION` - `UC10.2` Trigger 3).
+* Xem báo cáo thống kê doanh thu học phí: Biểu đồ cột so sánh Đã thu vs. Còn nợ theo tháng và danh sách công nợ (`UC11.1b*`).
+
+### 4. TEACHER (Giảng viên — Phụ trách: Người 4)
+* Tra cứu lịch dạy, danh sách lớp phụ trách (`UC2.2`), xem Thời khóa biểu tuần dạng lưới (`UC5.3`) và Teacher Dashboard (`UC11.2`).
+* Thực hiện điểm danh học viên theo từng buổi học (`UC6.1`), theo dõi thống kê chuyên cần và cảnh báo học viên vắng quá ngưỡng > 20% (`UC6.2`).
+* Giao bài tập mới kèm upload file đề bài lên File Storage (`UC7.1` - kích hoạt Trigger 1 thông báo `ASSIGNMENT`), tải bài nộp của học viên, chấm điểm và nhận xét (`UC7.3`).
+* Nhập bảng điểm kết thúc học phần dạng lưới 3 cột (Chuyên cần 10%, Giữa kỳ 30%, Cuối kỳ 60% - `UC8.1`), kích hoạt tính điểm tổng kết & xét qua môn (`UC8.2`), Import/Export bảng điểm Excel (`UC8.3`) và Công bố điểm (kích hoạt Trigger 2 thông báo `GRADE`).
+* Xem và đánh dấu đã đọc thông báo (`UC10.3`).
+
+### 5. STUDENT (Học viên — Phụ trách: Người 5)
+* Xem Student Dashboard (`UC11.2`) và Thời khóa biểu tuần dạng lưới (`UC5.3`).
+* Xem lịch sử điểm danh cá nhân (`UC6.3*`), tỷ lệ % chuyên cần và cảnh báo vắng học (`UC6.2`).
+* Xem đề bài tập, nộp file bài làm trực tuyến kèm kiểm tra hạn nộp (`UC7.2`), xem điểm số và lời phê của giảng viên (`UC7.4*`).
+* Tra cứu kết quả học tập từng môn và điểm trung bình tích lũy GPA (`UC8.4`).
+* Kiểm tra công nợ học phí cá nhân (`UC9.4*`) và mở mã VietQR tĩnh theo đúng số tiền còn nợ để thanh toán (`UC9.3`).
+* Nhận thông báo trên quả chuông và đánh dấu đã đọc (`UC10.3`).
+
+---
+
+## PHẦN 2: ĐẶC TẢ YÊU CẦU CHỨC NĂNG CHI TIẾT (THEO 5 ACTOR)
+
+### Phân hệ 1: Quản trị Hệ thống & Tài khoản (Actor: SYSTEM ADMIN — Phụ trách: Người 1)
+
+#### 1. Authentication & User Account Management (Xác thực & Quản lý Tài khoản)
+* **UC0.1 - Đăng nhập / Xem thông tin cá nhân & Phân quyền:** Mọi Actor đăng nhập bằng mã/email và mật khẩu (`DF01`). Hệ thống xác thực và trả về JWT Token kèm thông tin tài khoản và `role` (`SYSTEM_ADMIN`, `ACADEMIC_STAFF`, `ACCOUNTANT`, `TEACHER`, `STUDENT`) (`DF02`).
+* **UC1.2a\* - Quản lý tài khoản người dùng (Khóa / Mở khóa & Phân quyền):** System Admin tìm kiếm tài khoản trong bảng `users` (VD: `STU2026003`, `TEA002`), thực hiện Khóa/Mở khóa tài khoản (`status` / `is_active`) và cập nhật quyền (`DF03a`).
+  * *Ràng buộc nghiệp vụ:* Chặn không cho phép System Admin tự khóa chính tài khoản quản trị đang đăng nhập (VD: `ADM001`). Nếu tài khoản bị khóa, thu hồi phiên đăng nhập hiện hành.
+
+#### 2. System Broadcast & System Overview (Thông báo Hệ thống & Dashboard Tổng quan)
+* **UC10.1 - Tạo thông báo toàn hệ thống / theo lớp (Loại `SYSTEM`):** System Admin chọn phạm vi nhận (Toàn hệ thống hoặc một lớp cụ thể như `WEB101-2026A-01`), nhập tiêu đề và nội dung (`DF08a`). Hệ thống lưu bản ghi loại `SYSTEM` vào bảng `notifications` (`D13`) và đẩy thông báo tới quả chuông của người nhận (`DF29`).
+* **UC11.1a - Xem Dashboard tổng quan hệ thống (`DF12a`):**
+  * Hiển thị 4 thẻ KPI tổng: Tổng số học viên, Tổng số giảng viên, Tổng số lớp đang mở, Tổng doanh thu học phí.
+  * Biểu đồ tròn (Pie Chart): Tỷ lệ học viên Qua môn / Trượt môn trên toàn hệ thống.
+
+---
+
+### Phân hệ 2: Quản lý Đào tạo, Lớp học & Thời khóa biểu (Actor: ACADEMIC STAFF — Phụ trách: Người 2)
+
+#### 3. Student & Teacher Profile Management (Quản lý Hồ sơ Học viên & Giảng viên)
+* **UC1.1 - Danh sách và tìm kiếm học viên:** Xem danh sách có phân trang, lọc theo trạng thái (Đang học, Bảo lưu, Đã tốt nghiệp), tìm kiếm theo Mã HV, Họ tên, Email, SĐT.
+* **UC1.2b - Thêm / Sửa hồ sơ học viên:** Giáo vụ thêm mới hoặc cập nhật hồ sơ học viên (`DF03b`), hệ thống kiểm tra trùng Email/SĐT và tự động sinh mã học viên (VD: `STU2026001`..`004`).
+* **UC1.3 - Import / Export Excel danh sách học viên:** Nhập hàng loạt học viên từ file `.xlsx` (`DF04`) và xuất danh sách học viên ra file Excel (`DF10`).
+* **UC1.4 - Xem hồ sơ chi tiết 360° học viên:** Xem toàn bộ lịch sử lớp học, điểm số và tình trạng học phí của học viên trên một màn hình (`DF09`).
+* **UC2.1 - Quản lý hồ sơ giảng viên:** Thêm mới, cập nhật thông tin giảng viên (`TEA001`, `TEA002`), lưu học vị (Cử nhân, Thạc sĩ, Tiến sĩ), chuyên ngành và tiểu sử (`DF03b`, `DF09`).
+* **UC2.2 - Tra cứu lịch dạy và lớp phụ trách:** Giáo vụ (và Giảng viên) tra cứu danh sách lớp và lịch giảng dạy của từng giảng viên.
+
+#### 4. Course & Class Management (Quản lý Môn học & Lớp học phần)
+* **UC3.1 - Quản lý danh mục môn học:** CRUD môn học gồm Mã môn (`WEB101`, `JS201`), Tên môn, Số tín chỉ / Số buổi (VD: 30 buổi), Học phí cơ bản (`base_tuition_fee`, VD: 3.000.000 đ) và tải file đề cương (`syllabus_url`) lên File Storage (`DF05`, `DF36`).
+  * *Ràng buộc nghiệp vụ:* Chặn xóa cứng môn học nếu môn học đó đã có Lớp học phần được mở.
+* **UC4.1 - Mở lớp học phần:** Tạo lớp mới từ môn học có sẵn (VD: `WEB101-2026A-01`, kỳ `2026A`), gán 1 Giảng viên phụ trách (`TEA001`), thiết lập sĩ số tối đa (`max_students = 3`) và trạng thái lớp (`UPCOMING`, `ONGOING`, `COMPLETED`) (`DF06`).
+* **UC4.2 - Quản lý Enrollment (Thêm/Xóa học viên trong lớp):** Giáo vụ thêm/xóa học viên (`STU2026001`..`004`) vào lớp (`DF07`).
+  * *Ràng buộc nghiệp vụ 3 bước bắt buộc khi thêm học viên:*
+    1. Kiểm tra sĩ số hiện tại `< max_students`. Nếu lớp đã đủ (VD: 3/3 mà thêm `STU2026004`) → Báo lỗi `"Vượt sĩ số 3/3"` (`DF11`) và dừng.
+    2. Tự động khởi tạo bản ghi bảng điểm trống trong `grades` (`D11`).
+    3. Tự động khởi tạo hóa đơn học phí trạng thái `UNPAID` với số tiền bằng `base_tuition_fee` (3.000.000 đ) trong `tuition_invoices` (`D12`) để chuyển giao cho Kế toán.
+* **UC8.5\* - Xem bảng điểm lớp (Chỉ đọc):** Giáo vụ xem bảng điểm tổng hợp của các lớp học phần ở chế độ Read-only (`DF09`).
+
+#### 5. Schedule Management (Quản lý Thời khóa biểu)
+* **UC5.1 - Xếp lịch học cho lớp:** Giáo vụ gán lịch học gồm Lớp, Thứ trong tuần, Ca học, Giờ bắt đầu/kết thúc, Phòng học (`P101`, `P102`) (`DF13`).
+* **UC5.2 - Kiểm tra xung đột lịch (Conflict Detection):** Tự động kiểm tra và chặn lưu nếu vi phạm (`DF14`):
+  * *Lỗi trùng phòng:* Xếp lớp vào phòng đã có lớp khác học cùng Thứ và Ca (VD: Báo `"Lỗi trùng phòng P101"`).
+  * *Lỗi trùng giảng viên:* Giảng viên phụ trách lớp đang có lịch dạy lớp khác cùng Thứ và Ca (VD: Báo `"Lỗi trùng GV TEA001"`).
+* **UC5.3 - Xem thời khóa biểu dạng lưới tuần:** Hiển thị thời khóa biểu trực quan dạng lưới tuần (`DF15`) cho Academic Staff, Teacher và Student.
+
+---
+
+### Phân hệ 3: Quản lý Công nợ, Thanh toán Học phí & Doanh thu (Actor: ACCOUNTANT — Phụ trách: Người 3)
+
+#### 6. Tuition & Financial Analytics (Quản lý Học phí, VietQR & Thống kê Doanh thu)
+* **UC9.1 - Ghi nhận và tra cứu công nợ học phí tự động:** Tra cứu danh sách hóa đơn học phí được hệ thống tự động tạo khi Giáo vụ ghi danh học viên ở `UC4.2` (`amount = base_tuition_fee`, `status = UNPAID`).
+* **UC9.2 - Cập nhật trạng thái thanh toán học phí:** Kế toán đối soát và nhập số tiền thực thu theo từng đợt (`DF34`):
+  * Hệ thống kiểm tra hợp lệ (`0 < số tiền thu <= số tiền còn nợ`), cộng dồn vào `paid_amount`.
+  * Nếu `paid_amount < amount` (VD: Đợt 1 thu 1.000.000 đ / 3.000.000 đ) → Chuyển trạng thái sang `PARTIAL` (còn nợ 2.000.000 đ).
+  * Nếu `paid_amount == amount` (VD: Đợt 2 thu tiếp 2.000.000 đ) → Chuyển trạng thái sang `PAID`, ghi nhận thời gian `paid_at` và khóa không cho thu thêm.
+* **UC9.3 - Xuất mã VietQR và in phiếu thu/biên lai học phí:**
+  * Hệ thống gửi yêu cầu gồm số tiền còn nợ (`amount - paid_amount`) và nội dung chuyển khoản (VD: `"STU2026001 WEB101"`) sang Payment System (`DF32`) và nhận về mã VietQR tĩnh (`DF33`) để hiển thị cho Học viên và Kế toán.
+  * Hỗ trợ Kế toán xuất và in phiếu thu / biên lai trực tiếp trên trình duyệt (`DF35`).
+* **UC10.2 (Trigger 3) - Thông báo nhắc nợ học phí (`TUITION`):** Kế toán bấm gửi thông báo nhắc đóng học phí cho các học viên chưa hoàn tất thanh toán (`DF08b`).
+* **UC11.1b\* - Xem thống kê doanh thu học phí:** Kế toán xem báo cáo thống kê và Biểu đồ cột (Bar Chart) so sánh doanh thu học phí Đã thu vs. Còn nợ theo từng tháng (`DF12b`).
+
+---
+
+### Phân hệ 4: Giảng dạy, Điểm danh, Bài tập & Chấm điểm (Actor: TEACHER — Phụ trách: Người 4)
+
+#### 7. Attendance & Assignment Management (Điểm danh & Quản lý Bài tập - Phía Giảng viên)
+* **UC6.1 - Điểm danh theo buổi học:** Giảng viên chọn lớp phụ trách và ngày học (`DF20`), hệ thống hiển thị danh sách học viên mặc định `PRESENT`. Giảng viên tích chọn `ABSENT_EXCUSED`, `ABSENT_UNEXCUSED`, `LATE`, nhập ghi chú và lưu (`DF16`).
+* **UC6.2 - Thống kê chuyên cần và cảnh báo vắng (> 20%):** Hệ thống tự động tính tỷ lệ % vắng mặt của từng học viên và phát cảnh báo chuyên cần (`DF22`) nếu vượt ngưỡng 20% (VD: `STU2026003` vắng 3/10 buổi = 30%).
+* **UC7.1 - Giao bài tập mới (`BT01`):** Giảng viên tạo bài tập mới gồm tiêu đề, hướng dẫn, hạn nộp (VD: `02/11/2026 23:59`) và tải file đề đính kèm lên File Storage (`DF17`, `DF36`).
+  * Tự động kích hoạt **UC10.2 (Trigger 1)**: Gửi thông báo loại `ASSIGNMENT` tới toàn bộ học viên trong lớp.
+* **UC7.3 - Chấm điểm và nhận xét bài tập:** Giảng viên xem danh sách bài nộp của học viên kèm thời gian nộp và cờ nộp muộn (`DF21`), tải file bài làm, chấm điểm (thang 10) và nhập nhận xét `teacher_feedback` (`DF18`).
+
+#### 8. Exam & Grade Management (Quản lý Điểm thi - Phía Giảng viên)
+* **UC8.1 - Nhập bảng điểm thi kết thúc học phần dạng lưới:** Giảng viên nhập 3 cột điểm thành phần: Chuyên cần (10%), Giữa kỳ (30%), Cuối kỳ (60%) trên bảng lưới Editable (`DF19`, `DF23`).
+* **UC8.2 - Tự tính điểm tổng kết và xét qua môn:** Hệ thống kiểm tra miền điểm `0..10`, tự động tính `total_score = 0.1 * CC + 0.3 * GK + 0.6 * CK` (làm tròn 1 chữ số thập phân) và xét qua môn (`is_passed = true` nếu `total_score >= 4.0`).
+* **UC8.3 - Import / Export bảng điểm Excel:** Hỗ trợ tải file mẫu Excel để nhập điểm nhanh và xuất bảng điểm lớp ra Excel (`DF23`).
+* **Công bố điểm & UC10.2 (Trigger 2):** Khi Giảng viên bấm Công bố điểm (`DF19`), hệ thống tự động tạo thông báo loại `GRADE` gửi đến học viên.
+* **UC10.3 & UC11.2 (Teacher):** Giảng viên xem Teacher Dashboard (lịch dạy hôm nay, công việc cần xử lý - `DF31`) và xem/đánh dấu đã đọc thông báo.
+
+---
+
+### Phân hệ 5: Cổng thông tin Học tập & Tra cứu Cá nhân (Actor: STUDENT — Phụ trách: Người 5)
+
+#### 9. Student Portal (Học tập, Nộp bài, Tra cứu Điểm & Học phí - Phía Học viên)
+* **UC11.2 & UC5.3 (Student):** Học viên xem Student Dashboard (lịch học hôm nay, bài tập sắp hết hạn, biểu đồ GPA - `DF31`) và Thời khóa biểu tuần dạng lưới (`DF15`).
+* **UC6.3\* & UC6.2 - Xem lịch sử điểm danh và tỷ lệ chuyên cần cá nhân:** Học viên theo dõi chi tiết từng buổi điểm danh, tỷ lệ % chuyên cần cá nhân và cảnh báo nếu vắng quá 20% (`DF26`).
+* **UC7.2 - Nộp bài tập trực tuyến:** Học viên xem đề bài tập, tải file đề từ File Storage (`DF27`) và tải file bài làm lên nộp trực tuyến (`DF24`). Hệ thống kiểm tra thời gian nộp so với `due_date`: ghi nhận đúng hạn hoặc gắn cờ Nộp muộn (hoặc chặn nộp muộn tùy cấu hình).
+* **UC7.4\* - Xem nhận xét và điểm bài tập:** Học viên xem điểm số bài tập và lời phê `teacher_feedback` của giảng viên (`DF27`).
+* **UC8.4 - Tra cứu kết quả học tập và GPA:** Học viên xem bảng điểm từng môn học (trạng thái Qua môn / Học lại) và điểm trung bình tích lũy GPA (`DF28`).
+* **UC9.4\* & UC9.3 - Kiểm tra công nợ học phí cá nhân & Mã VietQR:** Học viên xem tổng học phí phải thu, đã đóng, còn nợ, trạng thái hóa đơn (`UNPAID`, `PARTIAL`, `PAID`) (`DF30`) và bấm hiển thị mã VietQR tĩnh theo số tiền còn nợ để chuyển khoản.
+* **UC10.3 - Xem và đánh dấu thông báo đã đọc:** Học viên nhận thông báo mới trên quả chuông (`ASSIGNMENT`, `GRADE`, `TUITION`, `SYSTEM`) và bấm đánh dấu đã đọc (`is_read = true` - `DF25`).
+
+---
+
+## PHẦN 3: YÊU CẦU PHI CHỨC NĂNG (NON-FUNCTIONAL REQUIREMENTS)
+
+1. **Bảo mật & Phân quyền 5 Role (Security):**
+   * Mật khẩu lưu trong MySQL phải được băm bằng `bcryptjs` (`salt rounds >= 10`).
+   * Sử dụng JWT (JSON Web Token) cho xác thực API. Mọi API đều phải đi qua `role.middleware.js` kiểm tra chính xác quyền của 5 Actor: `SYSTEM_ADMIN`, `ACADEMIC_STAFF`, `ACCOUNTANT`, `TEACHER`, `STUDENT`.
+2. **Hiệu năng & Trải nghiệm (UX/UI):**
+   * Thống nhất sử dụng bộ thư viện Ant Design (v5) trên React để đảm bảo giao diện đồng nhất giữa cả 5 thành viên.
+   * Các danh sách lớn (Users, Students, Courses, Classes, Invoices) bắt buộc có phân trang (Pagination) từ phía Backend.
+3. **Tính sẵn sàng & Đóng gói (Portability):**
+   * Toàn bộ Database MySQL 8.0 và công cụ quản trị (phpMyAdmin) được cấu hình trong `docker-compose.yml` để cả 5 thành viên khởi chạy môi trường giống hệt nhau bằng 1 lệnh duy nhất.
+
+---
+
+## PHẦN 4: THIẾT KẾ CƠ SỞ DỮ LIỆU MYSQL (DATABASE SCHEMA - 13 BẢNG)
+
+Dưới đây là cấu trúc 13 bảng quan hệ (`D1` → `D13`) chuẩn hóa cho MySQL 8.0 và phân bổ theo 5 Actor / Thành viên:
+
+| Mã kho | Tên bảng | Khóa chính (PK) | Khóa ngoại (FK) & Ràng buộc chính | Các cột dữ liệu cốt lõi | Phụ trách chính |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **D1** | `users` | `id` (INT, AI) | `code` (UNIQUE), `email` (UNIQUE) | `password_hash`, `full_name`, `role` (`SYSTEM_ADMIN`, `ACADEMIC_STAFF`, `ACCOUNTANT`, `TEACHER`, `STUDENT`), `phone`, `avatar`, `status` (`ACTIVE`, `LOCKED`), `created_at` | **Người 1 (System Admin)** *(Người 2 dùng chung cho SV/GV)* |
+| **D2** | `student_profiles` | `user_id` (INT) | FK -> `users(id)` ON DELETE CASCADE | `dob`, `gender`, `address`, `enrollment_year` | **Người 2 (Academic Staff)** |
+| **D3** | `teacher_profiles` | `user_id` (INT) | FK -> `users(id)` ON DELETE CASCADE | `degree`, `specialty`, `bio` | **Người 2 (Academic Staff)** |
+| **D4** | `courses` | `id` (INT, AI) | `course_code` (UNIQUE) | `name`, `credits`, `base_tuition_fee` (DECIMAL), `description`, `syllabus_url`, `created_at` | **Người 2 (Academic Staff)** |
+| **D5** | `classes` | `id` (INT, AI) | `class_code` (UNIQUE), `course_id` -> `courses(id)`, `teacher_id` -> `users(id)` | `semester`, `max_students`, `status` (`UPCOMING`, `ONGOING`, `COMPLETED`), `created_at` | **Người 2 (Academic Staff)** |
+| **D6** | `enrollments` | `id` (INT, AI) | `class_id` -> `classes(id)`, `student_id` -> `users(id)`, UNIQUE(`class_id`, `student_id`) | `enrolled_at`, `status` (`ACTIVE`, `DROPPED`) | **Người 2 (Academic Staff)** |
+| **D7** | `schedules` | `id` (INT, AI) | `class_id` -> `classes(id)` ON DELETE CASCADE | `day_of_week` (TINYINT 2-8), `shift`, `start_time`, `end_time`, `room` | **Người 2 (Academic Staff)** |
+| **D8** | `attendances` | `id` (INT, AI) | `class_id` -> `classes(id)`, `student_id` -> `users(id)` | `session_date` (DATE), `status` (`PRESENT`, `ABSENT_EXCUSED`, `ABSENT_UNEXCUSED`, `LATE`), `note` | **Người 4 (Teacher)** *(Người 5 đọc)* |
+| **D9** | `assignments` | `id` (INT, AI) | `class_id` -> `classes(id)` ON DELETE CASCADE | `title`, `description`, `file_url`, `due_date` (DATETIME), `created_at` | **Người 4 (Teacher)** *(Người 5 đọc)* |
+| **D10** | `submissions` | `id` (INT, AI) | `assignment_id` -> `assignments(id)`, `student_id` -> `users(id)` | `file_url`, `submitted_at`, `is_late` (BOOLEAN), `score` (DECIMAL), `teacher_feedback` | **Người 5 (Student)** nộp & **Người 4 (Teacher)** chấm |
+| **D11** | `grades` | `id` (INT, AI) | `enrollment_id` -> `enrollments(id)` (UNIQUE) | `attendance_score`, `midterm_score`, `final_score`, `total_score`, `is_passed` (BOOLEAN), `is_published` (BOOLEAN) | **Người 4 (Teacher)** nhập & **Người 5 (Student)** xem |
+| **D12** | `tuition_invoices` | `id` (INT, AI) | `student_id` -> `users(id)`, `enrollment_id` -> `enrollments(id)` | `amount`, `paid_amount`, `due_date`, `status` (`UNPAID`, `PARTIAL`, `PAID`), `paid_at` | **Người 3 (Accountant)** *(Người 2 trigger tạo, Người 5 xem)* |
+| **D13** | `notifications` | `id` (INT, AI) | `user_id` -> `users(id)` (Nullable nếu gửi toàn hệ thống) | `title`, `message`, `type` (`ASSIGNMENT`, `GRADE`, `TUITION`, `SYSTEM`), `is_read`, `created_at` | **Người 1** dựng hàm `notify()`, **Người 1, 3, 4** phát, **Người 4, 5** nhận |
+
+---
+
+## PHẦN 5: DANH SÁCH RESTFUL API ENDPOINTS CHUẨN HÓA (THEO 5 ACTOR)
+
+Tất cả các API đều có tiền tố `/api/v1` và trả về JSON theo cấu trúc thống nhất:
+```json
+{
+  "success": true,
+  "message": "Thao tác thành công",
+  "data": {}
+}
+```
+
+### 1. System Admin APIs — Xác thực, Tài khoản, Thông báo Hệ thống & Dashboard Tổng quan (Người 1)
+* `POST /api/v1/auth/login` - Đăng nhập và nhận JWT Token + Role (Mọi Actor - `DF01`, `DF02`)
+* `GET /api/v1/auth/me` - Lấy thông tin tài khoản và phân quyền hiện tại (Authenticated)
+* `GET /api/v1/users` - Danh sách toàn bộ tài khoản người dùng có phân trang (`SYSTEM_ADMIN`)
+* `PATCH /api/v1/users/:id/status` - Khóa / Mở khóa tài khoản và cập nhật Role, chặn tự khóa `ADM001` (`SYSTEM_ADMIN` - `DF03a`)
+* `POST /api/v1/notifications/broadcast` - Tạo thông báo toàn hệ thống hoặc theo lớp loại `SYSTEM` (`SYSTEM_ADMIN` - `DF08a`)
+* `GET /api/v1/analytics/system-overview` - Lấy 4 thẻ KPI tổng quan và biểu đồ tỷ lệ qua môn (`SYSTEM_ADMIN` - `DF12a`)
+
+### 2. Academic Staff APIs — Hồ sơ SV/GV, Môn học, Lớp học & Thời khóa biểu (Người 2)
+* `GET /api/v1/students` - Danh sách & tìm kiếm học viên (`ACADEMIC_STAFF`)
+* `POST /api/v1/students` / `PUT /api/v1/students/:id` - Thêm/sửa hồ sơ học viên, tự sinh mã `STU2026xxx` (`ACADEMIC_STAFF` - `DF03b`)
+* `POST /api/v1/students/import` / `GET /api/v1/students/export` - Import/Export Excel danh sách học viên (`ACADEMIC_STAFF` - `DF04`, `DF10`)
+* `GET /api/v1/students/:id/360` - Xem hồ sơ chi tiết 360° học viên (`ACADEMIC_STAFF` - `DF09`)
+* `GET /api/v1/teachers` / `POST /api/v1/teachers` / `PUT /api/v1/teachers/:id` - Quản lý hồ sơ giảng viên (`ACADEMIC_STAFF` - `DF03b`, `DF09`)
+* `GET /api/v1/courses` / `POST /api/v1/courses` / `DELETE /api/v1/courses/:id` - Quản lý danh mục môn học, chặn xóa nếu đã có lớp (`ACADEMIC_STAFF` - `DF05`)
+* `GET /api/v1/classes` / `POST /api/v1/classes` - Danh sách lớp và mở lớp học phần mới (`ACADEMIC_STAFF` - `DF06`)
+* `POST /api/v1/classes/:id/enrollments` - Thêm học viên vào lớp (kiểm tra `max_students`, tự tạo bản ghi `grades` trống & `tuition_invoices` `UNPAID`) (`ACADEMIC_STAFF` - `DF07`, `DF11`)
+* `DELETE /api/v1/classes/:id/enrollments/:studentId` - Xóa học viên khỏi lớp (`ACADEMIC_STAFF`)
+* `POST /api/v1/classes/:id/schedules` - Xếp lịch học cho lớp kèm kiểm tra trùng phòng / trùng giảng viên (`ACADEMIC_STAFF` - `DF13`, `DF14`)
+* `GET /api/v1/schedules/weekly-grid` - Xem thời khóa biểu tuần dạng lưới (`ACADEMIC_STAFF`, `TEACHER`, `STUDENT` - `DF15`)
+
+### 3. Accountant APIs — Công nợ Học phí, VietQR, Phiếu thu & Thống kê Doanh thu (Người 3)
+* `GET /api/v1/tuition-invoices` - Danh sách công nợ học phí, lọc theo trạng thái `UNPAID`, `PARTIAL`, `PAID` (`ACCOUNTANT` - `DF12b`)
+* `PATCH /api/v1/tuition-invoices/:id/pay` - Ghi nhận thanh toán học phí từng đợt, cộng dồn `paid_amount` và đổi trạng thái (`ACCOUNTANT` - `DF34`, `DF35`)
+* `GET /api/v1/tuition-invoices/:id/vietqr` - Tạo và lấy mã VietQR tĩnh theo số tiền còn nợ + nội dung `"STU2026001 WEB101"` (`ACCOUNTANT`, `STUDENT` - `DF32`, `DF33`)
+* `GET /api/v1/tuition-invoices/:id/receipt` - Xuất dữ liệu phiếu thu / biên lai để in trên trình duyệt (`ACCOUNTANT` - `DF35`)
+* `POST /api/v1/tuition-invoices/remind` - Phát thông báo nhắc đóng học phí tự động loại `TUITION` (`ACCOUNTANT` - `DF08b`)
+* `GET /api/v1/analytics/tuition-revenue` - Thống kê doanh thu học phí đã thu vs. còn nợ theo tháng (`ACCOUNTANT` - `DF12b`)
+
+### 4. Teacher APIs — Điểm danh, Giao & Chấm Bài tập, Nhập Bảng điểm (Người 4)
+* `GET /api/v1/teachers/my-classes` - Lấy danh sách lớp phụ trách và lịch dạy (`TEACHER` - `DF20`)
+* `GET /api/v1/classes/:id/attendances?date=YYYY-MM-DD` - Lấy danh sách điểm danh buổi học và cảnh báo vắng > 20% (`TEACHER` - `DF20`, `DF22`)
+* `POST /api/v1/classes/:id/attendances` - Lưu điểm danh buổi học và tính lại tỷ lệ chuyên cần (`TEACHER` - `DF16`, `DF22`)
+* `POST /api/v1/classes/:id/assignments` - Giao bài tập mới kèm upload file đề lên File Storage & bắn thông báo `ASSIGNMENT` (`TEACHER` - `DF17`)
+* `GET /api/v1/assignments/:id/submissions` - Xem danh sách bài nộp của học viên kèm cờ nộp muộn (`TEACHER` - `DF21`)
+* `PATCH /api/v1/submissions/:id/grade` - Chấm điểm bài tập (thang 10) và nhập `teacher_feedback` (`TEACHER` - `DF18`)
+* `GET /api/v1/classes/:id/grades` - Xem bảng điểm lớp (`TEACHER`, `ACADEMIC_STAFF` chỉ đọc - `DF09`, `DF23`)
+* `PUT /api/v1/classes/:id/grades` - Nhập điểm 3 cột dạng lưới, tự tính `total_score`, xét `is_passed` và Công bố điểm kèm bắn thông báo `GRADE` (`TEACHER` - `DF19`)
+* `POST /api/v1/classes/:id/grades/import` / `GET /api/v1/classes/:id/grades/export` - Import/Export bảng điểm Excel (`TEACHER` - `DF23`)
+
+### 5. Student APIs — Cổng Học viên: Nộp bài, Xem Điểm/GPA, Công nợ & Thông báo (Người 5)
+* `GET /api/v1/analytics/dashboard` - Lấy dữ liệu Student / Teacher Dashboard: lịch hôm nay, deadline sắp tới, biểu đồ GPA (`STUDENT`, `TEACHER` - `DF31`)
+* `GET /api/v1/students/my-attendances` - Xem lịch sử điểm danh cá nhân, tỷ lệ % chuyên cần và cảnh báo vắng (`STUDENT` - `DF26`)
+* `GET /api/v1/classes/:id/assignments` - Xem danh sách đề bài tập, trạng thái nộp, điểm và nhận xét của GV (`STUDENT`, `TEACHER` - `DF27`)
+* `POST /api/v1/assignments/:id/submissions` - Nộp file bài làm trực tuyến lên File Storage kèm kiểm tra hạn nộp (`STUDENT` - `DF24`)
+* `GET /api/v1/students/my-grades` - Tra cứu bảng điểm từng môn và điểm trung bình tích lũy GPA (`STUDENT` - `DF28`)
+* `GET /api/v1/students/my-tuition` - Kiểm tra công nợ học phí cá nhân và lấy mã VietQR thanh toán (`STUDENT` - `DF30`)
+* `GET /api/v1/notifications` / `PATCH /api/v1/notifications/:id/read` - Xem danh sách thông báo và đánh dấu đã đọc `is_read = true` (`STUDENT`, `TEACHER` - `DF25`, `DF29`)
+
+---
+
+## PHẦN 6: KIẾN TRÚC THƯ MỤC & CẤU HÌNH DOCKER
+
+### 1. Cấu trúc thư mục Monorepo (Chia theo 5 Actor độc lập)
+```text
+ems-project/
+├── docker-compose.yml
+├── backend/                  # Express.js + Prisma ORM
+│   ├── Dockerfile
+│   ├── package.json
+│   ├── prisma/
+│   │   ├── schema.prisma     # Định nghĩa 13 bảng MySQL (D1 -> D13)
+│   │   └── seed.js           # Dữ liệu mẫu (ADM001, Staff, Accountant, TEA001..002, STU2026001..004, WEB101, JS201)
+│   └── src/
+│       ├── config/           # Cấu hình DB, JWT, Multer (File Storage X1)
+│       ├── middlewares/      # auth.middleware.js, role.middleware.js (5 Roles)
+│       ├── utils/            # notify.util.js (Hàm dùng chung ghi D13), excel.util.js (X2)
+│       ├── modules/          # Chia 5 cụm thư mục theo đúng 5 Actor để tránh Git Conflict
+│       │   ├── sysadmin/         # Người 1: Auth, User Lock/Role, System Broadcast, System KPI
+│       │   ├── academic-staff/   # Người 2: Students, Teachers, Courses, Classes, Enrollments, Schedules
+│       │   ├── accountant/       # Người 3: Tuition Invoices, VietQR, Receipts, Tuition Analytics
+│       │   ├── teacher/          # Người 4: Attendances, Assignments, Submissions Grading, Class Grades
+│       │   └── student/          # Người 5: Student Dashboard, Submit Assignment, My Grades/GPA, My Tuition
+│       └── app.js
+└── frontend/                 # React (Vite) + Ant Design
+    ├── Dockerfile
+    ├── package.json
+    └── src/
+        ├── api/              # Cấu hình Axios Interceptor
+        ├── components/       # Layout, Sidebar (theo 5 Role), NotificationBell
+        └── pages/            # Chia 5 cụm thư mục tương ứng với 5 Actor
+            ├── sysadmin/
+            ├── academic-staff/
+            ├── accountant/
+            ├── teacher/
+            └── student/
+```
+
+### 2. Nội dung file `docker-compose.yml`
+```yaml
+version: '3.8'
+
+services:
+  mysql_db:
+    image: mysql:8.0
+    container_name: ems_mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: ems_db
+      MYSQL_USER: ems_user
+      MYSQL_PASSWORD: ems_password
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: ems_phpmyadmin
+    restart: always
+    ports:
+      - "8080:80"
+    environment:
+      PMA_HOST: mysql_db
+      MYSQL_ROOT_PASSWORD: rootpassword
+    depends_on:
+      - mysql_db
+
+volumes:
+  mysql_data:
+```
+
+---
+
+## PHẦN 7: PHÂN CÔNG NHIỆM VỤ & KẾ HOẠCH TRIỂN KHAI (5 THÀNH VIÊN THEO 5 ACTOR)
+
+### 1. Bảng phân công trách nhiệm chuẩn hóa
+
+| Thành viên | Actor phụ trách | Sơ đồ & Luồng phụ trách | Các bảng DB chính | Đầu việc trọng tâm |
+| :--- | :--- | :--- | :--- | :--- |
+| **Người 1 (Leader)** | **SYSTEM ADMIN** | `UC-SYSADMIN`, `BF-SYSADMIN` (`DF01`, `DF02`, `DF03a`, `DF08a`, `DF12a`, `DF36`) | `D1 (users)`, `D13 (notifications)` | Dựng Base Project (Express + React + Docker), xác thực JWT 5 Roles (`UC0.1`), Khóa/Mở khóa tài khoản (`UC1.2a*`), Thông báo toàn hệ thống (`UC10.1`), Dashboard tổng quan 4 KPI & tỷ lệ qua môn (`UC11.1a`), cấu hình File Storage (`X1`) & hàm `notify()`. |
+| **Người 2** | **ACADEMIC STAFF (Giáo vụ)** | `UC-ACADEMIC`, `BF-ACADEMIC` (`DF03b`, `DF04`..`DF07`, `DF09`..`DF11`, `DF13`..`DF15`) | `D2 (student_profiles)`, `D3 (teacher_profiles)`, `D4 (courses)`, `D5 (classes)`, `D6 (enrollments)`, `D7 (schedules)` | Quản lý hồ sơ SV (`STU2026xxx`) & Import/Export Excel (`UC1.1`..`UC1.4`), hồ sơ GV (`UC2.1`, `UC2.2`), danh mục môn học (`UC3.1`), mở lớp & ghi danh tự sinh điểm trống + hóa đơn (`UC4.1`, `UC4.2`), xếp lịch & kiểm tra trùng phòng/trùng GV (`UC5.1`..`UC5.3`), xem bảng điểm lớp chỉ đọc (`UC8.5*`). |
+| **Người 3** | **ACCOUNTANT (Kế toán)** | `UC-ACCOUNTANT`, `BF-ACCOUNTANT` (`DF08b`, `DF12b`, `DF32`..`DF35`) | `D12 (tuition_invoices)`, `D13 (notifications)` | Quản lý và tra cứu công nợ học phí (`UC9.1`), ghi nhận thanh toán từng đợt `UNPAID → PARTIAL → PAID` (`UC9.2`), tích hợp mã VietQR tĩnh & in phiếu thu trình duyệt (`UC9.3`), phát thông báo nhắc nợ học phí (`UC10.2` Trigger 3), biểu đồ thống kê doanh thu thu vs. nợ theo tháng (`UC11.1b*`). |
+| **Người 4** | **TEACHER (Giảng viên)** | `UC-TEACHER`, `BF-TEACHER` (`DF16`..`DF23`) | `D8 (attendances)`, `D9 (assignments)`, `D10 (submissions)`, `D11 (grades)` | Điểm danh buổi học & cảnh báo vắng > 20% (`UC6.1`, `UC6.2`), giao bài tập kèm upload đề & bắn thông báo `ASSIGNMENT` (`UC7.1`), chấm điểm & nhận xét bài nộp (`UC7.3`), nhập bảng điểm lưới 3 cột, tự tính điểm tổng kết, Import/Export Excel & công bố điểm kèm thông báo `GRADE` (`UC8.1`..`UC8.3`), Teacher Dashboard (`UC11.2`). |
+| **Người 5** | **STUDENT (Học viên)** | `UC-STUDENT`, `BF-STUDENT` (`DF24`..`DF28`, `DF30`, `DF31`) | Truy vấn & cập nhật `D7`..`D13` | Student Dashboard & biểu đồ GPA (`UC11.2`), xem TKB tuần (`UC5.3`), xem lịch sử điểm danh & chuyên cần cá nhân (`UC6.2`, `UC6.3*`), nộp bài tập trực tuyến & kiểm tra hạn nộp (`UC7.2`), xem điểm bài tập & nhận xét (`UC7.4*`), tra cứu bảng điểm môn & GPA (`UC8.4`), kiểm tra công nợ cá nhân & mở mã VietQR (`UC9.4*`, `UC9.3`), đánh dấu đã đọc thông báo (`UC10.3`). |
+
+### 2. Lộ trình thực hiện (Timeline 4 Tuần)
+* **Tuần 1 - Khởi tạo & Đồng bộ nền tảng:**
+  * Người 1 dựng khung Monorepo, cấu hình `docker-compose.yml`, tạo 13 bảng (`D1` → `D13`) và viết `seed.js` khớp bộ dữ liệu mẫu (`ADM001`, `TEA001..002`, `STU2026001..004`, `WEB101`, `JS201`, `P101..P102`).
+  * Cả nhóm thống nhất middleware phân quyền 5 Actor và chuẩn JSON trả về.
+* **Tuần 2 - Phát triển Backend API & Giao diện cơ bản theo từng Actor:**
+  * Mỗi thành viên tự viết API và dựng giao diện Ant Design cho phân hệ Actor của mình dựa trên dữ liệu Seed.
+* **Tuần 3 - Xử lý Nghiệp vụ Nâng cao & Liên kết Luồng (Core Logic):**
+  * Người 1 hoàn thiện khóa/mở khóa tài khoản và hàm `notify()` dùng chung.
+  * Người 2 hoàn thiện thuật toán kiểm tra trùng phòng/trùng GV (`UC5.2`) và trigger tạo `grades` + `tuition_invoices` khi ghi danh (`UC4.2`).
+  * Người 3 hoàn thiện luồng thu học phí nhiều đợt (`PARTIAL` → `PAID`), sinh mã VietQR tĩnh và in phiếu thu (`UC9.2`, `UC9.3`).
+  * Người 4 hoàn thiện cảnh báo vắng > 20% (`UC6.2`), upload đề bài tập và công thức tự tính điểm tổng kết (`UC8.2`).
+  * Người 5 hoàn thiện kiểm tra nộp bài đúng hạn/muộn (`UC7.2`), tính GPA tích lũy (`UC8.4`) và tích hợp xem VietQR công nợ cá nhân (`UC9.4*`).
+* **Tuần 4 - Tích hợp, Kiểm thử (Testing) & Đóng gói:**
+  * Ghép nối toàn bộ luồng nghiệp vụ xuyên suốt 5 Actor: **System Admin** cấp quyền → **Academic Staff** tạo môn, mở lớp, ghi danh, xếp lịch → **Accountant** nhắc nợ, xuất VietQR, thu học phí → **Teacher** điểm danh, giao bài, chấm điểm, công bố điểm → **Student** nộp bài, xem điểm/GPA và quét QR đóng học phí.
+  * Kiểm thử phân quyền chéo giữa 5 Role và hoàn thiện báo cáo đồ án.

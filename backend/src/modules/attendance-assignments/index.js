@@ -7,12 +7,21 @@ const upload = require('../../config/upload');
 const { syncAttendanceAndGrades } = require('../../utils/gradeHelper');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
 
+// Học viên chỉ được thao tác trên lớp mình đang học (enrollment ACTIVE)
+const isActivelyEnrolled = async (classId, studentId) => {
+  const enrollment = await prisma.enrollment.findUnique({
+    where: { classId_studentId: { classId, studentId } },
+    select: { status: true }
+  });
+  return enrollment?.status === 'ACTIVE';
+};
+
 // ==========================================
 // 1. ATTENDANCE MANAGEMENT (UC6.1 - UC6.2)
 // ==========================================
 
 // UC6.1: Lấy danh sách điểm danh lớp theo ngày học
-router.get('/classes/:id/attendances', authenticateJWT, async (req, res) => {
+router.get('/classes/:id/attendances', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
   try {
     const classId = parseInt(req.params.id);
     const dateStr = req.query.date || new Date().toISOString().split('T')[0];
@@ -120,7 +129,7 @@ router.post('/classes/:id/attendances', authenticateJWT, authorizeRoles('ADMIN',
 });
 
 // UC6.2: Thống kê tỷ lệ chuyên cần cả kỳ của lớp, gắn cờ cấm thi
-router.get('/classes/:id/attendance-summary', authenticateJWT, async (req, res) => {
+router.get('/classes/:id/attendance-summary', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
   try {
     const classId = parseInt(req.params.id);
 
@@ -245,6 +254,10 @@ router.get('/classes/:id/assignments', authenticateJWT, async (req, res) => {
     const userId = req.user.id;
     const role = req.user.role;
 
+    if (role === 'STUDENT' && !(await isActivelyEnrolled(classId, userId))) {
+      return errorResponse(res, 'Bạn không thuộc lớp học phần này', 403);
+    }
+
     const assignments = await prisma.assignment.findMany({
       where: { classId },
       include: {
@@ -350,6 +363,10 @@ router.get('/assignments/:id', authenticateJWT, async (req, res) => {
       return errorResponse(res, 'Không tìm thấy bài tập', 404);
     }
 
+    if (role === 'STUDENT' && !(await isActivelyEnrolled(assignment.classId, userId))) {
+      return errorResponse(res, 'Bạn không thuộc lớp học phần của bài tập này', 403);
+    }
+
     return successResponse(res, assignment, 'Lấy chi tiết bài tập thành công');
   } catch (error) {
     console.error('Error getting assignment detail:', error);
@@ -369,6 +386,19 @@ router.post('/assignments/:id/submissions', authenticateJWT, authorizeRoles('STU
 
     if (!assignment) {
       return errorResponse(res, 'Không tìm thấy bài tập', 404);
+    }
+
+    if (!(await isActivelyEnrolled(assignment.classId, studentId))) {
+      return errorResponse(res, 'Bạn không thuộc lớp học phần của bài tập này', 403);
+    }
+
+    // Bài đã được giảng viên chấm thì không cho nộp lại (tránh lệch điểm / file đã chấm)
+    const existing = await prisma.submission.findUnique({
+      where: { assignmentId_studentId: { assignmentId, studentId } },
+      select: { score: true }
+    });
+    if (existing && existing.score !== null) {
+      return errorResponse(res, 'Bài tập đã được giảng viên chấm điểm, không thể nộp lại', 400);
     }
 
     if (!req.file) {
