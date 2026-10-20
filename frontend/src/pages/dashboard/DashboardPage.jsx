@@ -12,6 +12,7 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, PieC
 import apiClient from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import dayjs from 'dayjs';
+import TuitionReportPage from '../grades-tuition/TuitionReportPage';
 
 const { Title, Text } = Typography;
 
@@ -36,6 +37,9 @@ const DashboardPage = () => {
           const res = await apiClient.get('/analytics/student-overview');
           if (res.success) setStudentData(res.data);
         }
+
+        // Kế toán không có lịch học/lịch dạy -> dashboard riêng (TuitionReportPage tự tải dữ liệu)
+        if (role === 'ACCOUNTANT') return;
 
         // Lấy lịch học hôm nay
         const schedRes = await apiClient.get('/schedules/my-schedule');
@@ -73,6 +77,11 @@ const DashboardPage = () => {
           Cổng thông tin đào tạo EMS • {dayjs().format('dddd, DD/MM/YYYY')}
         </Text>
       </div>
+
+      {/* ========================================================
+          0. GIAO DIỆN ACCOUNTANT DASHBOARD (Người 3)
+      ======================================================== */}
+      {role === 'ACCOUNTANT' && <TuitionReportPage embedded />}
 
       {/* ========================================================
           1. GIAO DIỆN ADMIN DASHBOARD

@@ -15,6 +15,7 @@ const HeaderBar = () => {
       case 'ADMIN': return <Tag color="error">Quản trị viên</Tag>;
       case 'TEACHER': return <Tag color="processing">Giảng viên</Tag>;
       case 'STUDENT': return <Tag color="warning">Sinh viên</Tag>;
+      case 'ACCOUNTANT': return <Tag color="green">Kế toán</Tag>;
       default: return null;
     }
   };

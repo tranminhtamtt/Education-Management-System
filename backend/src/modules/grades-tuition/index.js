@@ -3,7 +3,6 @@ const router = express.Router();
 const authenticateJWT = require('../../middlewares/auth.middleware');
 const authorizeRoles = require('../../middlewares/role.middleware');
 const prisma = require('../../config/prisma');
-const { generateVietQRData } = require('../../utils/vietqrGenerator');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
 
 /**
@@ -215,152 +214,9 @@ router.get('/students/my-grades', authenticateJWT, async (req, res) => {
 });
 
 // ==========================================
-// 2. TUITION MANAGEMENT (UC9.1 - UC9.3)
+// 2. TUITION MANAGEMENT (UC9.1 - UC9.4*, UC10.2, UC11.1b*)
+// Toàn bộ API của Kế toán (Người 3) được tách sang tuition.routes.js
 // ==========================================
-
-// UC9.1: Danh sách hóa đơn học phí
-router.get('/tuition-invoices', authenticateJWT, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const role = req.user.role;
-    const { status, studentId } = req.query;
-
-    let where = {};
-    if (role === 'STUDENT') {
-      where.studentId = userId;
-    } else if (studentId) {
-      where.studentId = parseInt(studentId);
-    }
-
-    if (status) {
-      where.status = status;
-    }
-
-    const invoices = await prisma.tuitionInvoice.findMany({
-      where,
-      include: {
-        student: { select: { id: true, code: true, fullName: true, email: true, phone: true } },
-        enrollment: {
-          include: {
-            class: {
-              include: { course: true }
-            }
-          }
-        }
-      },
-      orderBy: { createdAt: 'desc' }
-    });
-
-    return successResponse(
-      res,
-      invoices.map(inv => ({
-        id: inv.id,
-        student: inv.student,
-        classCode: inv.enrollment.class.classCode,
-        courseCode: inv.enrollment.class.course.courseCode,
-        courseName: inv.enrollment.class.course.name,
-        amount: Number(inv.amount),
-        paidAmount: Number(inv.paidAmount),
-        remainingAmount: Number(inv.amount) - Number(inv.paidAmount),
-        status: inv.status,
-        dueDate: inv.dueDate,
-        paidAt: inv.paidAt
-      })),
-      'Lấy danh sách hóa đơn thành công'
-    );
-  } catch (error) {
-    console.error('Error fetching tuition invoices:', error);
-    return errorResponse(res, 'Lỗi lấy hóa đơn học phí', 500);
-  }
-});
-
-// UC9.2: Ghi nhận thanh toán học phí
-router.patch('/tuition-invoices/:id/pay', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    const { amountPaid } = req.body;
-
-    const payment = parseFloat(amountPaid);
-    if (isNaN(payment) || payment <= 0) {
-      return errorResponse(res, 'Số tiền thanh toán phải lớn hơn 0', 400);
-    }
-
-    const invoice = await prisma.tuitionInvoice.findUnique({
-      where: { id },
-      include: { student: true }
-    });
-
-    if (!invoice) {
-      return errorResponse(res, 'Không tìm thấy hóa đơn học phí', 404);
-    }
-
-    const newPaidAmount = Number(invoice.paidAmount) + payment;
-    const totalAmount = Number(invoice.amount);
-
-    let newStatus = 'PARTIAL';
-    if (newPaidAmount >= totalAmount) {
-      newStatus = 'PAID';
-    }
-
-    const updated = await prisma.tuitionInvoice.update({
-      where: { id },
-      data: {
-        paidAmount: newPaidAmount,
-        status: newStatus,
-        paidAt: newStatus === 'PAID' ? new Date() : invoice.paidAt
-      }
-    });
-
-    // Thông báo cho sinh viên
-    await prisma.notification.create({
-      data: {
-        userId: invoice.studentId,
-        title: 'Thanh toán học phí thành công',
-        message: `Hệ thống vừa ghi nhận khoản thanh toán ${payment.toLocaleString('vi-VN')} VNĐ cho hóa đơn #${id}. Trạng thái: ${newStatus}`,
-        type: 'TUITION'
-      }
-    });
-
-    return successResponse(res, updated, 'Ghi nhận thanh toán học phí thành công');
-  } catch (error) {
-    console.error('Error paying tuition invoice:', error);
-    return errorResponse(res, 'Lỗi ghi nhận thanh toán', 500);
-  }
-});
-
-// UC9.3: Lấy chuỗi dữ liệu tạo mã thanh toán VietQR động
-router.get('/tuition-invoices/:id/vietqr', authenticateJWT, async (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-
-    const invoice = await prisma.tuitionInvoice.findUnique({
-      where: { id },
-      include: {
-        student: true,
-        enrollment: {
-          include: { class: true }
-        }
-      }
-    });
-
-    if (!invoice) {
-      return errorResponse(res, 'Không tìm thấy hóa đơn học phí', 404);
-    }
-
-    const remaining = Number(invoice.amount) - Number(invoice.paidAmount);
-
-    const qrData = generateVietQRData({
-      amount: remaining > 0 ? remaining : Number(invoice.amount),
-      studentCode: invoice.student.code,
-      classCode: invoice.enrollment.class.classCode,
-      invoiceId: invoice.id
-    });
-
-    return successResponse(res, qrData, 'Tạo mã thanh toán VietQR thành công');
-  } catch (error) {
-    console.error('Error generating VietQR:', error);
-    return errorResponse(res, 'Lỗi tạo mã VietQR', 500);
-  }
-});
+router.use(require('./tuition.routes'));
 
 module.exports = router;

@@ -148,6 +148,13 @@ const LoginPage = () => {
           <Button
             size="small"
             block
+            onClick={() => quickFill('ketoan@fpt.edu.vn', '123456')}
+          >
+            💰 <b>Kế toán</b>: ketoan@fpt.edu.vn (123456)
+          </Button>
+          <Button
+            size="small"
+            block
             onClick={() => quickFill('thaynam@fpt.edu.vn', '123456')}
           >
             👨‍🏫 <b>Giảng viên</b>: thaynam@fpt.edu.vn (123456)
