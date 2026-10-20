@@ -31,19 +31,6 @@ import TuitionReportPage from './pages/grades-tuition/TuitionReportPage';
 import RequestsPage from './pages/notifications-analytics/RequestsPage';
 import NotificationsPage from './pages/notifications-analytics/NotificationsPage';
 
-// Cổng Học viên (BF-STU-1 → BF-STU-10)
-import { useAuth } from './context/AuthContext';
-import StudentDashboardPage from './pages/student/StudentDashboardPage';
-import StudentAttendancePage from './pages/student/StudentAttendancePage';
-import StudentAssignmentsPage from './pages/student/StudentAssignmentsPage';
-import StudentGradesPage from './pages/student/StudentGradesPage';
-
-// Chọn màn hình theo vai trò: STUDENT dùng cổng học viên, các vai trò khác giữ màn hình quản trị
-const RoleSwitch = ({ student, other }) => {
-  const { user } = useAuth();
-  return user?.role === 'STUDENT' ? student : other;
-};
-
 const App = () => {
   return (
     <ConfigProvider
@@ -64,7 +51,7 @@ const App = () => {
 
             <Route path="/" element={<MainLayout />}>
               <Route index element={<Navigate to="/dashboard" replace />} />
-              <Route path="dashboard" element={<RoleSwitch student={<StudentDashboardPage />} other={<DashboardPage />} />} />
+              <Route path="dashboard" element={<DashboardPage />} />
 
               {/* Cụm 1 */}
               <Route path="students" element={<StudentsPage />} />
@@ -76,11 +63,11 @@ const App = () => {
               <Route path="schedule" element={<SchedulePage />} />
 
               {/* Cụm 3 */}
-              <Route path="attendance" element={<RoleSwitch student={<StudentAttendancePage />} other={<AttendancePage />} />} />
-              <Route path="assignments" element={<RoleSwitch student={<StudentAssignmentsPage />} other={<AssignmentsPage />} />} />
+              <Route path="attendance" element={<AttendancePage />} />
+              <Route path="assignments" element={<AssignmentsPage />} />
 
               {/* Cụm 4 */}
-              <Route path="grades" element={<RoleSwitch student={<StudentGradesPage />} other={<GradesPage />} />} />
+              <Route path="grades" element={<GradesPage />} />
               <Route path="tuition" element={<TuitionPage />} />
               <Route path="tuition-report" element={<TuitionReportPage />} />
 

@@ -31,11 +31,6 @@ router.get('/classes', authenticateJWT, async (req, res) => {
       ...(status ? { status } : {})
     };
 
-    // Học viên chỉ thấy các lớp mình đang theo học
-    if (req.user.role === 'STUDENT') {
-      where.enrollments = { some: { studentId: req.user.id, status: 'ACTIVE' } };
-    }
-
     const classes = await prisma.class.findMany({
       where,
       include: {

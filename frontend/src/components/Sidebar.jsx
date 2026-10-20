@@ -32,18 +32,6 @@ const Sidebar = () => {
         { key: '/tuition-report', icon: <BarChartOutlined />, label: 'Báo cáo Doanh thu' },
         { key: '/notifications', icon: <NotificationOutlined />, label: 'Thông báo' }
       ]
-    : role === 'STUDENT'
-    ? [
-        // Student (Người 5): sắp xếp theo vòng đời BF-STU-1 → BF-STU-10
-        { key: '/dashboard', icon: <DashboardOutlined />, label: 'Tổng quan' },
-        { key: '/schedule', icon: <CalendarOutlined />, label: 'Thời khóa biểu' },
-        { key: '/attendance', icon: <CheckSquareOutlined />, label: 'Chuyên cần' },
-        { key: '/notifications', icon: <NotificationOutlined />, label: 'Thông báo' },
-        { key: '/assignments', icon: <FileTextOutlined />, label: 'Bài tập & Nộp bài' },
-        { key: '/grades', icon: <TrophyOutlined />, label: 'Bảng điểm & GPA' },
-        { key: '/tuition', icon: <DollarCircleOutlined />, label: 'Học phí & VietQR' },
-        { key: '/requests', icon: <AuditOutlined />, label: 'Đơn từ Học vụ' }
-      ]
     : [
     {
       key: '/dashboard',

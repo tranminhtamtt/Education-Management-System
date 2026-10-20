@@ -27,17 +27,13 @@ router.get('/notifications', authenticateJWT, async (req, res) => {
       take: 50
     });
 
-    const unreadCount = notifications.filter(n => !n.isRead && n.userId === userId).length;
-
-    // Bản ghi toàn trường cũ (userId = null) không có is_read riêng cho từng người
-    // -> hiển thị như đã đọc để tránh nút "Đánh dấu đã đọc" không có tác dụng
-    const data = notifications.map(n => (n.userId === null ? { ...n, isRead: true, isGlobal: true } : n));
+    const unreadCount = notifications.filter(n => !n.isRead).length;
 
     return successResponse(
       res,
       {
         unreadCount,
-        notifications: data
+        notifications
       },
       'Lấy danh sách thông báo thành công'
     );
@@ -74,23 +70,15 @@ router.post('/notifications/broadcast', authenticateJWT, authorizeRoles('ADMIN')
         });
       }
     } else {
-      // Broadcast toàn trường: tạo 1 bản ghi cho từng người dùng đang hoạt động
-      // để mỗi người có trạng thái is_read riêng (UC10.3)
-      const users = await prisma.user.findMany({
-        where: { status: 'ACTIVE' },
-        select: { id: true }
+      // Broadcast toàn trường (userId = null)
+      await prisma.notification.create({
+        data: {
+          userId: null,
+          title,
+          message,
+          type: type || 'SYSTEM'
+        }
       });
-
-      if (users.length > 0) {
-        await prisma.notification.createMany({
-          data: users.map(u => ({
-            userId: u.id,
-            title,
-            message,
-            type: type || 'SYSTEM'
-          }))
-        });
-      }
     }
 
     return successResponse(res, null, 'Phát hành thông báo thành công', 201);
@@ -100,19 +88,15 @@ router.post('/notifications/broadcast', authenticateJWT, authorizeRoles('ADMIN')
   }
 });
 
-// UC10.3: Đánh dấu 1 thông báo là đã đọc (chỉ thông báo của chính mình)
+// UC10.3: Đánh dấu 1 thông báo là đã đọc
 router.patch('/notifications/:id/read', authenticateJWT, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
 
-    const result = await prisma.notification.updateMany({
-      where: { id, userId: req.user.id },
+    await prisma.notification.update({
+      where: { id },
       data: { isRead: true }
     });
-
-    if (result.count === 0) {
-      return errorResponse(res, 'Không tìm thấy thông báo cá nhân này', 404);
-    }
 
     return successResponse(res, null, 'Đã đánh dấu đọc thông báo');
   } catch (error) {
@@ -128,7 +112,7 @@ router.patch('/notifications/read-all', authenticateJWT, async (req, res) => {
 
     await prisma.notification.updateMany({
       where: {
-        userId,
+        OR: [{ userId: null }, { userId }],
         isRead: false
       },
       data: { isRead: true }
