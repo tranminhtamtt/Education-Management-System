@@ -6,9 +6,9 @@
  * DF33 (Payment System -> EMS): Ảnh mã VietQR tĩnh trả về (qrImageUrl)
  */
 const generateVietQRData = ({ amount, studentCode, courseCode, classCode }) => {
-  const bankId = process.env.VIETQR_BANK_ID || 'MB'; // Mặc định MBBank
-  const accountNo = process.env.VIETQR_ACCOUNT_NO || '0981234567';
-  const accountName = process.env.VIETQR_ACCOUNT_NAME || 'DAI HOC FPT - EMS TUITION';
+  const bankId = process.env.VIETQR_BANK_ID;
+  const accountNo = process.env.VIETQR_ACCOUNT_NO;
+  const accountName = process.env.VIETQR_ACCOUNT_NAME;
   const template = 'compact2';
 
   // Nội dung chuyển khoản theo đặc tả: [MaHV] [MaMon] (VD: "STU2026001 WEB101")

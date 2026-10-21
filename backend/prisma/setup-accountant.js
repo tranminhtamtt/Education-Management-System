@@ -29,7 +29,7 @@ async function main() {
         passwordHash: await bcrypt.hash('123456', 10),
         fullName: 'Phòng Kế toán - Tài chính',
         role: 'ACCOUNTANT',
-        phone: '02473005599',
+        phone: '0358262513',
         status: 'ACTIVE'
       }
     });
