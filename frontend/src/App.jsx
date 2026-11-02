@@ -13,6 +13,7 @@ import DashboardPage from './pages/dashboard/DashboardPage';
 import StudentsPage from './pages/users-courses/StudentsPage';
 import TeachersPage from './pages/users-courses/TeachersPage';
 import CoursesPage from './pages/users-courses/CoursesPage';
+import CurriculumPage from './pages/curriculum/CurriculumPage';
 
 // Cụm 2: Tổ chức Lớp học & Thời khóa biểu
 import ClassesPage from './pages/classes-schedules/ClassesPage';
@@ -57,6 +58,7 @@ const App = () => {
               <Route path="students" element={<StudentsPage />} />
               <Route path="teachers" element={<TeachersPage />} />
               <Route path="courses" element={<CoursesPage />} />
+              <Route path="curriculum" element={<CurriculumPage />} />
 
               {/* Cụm 2 */}
               <Route path="classes" element={<ClassesPage />} />

@@ -4,6 +4,7 @@ const authenticateJWT = require('../../middlewares/auth.middleware');
 const authorizeRoles = require('../../middlewares/role.middleware');
 const prisma = require('../../config/prisma');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
+const { checkPrerequisites } = require('../curriculum/curriculumData');
 
 // Khung giờ 6 Slot chuẩn FAP
 const SLOT_HOURS = {
@@ -182,7 +183,7 @@ router.put('/classes/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req,
 router.post('/classes/:id/enrollments', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
   try {
     const classId = parseInt(req.params.id);
-    const { studentId } = req.body;
+    const { studentId, forceEnroll } = req.body;
 
     if (!studentId) {
       return errorResponse(res, 'Vui lòng chọn học viên cần ghi danh', 400);
@@ -222,6 +223,30 @@ router.post('/classes/:id/enrollments', authenticateJWT, authorizeRoles('ADMIN')
 
     if (existingEnrollment) {
       return errorResponse(res, 'Học viên này đã có trong danh sách lớp học', 400);
+    }
+
+    // KIỂM TRA ĐIỀU KIỆN TIÊN QUYẾT (Prerequisite Check)
+    if (!forceEnroll && classItem.course?.courseCode) {
+      const studentGrades = await prisma.enrollment.findMany({
+        where: { studentId: parseInt(studentId) },
+        include: {
+          class: { include: { course: true } },
+          grade: true
+        }
+      });
+      const passedCourseCodes = studentGrades
+        .filter(e => e.grade && e.grade.isPassed)
+        .map(e => e.class.course?.courseCode?.toUpperCase());
+
+      const prereqCheck = checkPrerequisites(classItem.course.courseCode, passedCourseCodes);
+      if (!prereqCheck.isEligible) {
+        return errorResponse(
+          res,
+          `[Chưa đủ điều kiện tiên quyết] Học viên chưa hoàn thành môn tiên quyết: ${prereqCheck.missingPrerequisites.join(', ')}. Hãy hoàn thành môn tiên quyết trước hoặc xác nhận đặc cách.`,
+          400,
+          { missingPrerequisites: prereqCheck.missingPrerequisites, canForce: true }
+        );
+      }
     }
 
     // KIỂM TRA TRÙNG LỊCH HỌC CỦA HỌC VIÊN TRONG CÙNG HỌC KỲ (Cross-Module Logic)

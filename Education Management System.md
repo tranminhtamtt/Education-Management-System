@@ -163,6 +163,12 @@ graph TD
     1. **Kiểm tra sĩ số & Trùng lịch:** Kiểm tra sĩ số hiện tại `< max_students`. Nếu lớp đã đủ 3/3 mà thêm tiếp `STU2026004` → Báo lỗi `"Vượt sĩ số 3/3"` (`DF11`), không tạo bản ghi nào. Đồng thời kiểm tra học viên không bị trùng ca học với lớp khác trong cùng kỳ.
     2. **Tự tạo bảng điểm trống:** Khi ghi danh hợp lệ vào `D6 (enrollments)` với trạng thái `ACTIVE`, tự động tạo 1 bản ghi điểm trống trong `D11 (grades)`.
     3. **Tự tạo hóa đơn học phí:** Tự động tạo 1 hóa đơn học phí trạng thái `UNPAID` với `amount = base_tuition_fee` (`3.000.000 đ`) trong `D12 (tuition_invoices)` (chuyển giao sang Người 3 - Kế toán).
+* **UC3.2 - Khung chương trình đào tạo & Điều kiện tiên quyết (FAP Curriculum):** Giáo vụ tra cứu toàn bộ lộ trình đào tạo chuẩn 9 học kỳ chuyên ngành Kỹ thuật phần mềm (SE) kế thừa từ FAP (`fap.fpt.edu.vn/Curriculum`), bao gồm danh mục môn học, số tín chỉ và điều kiện tiên quyết (`prerequisites`).
+* **UC4.3 - Sắp xếp lớp học phần thông minh theo điều kiện tiên quyết (Prerequisite Advisor & Batch Enrollment):** Giáo vụ chọn một lớp học phần cần xếp học sinh cho kỳ kế tiếp:
+  * Hệ thống tự động phân loại toàn bộ học viên thành 2 nhóm:
+    1. **Đủ điều kiện (Eligible):** Đã PASS toàn bộ môn tiên quyết của môn học, chưa từng pass môn này trước đó, chưa học môn này ở lớp khác trong kỳ và không bị trùng lịch học.
+    2. **Chưa đủ điều kiện (Ineligible):** Nêu rõ lý do cụ thể (chưa hoàn thành môn tiên quyết, trùng lịch, hoặc đã đạt môn).
+  * Giáo vụ thực hiện xếp lớp hàng loạt (Batch Enrollment) các sinh viên đủ điều kiện chỉ với 1-click hoặc đặc cách ghi danh có cảnh báo xác nhận.
 * **UC8.5\* - Xem bảng điểm lớp (Chỉ đọc):** Giáo vụ xem bảng điểm tổng hợp của các lớp học phần ở chế độ Read-only (`DF09`).
 
 #### 5. Schedule Management (Quản lý Thời khóa biểu & Kiểm tra Xung đột)
@@ -229,6 +235,13 @@ graph TD
 * **UC8.4 - Tra cứu kết quả học tập và GPA:** Học viên nhận thông báo `GRADE`, tra cứu bảng điểm từng môn (VD: `WEB101`: `7.8` - Qua môn) và điểm trung bình tích lũy GPA (`DF28` từ `D11`).
 * **UC9.4\* & UC9.3 - Kiểm tra công nợ học phí cá nhân & Quét mã VietQR:** Học viên kiểm tra công nợ cá nhân (`DF30` từ `D12`: tổng phải thu `3.000.000 đ`, đã đóng `1.000.000 đ`, còn nợ `2.000.000 đ`, trạng thái `PARTIAL`) và bấm hiển thị mã VietQR tĩnh theo đúng số tiền còn nợ (`2.000.000 đ`) để chuyển khoản ngân hàng.
 * **UC10.3 - Xem và đánh dấu thông báo đã đọc:** Học viên nhận thông báo trên quả chuông (`DF29` từ `D13`) và bấm đánh dấu đã đọc (`DF25` → cập nhật `is_read = true`).
+
+* **UC13.1 - Tra cứu Khung chương trình đào tạo & Tiến độ học vụ cá nhân (Curriculum & Academic Standing):** Học viên tra cứu toàn bộ khung chương trình đào tạo 9 học kỳ chuẩn FAP FPT, theo dõi tiến độ tích lũy tín chỉ (VD: `24/89 TC`), học kỳ ước tính hiện tại (Term) và trạng thái trực quan của từng môn học:
+  * `PASSED`: Đã hoàn thành môn học kèm điểm tổng kết.
+  * `STUDYING`: Đang học trong học kỳ hiện tại.
+  * `ELIGIBLE`: Đã thỏa mãn điều kiện tiên quyết, đủ điều kiện học ở kỳ tới.
+  * `LOCKED`: Chưa đủ điều kiện đăng ký do còn thiếu môn tiên quyết.
+  * `FAILED`: Chưa đạt môn học, cần đăng ký học lại.
 
 #### 12. Online Academic Requests (Đơn từ Học vụ Trực tuyến - Kế thừa FAP)
 * **UC11.1 (Request) - Học viên gửi đơn học vụ trực tuyến:** Học viên tạo yêu cầu trực tuyến (Xin nghỉ học có phép đính kèm minh chứng cho buổi học `session_date`, Đơn phúc khảo điểm, Đơn xin xác nhận sinh viên) lưu vào `D14 (student_requests)`.
@@ -325,6 +338,10 @@ Mọi API tuân thủ tiền tố `/api/v1` và trả về cấu trúc JSON ph�
 * `DELETE /api/v1/classes/:id/enrollments/:studentId` - Xóa học viên khỏi lớp (`ACADEMIC_STAFF`).
 * `POST /api/v1/classes/:id/schedules` - Xếp lịch học cho lớp kèm thuật toán kiểm tra trùng phòng (`P101`) / trùng giảng viên (`TEA001`) (`ACADEMIC_STAFF` - `DF13`, `DF14`).
 * `GET /api/v1/schedules/weekly-grid` - Xem thời khóa biểu tuần dạng lưới (`ACADEMIC_STAFF`, `TEACHER`, `STUDENT` - `DF15`).
+* `GET /api/v1/curriculum` - Lấy toàn bộ Khung chương trình đào tạo chuẩn 9 học kỳ SE (`ACADEMIC_STAFF`, `STUDENT`).
+* `GET /api/v1/curriculum/student/:studentId` - Tra cứu tiến độ khung chương trình của một học viên bất kỳ (`ACADEMIC_STAFF`).
+* `GET /api/v1/curriculum/eligible-students/:classId` - Phân loại danh sách học viên đủ điều kiện / chưa đủ điều kiện tiên quyết để xếp vào lớp (`ACADEMIC_STAFF`).
+* `POST /api/v1/curriculum/batch-enroll/:classId` - Xếp lớp hàng loạt cho danh sách học viên đủ điều kiện (`ACADEMIC_STAFF`).
 * `GET /api/v1/requests` / `PATCH /api/v1/requests/:id/review` - Giáo vụ xem và phê duyệt đơn từ học vụ trực tuyến (`ACADEMIC_STAFF`).
 
 ### 3. Cụm API của ACCOUNTANT / Kế toán (Phụ trách: Người 3)
@@ -352,6 +369,7 @@ Mọi API tuân thủ tiền tố `/api/v1` và trả về cấu trúc JSON ph�
 * `GET /api/v1/classes/:id/assignments` - Xem đề bài tập, trạng thái nộp, điểm bài tập và nhận xét của giảng viên (`STUDENT`, `TEACHER` - `DF27`).
 * `POST /api/v1/assignments/:id/submissions` - Học viên nộp file bài làm trực tuyến lên File Storage kèm kiểm tra hạn nộp (`STUDENT` - `DF24`).
 * `GET /api/v1/students/my-grades` - Tra cứu bảng điểm từng môn và điểm trung bình tích lũy GPA (`STUDENT` - `DF28`).
+* `GET /api/v1/curriculum/my-progress` - Tra cứu tiến độ Khung chương trình đào tạo cá nhân, số tín chỉ tích lũy, kỳ học hiện tại và trạng thái từng môn học (`STUDENT`).
 * `GET /api/v1/students/my-tuition` - Kiểm tra công nợ học phí cá nhân và mở mã VietQR thanh toán (`STUDENT` - `DF30`).
 * `GET /api/v1/notifications` / `PATCH /api/v1/notifications/:id/read` - Xem danh sách thông báo và đánh dấu đã đọc `is_read = true` (`STUDENT`, `TEACHER` - `DF25`, `DF29`).
 * `POST /api/v1/requests` - Học viên gửi đơn từ học vụ trực tuyến (`STUDENT`).

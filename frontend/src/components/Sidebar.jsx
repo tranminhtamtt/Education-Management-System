@@ -92,6 +92,16 @@ const Sidebar = () => {
       icon: <TrophyOutlined />,
       label: role === 'STUDENT' ? 'Bảng điểm & GPA' : 'Quản lý Điểm số'
     },
+    // Khung chương trình (FAP Curriculum)
+    ...(['ADMIN', 'STUDENT'].includes(role)
+      ? [
+          {
+            key: '/curriculum',
+            icon: <BookOutlined />,
+            label: 'Khung chương trình'
+          }
+        ]
+      : []),
     // Học phí (Admin xem, Student xem công nợ cá nhân)
     ...(['ADMIN', 'STUDENT'].includes(role)
       ? [
