@@ -27,9 +27,9 @@ const Sidebar = () => {
   const items = role === 'ACCOUNTANT'
     ? [
         // Accountant (Người 3): chỉ các chức năng tài chính học phí
-        { key: '/dashboard', icon: <DashboardOutlined />, label: 'Tổng quan Tài chính' },
-        { key: '/tuition', icon: <DollarCircleOutlined />, label: 'Công nợ & Thu Học phí' },
-        { key: '/tuition-report', icon: <BarChartOutlined />, label: 'Báo cáo Doanh thu' },
+        { key: '/dashboard', icon: <DashboardOutlined />, label: 'Tổng quan & Báo cáo' },
+        { key: '/tuition', icon: <DollarCircleOutlined />, label: 'Công nợ học phí' },
+        { key: '/payment-operations', icon: <AuditOutlined />, label: 'Giao dịch thanh toán' },
         { key: '/notifications', icon: <NotificationOutlined />, label: 'Thông báo' }
       ]
     : [

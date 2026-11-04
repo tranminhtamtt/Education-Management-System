@@ -11,6 +11,7 @@ const notificationsAnalyticsRouter = require('./modules/notifications-analytics'
 const curriculumRouter = require('./modules/curriculum');
 
 const path = require('path');
+const { connectDB, mongoose } = require('./config/db');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -30,6 +31,7 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'UP',
+    database: mongoose.connection.readyState === 1 ? 'CONNECTED' : 'DISCONNECTED',
     timestamp: new Date().toISOString(),
     service: 'EMS Backend API (Education Management System)',
     author: 'EMS Team'
@@ -38,6 +40,7 @@ app.get('/api/health', (req, res) => {
 
 // Đăng ký 5 Cụm API Endpoints chuẩn hóa (/api/v1)
 app.use('/api/v1', usersCoursesRouter);
+app.use('/api/v1', require('./modules/accountant'));
 app.use('/api/v1', classesSchedulesRouter);
 app.use('/api/v1', attendanceAssignmentsRouter);
 app.use('/api/v1', gradesTuitionRouter);
@@ -63,11 +66,19 @@ app.use((err, req, res, next) => {
 });
 
 if (process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, () => {
-    console.log(`🚀 EMS Backend Server running on port ${PORT}`);
-    console.log(`📡 Health check: http://localhost:${PORT}/api/health`);
-    console.log(`📚 Base API: http://localhost:${PORT}/api/v1`);
-  });
+  connectDB()
+    .then(() => {
+      console.log('🍃 Connected to MongoDB Atlas');
+      app.listen(PORT, () => {
+        console.log(`🚀 EMS Backend Server running on port ${PORT}`);
+        console.log(`📡 Health check: http://localhost:${PORT}/api/health`);
+        console.log(`📚 Base API: http://localhost:${PORT}/api/v1`);
+      });
+    })
+    .catch((err) => {
+      console.error('❌ Không kết nối được MongoDB:', err.message);
+      process.exit(1);
+    });
 }
 
 module.exports = app;

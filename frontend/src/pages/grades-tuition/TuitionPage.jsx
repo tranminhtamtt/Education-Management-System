@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Table,
   Card,
@@ -62,24 +62,19 @@ const TuitionPage = () => {
   const [qrInvoiceId, setQrInvoiceId] = useState(null);
   const [receiptPaymentId, setReceiptPaymentId] = useState(null);
 
-  const [payModalOpen, setPayModalOpen] = useState(false);
-  const [selectedInvoice, setSelectedInvoice] = useState(null);
-  const [payForm] = Form.useForm();
-  const [paying, setPaying] = useState(false);
-  const watchedAmount = Form.useWatch('amountPaid', payForm);
-
   const [remindModalOpen, setRemindModalOpen] = useState(false);
   const [remindTargetIds, setRemindTargetIds] = useState([]); // [] = tất cả HV còn nợ
   const [remindForm] = Form.useForm();
   const [reminding, setReminding] = useState(false);
 
-  const fetchInvoices = useCallback(async () => {
+  const fetchInvoices = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const params = {};
       if (filters.search) params.search = filters.search;
       if (filters.status?.length) params.status = filters.status.join(',');
       if (filters.classId) params.classId = filters.classId;
+      if (filters.semester) params.semester = filters.semester;
       if (filters.overdue) params.overdue = 'true';
 
       const res = await apiClient.get('/tuition-invoices', { params });
@@ -89,14 +84,16 @@ const TuitionPage = () => {
         setSelectedRowKeys((keys) => keys.filter((k) => res.data.invoices.some((i) => i.id === k)));
       }
     } catch (err) {
-      message.error(err.response?.data?.message || 'Lỗi khi tải danh sách học phí');
+      if (!silent) message.error(err.response?.data?.message || 'Lỗi khi tải danh sách học phí');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [filters]);
 
   useEffect(() => {
     fetchInvoices();
+    const timer = setInterval(() => fetchInvoices(true), 15000);
+    return () => clearInterval(timer);
   }, [fetchInvoices]);
 
   useEffect(() => {
@@ -106,41 +103,6 @@ const TuitionPage = () => {
       .then((res) => res.success && setClasses(res.data))
       .catch(() => {});
   }, [isFinanceView]);
-
-  // ---------- UC9.2: Ghi nhận thanh toán ----------
-  const handleOpenPayModal = (invoice) => {
-    setSelectedInvoice(invoice);
-    payForm.setFieldsValue({ amountPaid: invoice.remainingAmount, method: 'BANK_TRANSFER', note: '' });
-    setPayModalOpen(true);
-  };
-
-  const handlePayInvoice = async (values) => {
-    try {
-      setPaying(true);
-      const res = await apiClient.patch(`/tuition-invoices/${selectedInvoice.id}/pay`, values);
-      if (res.success) {
-        message.success(res.message);
-        setPayModalOpen(false);
-        await fetchInvoices();
-        // DF35: mở ngay phiếu thu của đợt vừa ghi nhận để in
-        if (res.data?.receipt?.id) setReceiptPaymentId(res.data.receipt.id);
-      }
-    } catch (err) {
-      message.error(err.response?.data?.message || 'Lỗi khi cập nhật thanh toán');
-    } finally {
-      setPaying(false);
-    }
-  };
-
-  const previewStatus = useMemo(() => {
-    if (!selectedInvoice || !watchedAmount) return null;
-    const after = selectedInvoice.paidAmount + Number(watchedAmount);
-    if (Number(watchedAmount) > selectedInvoice.remainingAmount) return { error: true };
-    return {
-      status: after >= selectedInvoice.amount ? 'PAID' : 'PARTIAL',
-      remainingAfter: Math.max(0, selectedInvoice.amount - after)
-    };
-  }, [selectedInvoice, watchedAmount]);
 
   // ---------- UC10.2 Trigger 3: Nhắc nợ ----------
   const openRemindModal = (ids) => {
@@ -251,7 +213,7 @@ const TuitionPage = () => {
       fixed: 'right',
       render: (_, r) => (
         <Space wrap>
-          {r.remainingAmount > 0 && (
+          {isStudent && r.remainingAmount > 0 && (
             <Button
               size="small"
               icon={<QrcodeOutlined />}
@@ -259,12 +221,7 @@ const TuitionPage = () => {
               style={isStudent ? { backgroundColor: '#F26F21', borderColor: '#F26F21' } : undefined}
               onClick={() => setQrInvoiceId(r.id)}
             >
-              VietQR
-            </Button>
-          )}
-          {isAccountant && r.status !== 'PAID' && (
-            <Button size="small" type="primary" icon={<DollarCircleOutlined />} onClick={() => handleOpenPayModal(r)}>
-              Thu tiền
+              Thanh toán QR
             </Button>
           )}
           {isAccountant && r.status !== 'PAID' && (
@@ -281,6 +238,7 @@ const TuitionPage = () => {
 
   return (
     <div>
+      {isAccountant && <Alert style={{ marginBottom: 16 }} showIcon type="info" message="Hệ thống tự ghi nhận khi nhận xác nhận tiền vào. Kế toán theo dõi công nợ, xem phiếu thu, nhắc nợ và xử lý giao dịch sai lệch. Dữ liệu làm mới mỗi 15 giây." />}
       {/* ===== Thẻ tổng hợp công nợ ===== */}
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={24} sm={12} lg={6}>
@@ -339,7 +297,7 @@ const TuitionPage = () => {
           type="warning"
           showIcon
           message={`Bạn còn nợ ${formatVnd(summary.remainingAmount)} học phí.`}
-          description='Bấm nút "VietQR" ở hóa đơn tương ứng để quét mã và chuyển khoản đúng số tiền còn nợ. Phòng Kế toán sẽ gạch nợ sau khi đối soát.'
+          description='Bấm "Thanh toán QR" để tạo mã riêng cho lần thanh toán. Hệ thống tự cập nhật công nợ khi nhận xác nhận tiền vào. Chỉ quét QR chưa được tính là đã thanh toán.'
         />
       )}
       {isStudent && invoices.length > 0 && summary.remainingAmount === 0 && (
@@ -349,7 +307,7 @@ const TuitionPage = () => {
       <Card
         title={
           isAccountant
-            ? 'Quản lý Công nợ & Thu Học phí'
+            ? 'Quản lý công nợ học phí'
             : isStudent
             ? 'Công nợ Học phí Cá nhân'
             : 'Danh sách Hóa đơn Học phí (Chỉ xem)'
@@ -375,7 +333,7 @@ const TuitionPage = () => {
                 </Button>
               </>
             )}
-            <Button icon={<ReloadOutlined />} onClick={fetchInvoices} />
+            <Button icon={<ReloadOutlined />} onClick={() => fetchInvoices()} />
           </Space>
         }
       >
@@ -422,6 +380,9 @@ const TuitionPage = () => {
               />
               <Text>Chỉ quá hạn</Text>
             </Col>
+            <Col xs={24} md={6}>
+              <Input.Search allowClear placeholder="Học kỳ (SP26, SU26, FA26...)" onSearch={v => setFilters(f => ({ ...f, semester: v.trim().toUpperCase() }))} />
+            </Col>
           </Row>
         )}
 
@@ -450,130 +411,10 @@ const TuitionPage = () => {
       </Card>
 
       {/* ===== Modal VietQR (UC9.3) ===== */}
-      <VietQRModal open={!!qrInvoiceId} invoiceId={qrInvoiceId} onClose={() => setQrInvoiceId(null)} />
+      <VietQRModal open={!!qrInvoiceId} invoiceId={qrInvoiceId} onClose={() => setQrInvoiceId(null)} onPayment={() => fetchInvoices(true)} />
 
       {/* ===== Modal Phiếu thu (DF35) ===== */}
       <ReceiptModal open={!!receiptPaymentId} paymentId={receiptPaymentId} onClose={() => setReceiptPaymentId(null)} />
-
-      {/* ===== Modal Ghi nhận thanh toán (UC9.2) ===== */}
-      <Modal
-        title={`Ghi nhận thanh toán - Hóa đơn #${selectedInvoice?.id || ''}`}
-        open={payModalOpen}
-        onCancel={() => setPayModalOpen(false)}
-        footer={null}
-        destroyOnClose
-        width={560}
-      >
-        {selectedInvoice && (
-          <Form form={payForm} layout="vertical" onFinish={handlePayInvoice} preserve={false}>
-            <Descriptions size="small" column={2} bordered style={{ marginBottom: 16 }}>
-              <Descriptions.Item label="Học viên" span={2}>
-                {selectedInvoice.student?.fullName} ({selectedInvoice.student?.code})
-              </Descriptions.Item>
-              <Descriptions.Item label="Môn / Lớp" span={2}>
-                {selectedInvoice.courseCode} – {selectedInvoice.classCode}
-              </Descriptions.Item>
-              <Descriptions.Item label="Tổng học phí">{formatVnd(selectedInvoice.amount)}</Descriptions.Item>
-              <Descriptions.Item label="Đã nộp">{formatVnd(selectedInvoice.paidAmount)}</Descriptions.Item>
-              <Descriptions.Item label="Còn nợ">
-                <Text strong type="danger">
-                  {formatVnd(selectedInvoice.remainingAmount)}
-                </Text>
-              </Descriptions.Item>
-              <Descriptions.Item label="Trạng thái">
-                <InvoiceStatusTag status={selectedInvoice.status} />
-              </Descriptions.Item>
-            </Descriptions>
-
-            <Form.Item
-              name="amountPaid"
-              label="Số tiền thực thu đợt này (VNĐ)"
-              rules={[
-                { required: true, message: 'Vui lòng nhập số tiền' },
-                {
-                  validator: (_, v) => {
-                    if (v === undefined || v === null || v === '') return Promise.resolve();
-                    if (Number(v) <= 0) return Promise.reject(new Error('Số tiền phải lớn hơn 0'));
-                    if (Number(v) > selectedInvoice.remainingAmount)
-                      return Promise.reject(new Error(`Không được vượt quá số còn nợ ${formatVnd(selectedInvoice.remainingAmount)}`));
-                    return Promise.resolve();
-                  }
-                }
-              ]}
-              extra={
-                <Space size={4} style={{ marginTop: 6 }} wrap>
-                  <Button size="small" onClick={() => payForm.setFieldsValue({ amountPaid: selectedInvoice.remainingAmount })}>
-                    Thu đủ
-                  </Button>
-                  {[500000, 1000000, 2000000]
-                    .filter((v) => v < selectedInvoice.remainingAmount)
-                    .map((v) => (
-                      <Button key={v} size="small" onClick={() => payForm.setFieldsValue({ amountPaid: v })}>
-                        {formatVnd(v)}
-                      </Button>
-                    ))}
-                </Space>
-              }
-            >
-              <InputNumber
-                id="pay-amount"
-                min={1}
-                max={selectedInvoice.remainingAmount}
-                step={100000}
-                style={{ width: '100%' }}
-                formatter={(val) => `${val}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                parser={(val) => val.replace(/[^\d]/g, '')}
-                addonAfter="đ"
-              />
-            </Form.Item>
-
-            <Row gutter={12}>
-              <Col span={12}>
-                <Form.Item name="method" label="Hình thức thanh toán" rules={[{ required: true }]}>
-                  <Select
-                    id="pay-method"
-                    options={Object.entries(METHOD_LABELS).map(([value, label]) => ({ value, label }))}
-                  />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="note" label="Ghi chú">
-                  <Input id="pay-note" placeholder="VD: Thu đợt 1, mã GD ngân hàng..." maxLength={255} />
-                </Form.Item>
-              </Col>
-            </Row>
-
-            {previewStatus && !previewStatus.error && (
-              <Alert
-                style={{ marginBottom: 16 }}
-                type={previewStatus.status === 'PAID' ? 'success' : 'info'}
-                showIcon
-                message={
-                  <span>
-                    Sau khi thu: trạng thái <b>{selectedInvoice.status}</b> → <b>{previewStatus.status}</b>
-                    {previewStatus.status === 'PARTIAL' && <> • còn nợ {formatVnd(previewStatus.remainingAfter)}</>}
-                  </span>
-                }
-              />
-            )}
-
-            <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
-              <Space>
-                <Button onClick={() => setPayModalOpen(false)}>Hủy</Button>
-                <Button
-                  type="primary"
-                  htmlType="submit"
-                  loading={paying}
-                  icon={<FileDoneOutlined />}
-                  style={{ backgroundColor: '#F26F21', borderColor: '#F26F21' }}
-                >
-                  Xác nhận thu & Xuất phiếu thu
-                </Button>
-              </Space>
-            </Form.Item>
-          </Form>
-        )}
-      </Modal>
 
       {/* ===== Modal Nhắc nợ (UC10.2 - Trigger 3) ===== */}
       <Modal
@@ -592,7 +433,7 @@ const TuitionPage = () => {
               ? `Gửi nhắc cho ${remindTargetIds.length} hóa đơn đã chọn.`
               : 'Gửi nhắc cho TẤT CẢ hóa đơn chưa hoàn thành (UNPAID / PARTIAL).'
           }
-          description="Mỗi học viên sẽ nhận một thông báo trên quả chuông, kèm số tiền còn nợ, hạn đóng và nội dung chuyển khoản VietQR."
+          description="Mỗi học viên sẽ nhận một thông báo trên quả chuông, kèm số tiền còn nợ, hạn đóng và hướng dẫn mở QR tại mục học phí."
         />
         <Form form={remindForm} layout="vertical" onFinish={handleSendReminders}>
           <Form.Item name="onlyOverdue" valuePropName="checked">

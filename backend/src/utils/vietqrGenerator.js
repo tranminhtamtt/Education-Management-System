@@ -5,7 +5,7 @@
  * DF32 (EMS -> Payment System): Số tiền còn nợ + Nội dung CK "STU2026001 WEB101"
  * DF33 (Payment System -> EMS): Ảnh mã VietQR tĩnh trả về (qrImageUrl)
  */
-const generateVietQRData = ({ amount, studentCode, courseCode, classCode }) => {
+const generateVietQRData = ({ amount, studentCode, courseCode, classCode, paymentCode }) => {
   const bankId = process.env.VIETQR_BANK_ID;
   const accountNo = process.env.VIETQR_ACCOUNT_NO;
   const accountName = process.env.VIETQR_ACCOUNT_NAME;
@@ -13,7 +13,7 @@ const generateVietQRData = ({ amount, studentCode, courseCode, classCode }) => {
 
   // Nội dung chuyển khoản theo đặc tả: [MaHV] [MaMon] (VD: "STU2026001 WEB101")
   // Fallback về mã lớp nếu không có mã môn
-  const description = `${studentCode} ${courseCode || classCode || ''}`.trim();
+  const description = paymentCode || `${studentCode} ${courseCode || classCode || ''}`.trim();
   const encodedDesc = encodeURIComponent(description);
   const encodedName = encodeURIComponent(accountName);
 

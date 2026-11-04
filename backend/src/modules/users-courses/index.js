@@ -4,7 +4,8 @@ const bcrypt = require('bcryptjs');
 const { login, getMe } = require('./auth.controller');
 const authenticateJWT = require('../../middlewares/auth.middleware');
 const authorizeRoles = require('../../middlewares/role.middleware');
-const prisma = require('../../config/prisma');
+const { User, Course, Class, Enrollment } = require('../../models');
+const { like, plain } = require('../../utils/query');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
 
 // ==========================================
@@ -30,29 +31,29 @@ router.get('/students', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), asy
       ...(status ? { status } : {}),
       ...(search
         ? {
-            OR: [
-              { code: { contains: search } },
-              { fullName: { contains: search } },
-              { email: { contains: search } },
-              { phone: { contains: search } }
+            $or: [
+              { code: like(search) },
+              { fullName: like(search) },
+              { email: like(search) },
+              { phone: like(search) }
             ]
           }
         : {})
     };
 
     const [total, students] = await Promise.all([
-      prisma.user.count({ where }),
-      prisma.user.findMany({
-        where,
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-        include: {
-          studentProfile: true,
-          _count: { select: { enrollments: true } }
-        },
-        orderBy: { code: 'asc' }
-      })
+      User.countDocuments(where),
+      User.find(where)
+        .sort({ code: 1 })
+        .skip((page - 1) * pageSize)
+        .limit(pageSize)
     ]);
+
+    const counts = await Enrollment.aggregate([
+      { $match: { studentId: { $in: students.map(s => s.id) } } },
+      { $group: { _id: '$studentId', n: { $sum: 1 } } }
+    ]);
+    const countMap = new Map(counts.map(c => [c._id, c.n]));
 
     return successResponse(
       res,
@@ -66,8 +67,8 @@ router.get('/students', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), asy
           status: s.status,
           avatar: s.avatar,
           createdAt: s.createdAt,
-          profile: s.studentProfile,
-          totalClasses: s._count.enrollments
+          profile: plain(s).studentProfile || null,
+          totalClasses: countMap.get(s.id) || 0
         })),
         pagination: {
           page,
@@ -96,17 +97,13 @@ router.post('/students', authenticateJWT, authorizeRoles('ADMIN'), async (req, r
     // Tự sinh mã nếu chưa có
     let studentCode = code;
     if (!studentCode) {
-      const count = await prisma.user.count({ where: { role: 'STUDENT' } });
+      const count = await User.countDocuments({ role: 'STUDENT' });
       const year = enrollmentYear || new Date().getFullYear();
       studentCode = `HE${String(year).slice(-2)}${String(count + 1).padStart(4, '0')}`;
     }
 
     // Kiểm tra trùng email hoặc code
-    const existing = await prisma.user.findFirst({
-      where: {
-        OR: [{ email }, { code: studentCode }]
-      }
-    });
+    const existing = await User.findOne({ $or: [{ email: String(email) }, { code: String(studentCode) }] });
 
     if (existing) {
       return errorResponse(res, 'Mã học viên hoặc Email đã tồn tại trên hệ thống', 400);
@@ -115,28 +112,25 @@ router.post('/students', authenticateJWT, authorizeRoles('ADMIN'), async (req, r
     const defaultPassword = password || '123456';
     const passwordHash = await bcrypt.hash(defaultPassword, 10);
 
-    const newUser = await prisma.user.create({
-      data: {
-        code: studentCode,
-        fullName,
-        email,
-        phone: phone || null,
-        passwordHash,
-        role: 'STUDENT',
-        status: 'ACTIVE',
-        studentProfile: {
-          create: {
-            gender: gender || 'MALE',
-            dob: dob ? new Date(dob) : null,
-            address: address || null,
-            enrollmentYear: parseInt(enrollmentYear) || new Date().getFullYear()
-          }
-        }
-      },
-      include: { studentProfile: true }
+    const newUser = await User.create({
+      code: studentCode,
+      fullName,
+      email,
+      phone: phone || null,
+      passwordHash,
+      role: 'STUDENT',
+      status: 'ACTIVE',
+      studentProfile: {
+        gender: gender || 'MALE',
+        dob: dob ? new Date(dob) : null,
+        address: address || null,
+        enrollmentYear: parseInt(enrollmentYear) || new Date().getFullYear()
+      }
     });
 
-    return successResponse(res, newUser, 'Tạo hồ sơ học viên thành công', 201);
+    const data = plain(newUser);
+    delete data.passwordHash;
+    return successResponse(res, data, 'Tạo hồ sơ học viên thành công', 201);
   } catch (error) {
     console.error('Error creating student:', error);
     return errorResponse(res, 'Lỗi khi tạo mới học viên', 500);
@@ -149,42 +143,33 @@ router.put('/students/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req
     const id = parseInt(req.params.id);
     const { fullName, phone, status, gender, dob, address, enrollmentYear } = req.body;
 
-    const student = await prisma.user.findUnique({
-      where: { id },
-      include: { studentProfile: true }
-    });
+    const student = await User.findOne({ id });
 
     if (!student || student.role !== 'STUDENT') {
       return errorResponse(res, 'Không tìm thấy học viên', 404);
     }
 
-    const updated = await prisma.user.update({
-      where: { id },
-      data: {
-        ...(fullName ? { fullName } : {}),
-        ...(phone !== undefined ? { phone } : {}),
-        ...(status ? { status } : {}),
-        studentProfile: {
-          upsert: {
-            create: {
-              gender: gender || 'MALE',
-              dob: dob ? new Date(dob) : null,
-              address: address || null,
-              enrollmentYear: enrollmentYear ? parseInt(enrollmentYear) : new Date().getFullYear()
-            },
-            update: {
-              ...(gender ? { gender } : {}),
-              ...(dob ? { dob: new Date(dob) } : {}),
-              ...(address !== undefined ? { address } : {}),
-              ...(enrollmentYear ? { enrollmentYear: parseInt(enrollmentYear) } : {})
-            }
-          }
-        }
-      },
-      include: { studentProfile: true }
-    });
+    if (fullName) student.fullName = fullName;
+    if (phone !== undefined) student.phone = phone;
+    if (status) student.status = status;
 
-    return successResponse(res, updated, 'Cập nhật học viên thành công');
+    // Tương đương upsert student_profiles
+    if (!student.studentProfile) {
+      student.studentProfile = {
+        gender: gender || 'MALE',
+        dob: dob ? new Date(dob) : null,
+        address: address || null,
+        enrollmentYear: enrollmentYear ? parseInt(enrollmentYear) : new Date().getFullYear()
+      };
+    } else {
+      if (gender) student.studentProfile.gender = gender;
+      if (dob) student.studentProfile.dob = new Date(dob);
+      if (address !== undefined) student.studentProfile.address = address;
+      if (enrollmentYear) student.studentProfile.enrollmentYear = parseInt(enrollmentYear);
+    }
+
+    await student.save();
+    return successResponse(res, plain(student), 'Cập nhật học viên thành công');
   } catch (error) {
     console.error('Error updating student:', error);
     return errorResponse(res, 'Lỗi cập nhật học viên', 500);
@@ -201,28 +186,19 @@ router.get('/students/:id/profile-360', authenticateJWT, async (req, res) => {
       return errorResponse(res, 'Bạn không có quyền xem hồ sơ sinh viên khác', 403);
     }
 
-    const student = await prisma.user.findUnique({
-      where: { id },
-      include: {
-        studentProfile: true,
-        enrollments: {
-          include: {
-            class: {
-              include: {
-                course: true,
-                teacher: { select: { fullName: true, code: true, email: true } }
-              }
-            },
-            grade: true,
-            tuitionInvoice: true
-          }
-        }
-      }
+    const studentDoc = await User.findOne({ id }).populate({
+      path: 'enrollments',
+      populate: [
+        { path: 'class', populate: ['course', { path: 'teacher', select: 'id fullName code email' }] },
+        'grade',
+        'tuitionInvoice'
+      ]
     });
 
-    if (!student || student.role !== 'STUDENT') {
+    if (!studentDoc || studentDoc.role !== 'STUDENT') {
       return errorResponse(res, 'Không tìm thấy hồ sơ học viên', 404);
     }
+    const student = plain(studentDoc);
 
     // Tính GPA tích lũy
     const gradesWithTotal = student.enrollments
@@ -242,7 +218,7 @@ router.get('/students/:id/profile-360', authenticateJWT, async (req, res) => {
         phone: student.phone,
         status: student.status,
         avatar: student.avatar,
-        profile: student.studentProfile
+        profile: student.studentProfile || null
       },
       academicSummary: {
         totalEnrolledClasses: student.enrollments.length,
@@ -250,15 +226,15 @@ router.get('/students/:id/profile-360', authenticateJWT, async (req, res) => {
         passedCourses: gradesWithTotal.filter(g => g.isPassed).length,
         failedCourses: gradesWithTotal.filter(g => !g.isPassed && g.isBanned !== null).length
       },
-      classes: student.enrollments.map(e => ({
+      classes: student.enrollments.filter(e => e.class).map(e => ({
         classId: e.class.id,
         classCode: e.class.classCode,
-        courseCode: e.class.course.courseCode,
-        courseName: e.class.course.name,
+        courseCode: e.class.course?.courseCode,
+        courseName: e.class.course?.name,
         semester: e.class.semester,
         teacher: e.class.teacher?.fullName || 'Chưa phân công',
-        grade: e.grade,
-        tuition: e.tuitionInvoice
+        grade: e.grade || null,
+        tuition: e.tuitionInvoice || null
       }))
     }, 'Lấy hồ sơ 360 thành công');
   } catch (error) {
@@ -274,16 +250,9 @@ router.get('/students/:id/profile-360', authenticateJWT, async (req, res) => {
 // UC2.1: Danh sách giảng viên
 router.get('/teachers', authenticateJWT, async (req, res) => {
   try {
-    const teachers = await prisma.user.findMany({
-      where: { role: 'TEACHER', status: 'ACTIVE' },
-      include: {
-        teacherProfile: true,
-        teachingClasses: {
-          include: { course: true }
-        }
-      },
-      orderBy: { fullName: 'asc' }
-    });
+    const teachers = (await User.find({ role: 'TEACHER', status: 'ACTIVE' })
+      .sort({ fullName: 1 })
+      .populate({ path: 'teachingClasses', populate: 'course' })).map(plain);
 
     return successResponse(
       res,
@@ -301,7 +270,7 @@ router.get('/teachers', authenticateJWT, async (req, res) => {
         classes: t.teachingClasses.map(c => ({
           id: c.id,
           classCode: c.classCode,
-          courseName: c.course.name,
+          courseName: c.course?.name,
           semester: c.semester,
           status: c.status
         }))
@@ -325,39 +294,34 @@ router.post('/teachers', authenticateJWT, authorizeRoles('ADMIN'), async (req, r
 
     let teacherCode = code;
     if (!teacherCode) {
-      const count = await prisma.user.count({ where: { role: 'TEACHER' } });
+      const count = await User.countDocuments({ role: 'TEACHER' });
       teacherCode = `GV${String(count + 1).padStart(3, '0')}`;
     }
 
-    const existing = await prisma.user.findFirst({
-      where: { OR: [{ email }, { code: teacherCode }] }
-    });
+    const existing = await User.findOne({ $or: [{ email: String(email) }, { code: String(teacherCode) }] });
     if (existing) {
       return errorResponse(res, 'Mã hoặc Email giảng viên đã tồn tại', 400);
     }
 
     const passwordHash = await bcrypt.hash('123456', 10);
-    const teacher = await prisma.user.create({
-      data: {
-        code: teacherCode,
-        fullName,
-        email,
-        phone: phone || null,
-        passwordHash,
-        role: 'TEACHER',
-        status: 'ACTIVE',
-        teacherProfile: {
-          create: {
-            degree: degree || 'Thạc sĩ',
-            specialty: specialty || 'Công nghệ Thông tin',
-            bio: bio || ''
-          }
-        }
-      },
-      include: { teacherProfile: true }
+    const teacher = await User.create({
+      code: teacherCode,
+      fullName,
+      email,
+      phone: phone || null,
+      passwordHash,
+      role: 'TEACHER',
+      status: 'ACTIVE',
+      teacherProfile: {
+        degree: degree || 'Thạc sĩ',
+        specialty: specialty || 'Công nghệ Thông tin',
+        bio: bio || ''
+      }
     });
 
-    return successResponse(res, teacher, 'Tạo giảng viên thành công', 201);
+    const data = plain(teacher);
+    delete data.passwordHash;
+    return successResponse(res, data, 'Tạo giảng viên thành công', 201);
   } catch (error) {
     console.error('Error creating teacher:', error);
     return errorResponse(res, 'Lỗi khi tạo giảng viên', 500);
@@ -374,19 +338,15 @@ router.get('/courses', authenticateJWT, async (req, res) => {
     const { status } = req.query;
     const where = status ? { status } : {};
 
-    const courses = await prisma.course.findMany({
-      where,
-      include: {
-        _count: { select: { classes: true } }
-      },
-      orderBy: { courseCode: 'asc' }
-    });
+    const courses = await Course.find(where).sort({ courseCode: 1 });
+    const counts = await Class.aggregate([{ $group: { _id: '$courseId', n: { $sum: 1 } } }]);
+    const countMap = new Map(counts.map(c => [c._id, c.n]));
 
     return successResponse(
       res,
       courses.map(c => ({
-        ...c,
-        totalClasses: c._count.classes
+        ...plain(c),
+        totalClasses: countMap.get(c.id) || 0
       })),
       'Lấy danh sách môn học thành công'
     );
@@ -405,27 +365,23 @@ router.post('/courses', authenticateJWT, authorizeRoles('ADMIN'), async (req, re
       return errorResponse(res, 'Mã môn, Tên môn và Số tín chỉ là bắt buộc', 400);
     }
 
-    const existing = await prisma.course.findUnique({
-      where: { courseCode }
-    });
+    const existing = await Course.findOne({ courseCode: String(courseCode).toUpperCase().trim() });
     if (existing) {
       return errorResponse(res, `Mã môn ${courseCode} đã tồn tại`, 400);
     }
 
-    const course = await prisma.course.create({
-      data: {
-        courseCode: courseCode.toUpperCase().trim(),
-        name: name.trim(),
-        credits: parseInt(credits),
-        totalSessions: parseInt(totalSessions) || 30,
-        baseTuitionFee: parseFloat(baseTuitionFee) || 5000000.0,
-        description: description || null,
-        syllabusUrl: syllabusUrl || null,
-        status: status || 'ACTIVE'
-      }
+    const course = await Course.create({
+      courseCode: courseCode.toUpperCase().trim(),
+      name: name.trim(),
+      credits: parseInt(credits),
+      totalSessions: parseInt(totalSessions) || 30,
+      baseTuitionFee: parseFloat(baseTuitionFee) || 5000000.0,
+      description: description || null,
+      syllabusUrl: syllabusUrl || null,
+      status: status || 'ACTIVE'
     });
 
-    return successResponse(res, course, 'Tạo môn học mới thành công', 201);
+    return successResponse(res, plain(course), 'Tạo môn học mới thành công', 201);
   } catch (error) {
     console.error('Error creating course:', error);
     return errorResponse(res, 'Lỗi tạo môn học', 500);
@@ -438,20 +394,24 @@ router.put('/courses/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req,
     const id = parseInt(req.params.id);
     const { name, credits, totalSessions, baseTuitionFee, description, syllabusUrl, status } = req.body;
 
-    const updated = await prisma.course.update({
-      where: { id },
-      data: {
-        ...(name ? { name: name.trim() } : {}),
-        ...(credits ? { credits: parseInt(credits) } : {}),
-        ...(totalSessions ? { totalSessions: parseInt(totalSessions) } : {}),
-        ...(baseTuitionFee !== undefined ? { baseTuitionFee: parseFloat(baseTuitionFee) } : {}),
-        ...(description !== undefined ? { description } : {}),
-        ...(syllabusUrl !== undefined ? { syllabusUrl } : {}),
-        ...(status ? { status } : {})
-      }
-    });
+    const updated = await Course.findOneAndUpdate(
+      { id },
+      {
+        $set: {
+          ...(name ? { name: name.trim() } : {}),
+          ...(credits ? { credits: parseInt(credits) } : {}),
+          ...(totalSessions ? { totalSessions: parseInt(totalSessions) } : {}),
+          ...(baseTuitionFee !== undefined ? { baseTuitionFee: parseFloat(baseTuitionFee) } : {}),
+          ...(description !== undefined ? { description } : {}),
+          ...(syllabusUrl !== undefined ? { syllabusUrl } : {}),
+          ...(status ? { status } : {})
+        }
+      },
+      { new: true, runValidators: true }
+    );
+    if (!updated) return errorResponse(res, 'Không tìm thấy môn học', 404);
 
-    return successResponse(res, updated, 'Cập nhật môn học thành công');
+    return successResponse(res, plain(updated), 'Cập nhật môn học thành công');
   } catch (error) {
     console.error('Error updating course:', error);
     return errorResponse(res, 'Lỗi cập nhật môn học', 500);
@@ -462,24 +422,20 @@ router.put('/courses/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req,
 router.delete('/courses/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const countClasses = await prisma.class.count({
-      where: { courseId: id }
-    });
+    const countClasses = await Class.countDocuments({ courseId: id });
 
     if (countClasses > 0) {
       // Soft-delete chuyển trạng thái sang INACTIVE
-      const deactivated = await prisma.course.update({
-        where: { id },
-        data: { status: 'INACTIVE' }
-      });
+      const deactivated = await Course.findOneAndUpdate({ id }, { $set: { status: 'INACTIVE' } }, { new: true });
       return successResponse(
         res,
-        deactivated,
+        plain(deactivated),
         `Môn học đã có ${countClasses} lớp liên kết. Đã tự động chuyển trạng thái sang 'INACTIVE' (Ngưng mở môn) để bảo toàn dữ liệu lịch sử.`
       );
     }
 
-    await prisma.course.delete({ where: { id } });
+    const deleted = await Course.deleteOne({ id });
+    if (!deleted.deletedCount) return errorResponse(res, 'Không tìm thấy môn học', 404);
     return successResponse(res, null, 'Xóa môn học thành công');
   } catch (error) {
     console.error('Error deleting course:', error);

@@ -1,6 +1,6 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const prisma = require('../../config/prisma');
+const { User } = require('../../models');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
 
 const login = async (req, res) => {
@@ -11,13 +11,7 @@ const login = async (req, res) => {
       return errorResponse(res, 'Vui lòng nhập đầy đủ email và mật khẩu.', 400);
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email },
-      include: {
-        studentProfile: true,
-        teacherProfile: true
-      }
-    });
+    const user = await User.findOne({ email: String(email) }).select('+passwordHash');
 
     if (!user) {
       return errorResponse(res, 'Tài khoản không tồn tại trên hệ thống.', 401);
@@ -71,27 +65,15 @@ const login = async (req, res) => {
 
 const getMe = async (req, res) => {
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      select: {
-        id: true,
-        code: true,
-        email: true,
-        fullName: true,
-        role: true,
-        phone: true,
-        avatar: true,
-        status: true,
-        studentProfile: true,
-        teacherProfile: true
-      }
-    });
+    const user = await User.findOne({ id: req.user.id })
+      .select('id code email fullName role phone avatar status studentProfile teacherProfile');
 
     if (!user) {
       return errorResponse(res, 'Không tìm thấy thông tin người dùng.', 404);
     }
 
-    return successResponse(res, user, 'Lấy thông tin người dùng thành công');
+    const data = user.toJSON();
+    return successResponse(res, { ...data, studentProfile: data.studentProfile || null, teacherProfile: data.teacherProfile || null }, 'Lấy thông tin người dùng thành công');
   } catch (error) {
     return errorResponse(res, 'Lỗi lấy thông tin cá nhân.', 500);
   }

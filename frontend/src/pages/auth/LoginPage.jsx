@@ -134,37 +134,37 @@ const LoginPage = () => {
         </Form>
 
         <Divider plain style={{ margin: '18px 0', fontSize: 12, color: '#8c8c8c' }}>
-          Tài khoản kiểm thử nhanh (1-Click Fill)
+          Tài khoản dữ liệu mẫu (mật khẩu: Ems@2026)
         </Divider>
 
         <Space direction="vertical" style={{ width: '100%' }} size="small">
           <Button
             size="small"
             block
-            onClick={() => quickFill('admin@fpt.edu.vn', '123456')}
+            onClick={() => quickFill('admin@fpt.edu.vn', 'Ems@2026')}
           >
-            🔑 <b>Admin</b>: admin@fpt.edu.vn (123456)
+            🔑 <b>Admin / Giáo vụ</b>: admin@fpt.edu.vn
           </Button>
           <Button
             size="small"
             block
-            onClick={() => quickFill('ketoan@fpt.edu.vn', '123456')}
+            onClick={() => quickFill('ketoan@fpt.edu.vn', 'Ems@2026')}
           >
-            💰 <b>Kế toán</b>: ketoan@fpt.edu.vn (123456)
+            💰 <b>Kế toán</b>: ketoan@fpt.edu.vn
           </Button>
           <Button
             size="small"
             block
-            onClick={() => quickFill('thaynam@fpt.edu.vn', '123456')}
+            onClick={() => quickFill('gv001@fpt.edu.vn', 'Ems@2026')}
           >
-            👨‍🏫 <b>Giảng viên</b>: thaynam@fpt.edu.vn (123456)
+            👨‍🏫 <b>Giảng viên</b>: gv001@fpt.edu.vn
           </Button>
           <Button
             size="small"
             block
-            onClick={() => quickFill('namnvhe170001@fpt.edu.vn', '123456')}
+            onClick={() => quickFill('se03001@fpt.edu.vn', 'Ems@2026')}
           >
-            🎓 <b>Sinh viên</b>: namnvhe170001@fpt.edu.vn (123456)
+            🎓 <b>Sinh viên (kỳ 3)</b>: se03001@fpt.edu.vn
           </Button>
         </Space>
       </Card>

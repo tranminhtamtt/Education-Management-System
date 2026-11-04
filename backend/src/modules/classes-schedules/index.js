@@ -2,9 +2,14 @@ const express = require('express');
 const router = express.Router();
 const authenticateJWT = require('../../middlewares/auth.middleware');
 const authorizeRoles = require('../../middlewares/role.middleware');
-const prisma = require('../../config/prisma');
+const { withTransaction } = require('../../config/db');
+const {
+  Class, Course, User, Enrollment, Schedule, Grade, TuitionInvoice, Attendance,
+  PaymentOrder, PaymentTransaction, TuitionPayment
+} = require('../../models');
+const { plain } = require('../../utils/query');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
-const { checkPrerequisites } = require('../curriculum/curriculumData');
+const { enrollStudent } = require('../curriculum/enrollmentPolicy');
 
 // Khung giờ 6 Slot chuẩn FAP
 const SLOT_HOURS = {
@@ -16,6 +21,8 @@ const SLOT_HOURS = {
   6: { start: '20:30', end: '22:50' }
 };
 
+const TEACHER_FIELDS = 'id code fullName email';
+
 // ==========================================
 // 1. CLASSES MANAGEMENT (UC4.1 - UC4.2)
 // ==========================================
@@ -26,22 +33,21 @@ router.get('/classes', authenticateJWT, async (req, res) => {
     const { semester, courseId, teacherId, status } = req.query;
 
     const where = {
-      ...(semester ? { semester } : {}),
+      ...(semester ? { semester: String(semester) } : {}),
       ...(courseId ? { courseId: parseInt(courseId) } : {}),
       ...(teacherId ? { teacherId: parseInt(teacherId) } : {}),
-      ...(status ? { status } : {})
+      ...(status ? { status: String(status) } : {})
     };
 
-    const classes = await prisma.class.findMany({
-      where,
-      include: {
-        course: true,
-        teacher: { select: { id: true, code: true, fullName: true, email: true } },
-        schedules: true,
-        _count: { select: { enrollments: true } }
-      },
-      orderBy: { createdAt: 'desc' }
-    });
+    const classes = (await Class.find(where)
+      .sort({ createdAt: -1, id: -1 })
+      .populate(['course', { path: 'teacher', select: TEACHER_FIELDS }, 'schedules'])).map(plain);
+
+    const counts = await Enrollment.aggregate([
+      { $match: { classId: { $in: classes.map(c => c.id) } } },
+      { $group: { _id: '$classId', n: { $sum: 1 } } }
+    ]);
+    const countMap = new Map(counts.map(c => [c._id, c.n]));
 
     return successResponse(
       res,
@@ -50,10 +56,10 @@ router.get('/classes', authenticateJWT, async (req, res) => {
         classCode: c.classCode,
         semester: c.semester,
         maxStudents: c.maxStudents,
-        currentStudents: c._count.enrollments,
+        currentStudents: countMap.get(c.id) || 0,
         status: c.status,
         course: c.course,
-        teacher: c.teacher,
+        teacher: c.teacher || null,
         schedules: c.schedules,
         createdAt: c.createdAt
       })),
@@ -70,37 +76,29 @@ router.get('/classes/:id', authenticateJWT, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
 
-    const classItem = await prisma.class.findUnique({
-      where: { id },
-      include: {
-        course: true,
-        teacher: { select: { id: true, code: true, fullName: true, email: true, phone: true } },
-        schedules: {
-          orderBy: [{ dayOfWeek: 'asc' }, { shift: 'asc' }]
-        },
-        enrollments: {
-          include: {
-            student: {
-              select: {
-                id: true,
-                code: true,
-                fullName: true,
-                email: true,
-                phone: true,
-                studentProfile: true
-              }
-            },
-            grade: true,
-            tuitionInvoice: true
-          },
-          orderBy: { student: { code: 'asc' } }
-        }
+    const doc = await Class.findOne({ id }).populate([
+      'course',
+      { path: 'teacher', select: 'id code fullName email phone' },
+      'schedules',
+      {
+        path: 'enrollments',
+        populate: [
+          { path: 'student', select: 'id code fullName email phone studentProfile' },
+          'grade',
+          'tuitionInvoice'
+        ]
       }
-    });
+    ]);
 
-    if (!classItem) {
+    if (!doc) {
       return errorResponse(res, 'Không tìm thấy lớp học phần', 404);
     }
+
+    const classItem = plain(doc);
+    classItem.teacher = classItem.teacher || null;
+    classItem.enrollments = classItem.enrollments
+      .map(e => ({ ...e, student: e.student ? { ...e.student, studentProfile: e.student.studentProfile || null } : null, grade: e.grade || null, tuitionInvoice: e.tuitionInvoice || null }))
+      .sort((a, b) => String(a.student?.code || '').localeCompare(String(b.student?.code || '')));
 
     return successResponse(res, classItem, 'Lấy chi tiết lớp học thành công');
   } catch (error) {
@@ -119,29 +117,28 @@ router.post('/classes', authenticateJWT, authorizeRoles('ADMIN'), async (req, re
     }
 
     // Kiểm tra trùng mã lớp
-    const existing = await prisma.class.findUnique({
-      where: { classCode: classCode.trim().toUpperCase() }
-    });
+    const existing = await Class.findOne({ classCode: String(classCode).trim().toUpperCase() });
     if (existing) {
       return errorResponse(res, `Lớp học mã ${classCode} đã tồn tại`, 400);
     }
+    if (!(await Course.exists({ id: parseInt(courseId) }))) {
+      return errorResponse(res, 'Môn học không tồn tại', 400);
+    }
+    if (teacherId && !(await User.exists({ id: parseInt(teacherId), role: 'TEACHER' }))) {
+      return errorResponse(res, 'Giảng viên không tồn tại', 400);
+    }
 
-    const newClass = await prisma.class.create({
-      data: {
-        classCode: classCode.trim().toUpperCase(),
-        courseId: parseInt(courseId),
-        teacherId: teacherId ? parseInt(teacherId) : null,
-        semester: semester.trim().toUpperCase(),
-        maxStudents: maxStudents ? parseInt(maxStudents) : 30,
-        status: 'UPCOMING'
-      },
-      include: {
-        course: true,
-        teacher: { select: { fullName: true, code: true } }
-      }
+    const created = await Class.create({
+      classCode: classCode.trim().toUpperCase(),
+      courseId: parseInt(courseId),
+      teacherId: teacherId ? parseInt(teacherId) : null,
+      semester: semester.trim().toUpperCase(),
+      maxStudents: maxStudents ? parseInt(maxStudents) : 30,
+      status: 'UPCOMING'
     });
+    const newClass = await Class.findOne({ id: created.id }).populate(['course', { path: 'teacher', select: 'fullName code' }]);
 
-    return successResponse(res, newClass, 'Mở lớp học phần thành công', 201);
+    return successResponse(res, plain(newClass), 'Mở lớp học phần thành công', 201);
   } catch (error) {
     console.error('Error creating class:', error);
     return errorResponse(res, 'Lỗi khi tạo lớp học phần mới', 500);
@@ -154,21 +151,21 @@ router.put('/classes/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req,
     const id = parseInt(req.params.id);
     const { teacherId, status, maxStudents, semester } = req.body;
 
-    const updated = await prisma.class.update({
-      where: { id },
-      data: {
-        ...(teacherId !== undefined ? { teacherId: teacherId ? parseInt(teacherId) : null } : {}),
-        ...(status ? { status } : {}),
-        ...(maxStudents ? { maxStudents: parseInt(maxStudents) } : {}),
-        ...(semester ? { semester: semester.trim().toUpperCase() } : {})
+    const updated = await Class.findOneAndUpdate(
+      { id },
+      {
+        $set: {
+          ...(teacherId !== undefined ? { teacherId: teacherId ? parseInt(teacherId) : null } : {}),
+          ...(status ? { status } : {}),
+          ...(maxStudents ? { maxStudents: parseInt(maxStudents) } : {}),
+          ...(semester ? { semester: semester.trim().toUpperCase() } : {})
+        }
       },
-      include: {
-        course: true,
-        teacher: { select: { fullName: true, code: true } }
-      }
-    });
+      { new: true, runValidators: true }
+    ).populate(['course', { path: 'teacher', select: 'fullName code' }]);
+    if (!updated) return errorResponse(res, 'Không tìm thấy lớp học phần', 404);
 
-    return successResponse(res, updated, 'Cập nhật thông tin lớp học thành công');
+    return successResponse(res, plain(updated), 'Cập nhật thông tin lớp học thành công');
   } catch (error) {
     console.error('Error updating class:', error);
     return errorResponse(res, 'Lỗi cập nhật lớp học', 500);
@@ -185,150 +182,22 @@ router.post('/classes/:id/enrollments', authenticateJWT, authorizeRoles('ADMIN')
     const classId = parseInt(req.params.id);
     const { studentId, forceEnroll } = req.body;
 
-    if (!studentId) {
+    if (!studentId || !Number.isSafeInteger(Number(studentId))) {
       return errorResponse(res, 'Vui lòng chọn học viên cần ghi danh', 400);
     }
 
-    const classItem = await prisma.class.findUnique({
-      where: { id: classId },
-      include: {
-        course: true,
-        enrollments: true,
-        schedules: true
-      }
-    });
-
-    if (!classItem) {
-      return errorResponse(res, 'Không tìm thấy lớp học phần', 404);
-    }
-
-    // Kiểm tra sĩ số tối đa max_students
-    if (classItem.enrollments.length >= classItem.maxStudents) {
-      return errorResponse(
-        res,
-        `Lớp đã đạt sĩ số tối đa (${classItem.maxStudents} sinh viên). Không thể thêm học viên.`,
-        400
-      );
-    }
-
-    // Kiểm tra xem sinh viên đã được ghi danh trước đó chưa
-    const existingEnrollment = await prisma.enrollment.findUnique({
-      where: {
-        classId_studentId: {
-          classId,
-          studentId: parseInt(studentId)
-        }
-      }
-    });
-
-    if (existingEnrollment) {
-      return errorResponse(res, 'Học viên này đã có trong danh sách lớp học', 400);
-    }
-
-    // KIỂM TRA ĐIỀU KIỆN TIÊN QUYẾT (Prerequisite Check)
-    if (!forceEnroll && classItem.course?.courseCode) {
-      const studentGrades = await prisma.enrollment.findMany({
-        where: { studentId: parseInt(studentId) },
-        include: {
-          class: { include: { course: true } },
-          grade: true
-        }
-      });
-      const passedCourseCodes = studentGrades
-        .filter(e => e.grade && e.grade.isPassed)
-        .map(e => e.class.course?.courseCode?.toUpperCase());
-
-      const prereqCheck = checkPrerequisites(classItem.course.courseCode, passedCourseCodes);
-      if (!prereqCheck.isEligible) {
-        return errorResponse(
-          res,
-          `[Chưa đủ điều kiện tiên quyết] Học viên chưa hoàn thành môn tiên quyết: ${prereqCheck.missingPrerequisites.join(', ')}. Hãy hoàn thành môn tiên quyết trước hoặc xác nhận đặc cách.`,
-          400,
-          { missingPrerequisites: prereqCheck.missingPrerequisites, canForce: true }
-        );
-      }
-    }
-
-    // KIỂM TRA TRÙNG LỊCH HỌC CỦA HỌC VIÊN TRONG CÙNG HỌC KỲ (Cross-Module Logic)
-    if (classItem.schedules && classItem.schedules.length > 0) {
-      const studentOtherEnrollments = await prisma.enrollment.findMany({
-        where: {
-          studentId: parseInt(studentId),
-          status: 'ACTIVE',
-          class: {
-            semester: classItem.semester,
-            id: { not: classId }
-          }
-        },
-        include: {
-          class: {
-            include: { schedules: true }
-          }
-        }
-      });
-
-      for (const newSched of classItem.schedules) {
-        for (const enr of studentOtherEnrollments) {
-          for (const existSched of enr.class.schedules) {
-            if (existSched.dayOfWeek === newSched.dayOfWeek && existSched.shift === newSched.shift) {
-              return errorResponse(
-                res,
-                `[Xung đột lịch học viên] Học viên đã có lịch học lớp ${enr.class.classCode} vào Thứ ${newSched.dayOfWeek}, Slot ${newSched.shift} trong học kỳ ${classItem.semester}. Không thể ghi danh!`,
-                409
-              );
-            }
-          }
-        }
-      }
-    }
-
-    // THỰC HIỆN TRANSACTION GHI DANH KÈM TRIGGER TỰ ĐỘNG THEO YÊU CẦU ĐẶC TẢ
-    const result = await prisma.$transaction(async (tx) => {
-      // 1. Tạo Enrollment
-      const enrollment = await tx.enrollment.create({
-        data: {
-          classId,
-          studentId: parseInt(studentId),
-          status: 'ACTIVE'
-        }
-      });
-
-      // 2. Trigger tự động 1: Tạo bản ghi Grade trống
-      const grade = await tx.grade.create({
-        data: {
-          enrollmentId: enrollment.id,
-          attendanceScore: null,
-          midtermScore: null,
-          finalScore: null,
-          totalScore: null,
-          isPassed: false,
-          isBanned: false
-        }
-      });
-
-      // 3. Trigger tự động 2: Tạo hóa đơn học phí tương ứng baseTuitionFee của môn
-      const tuitionFee = classItem.course?.baseTuitionFee || 5000000;
-      const dueDate = new Date();
-      dueDate.setDate(dueDate.getDate() + 30); // Hạn đóng sau 30 ngày
-
-      const invoice = await tx.tuitionInvoice.create({
-        data: {
-          studentId: parseInt(studentId),
-          enrollmentId: enrollment.id,
-          amount: tuitionFee,
-          paidAmount: 0,
-          dueDate,
-          status: 'UNPAID'
-        }
-      });
-
-      return { enrollment, grade, invoice };
-    });
+    // Kiểm tra sĩ số, trùng ghi danh, đã qua môn, đang học môn, tiên quyết, vượt kỳ, trùng lịch
+    // và tạo Enrollment + Grade + TuitionInvoice trong cùng transaction.
+    const result = await enrollStudent(classId, Number(studentId), { force: forceEnroll === true });
 
     return successResponse(res, result, 'Ghi danh học viên vào lớp thành công (Đã tự động khởi tạo bảng điểm và học phí)', 201);
   } catch (error) {
-    console.error('Error enrolling student:', error);
-    return errorResponse(res, 'Lỗi ghi danh sinh viên', 500);
+    if (error.code === 11000) return errorResponse(res, 'Học viên này đã có trong danh sách lớp học', 400);
+    if (!error.status) console.error('Error enrolling student:', error);
+    if (error.data) {
+      return res.status(error.status).json({ success: false, message: error.message, errors: error.data, data: error.data });
+    }
+    return errorResponse(res, error.status ? error.message : 'Lỗi ghi danh sinh viên', error.status || 500);
   }
 });
 
@@ -338,28 +207,32 @@ router.delete('/classes/:id/enrollments/:studentId', authenticateJWT, authorizeR
     const classId = parseInt(req.params.id);
     const studentId = parseInt(req.params.studentId);
 
-    const enrollment = await prisma.enrollment.findUnique({
-      where: {
-        classId_studentId: { classId, studentId }
+    await withTransaction(async session => {
+      const enrollment = await Enrollment.findOne({ classId, studentId }).session(session);
+      if (!enrollment) throw Object.assign(new Error('Học viên không có trong lớp này'), { status: 404 });
+
+      const inv = await TuitionInvoice.findOneAndUpdate({ enrollmentId: enrollment.id }, { $inc: { lockVersion: 1 } }, { new: true, session });
+      if (inv) {
+        const [orders, transactions, payments] = await Promise.all([
+          PaymentOrder.countDocuments({ invoiceId: inv.id }).session(session),
+          PaymentTransaction.countDocuments({ invoiceId: inv.id }).session(session),
+          TuitionPayment.countDocuments({ invoiceId: inv.id }).session(session)
+        ]);
+        if (Number(inv.paidAmount) > 0 || orders || transactions || payments) {
+          throw Object.assign(new Error('Không thể xóa ghi danh có lịch sử thanh toán; cần xử lý hoàn tiền theo quy định'), { status: 409 });
+        }
       }
-    });
-
-    if (!enrollment) {
-      return errorResponse(res, 'Học viên không có trong lớp này', 404);
-    }
-
-    // Xóa cascade grade và tuitionInvoice liên kết
-    await prisma.$transaction(async (tx) => {
-      await tx.grade.deleteMany({ where: { enrollmentId: enrollment.id } });
-      await tx.tuitionInvoice.deleteMany({ where: { enrollmentId: enrollment.id } });
-      await tx.attendance.deleteMany({ where: { classId, studentId } });
-      await tx.enrollment.delete({ where: { id: enrollment.id } });
+      // Xóa cascade grade và tuitionInvoice liên kết
+      await Grade.deleteMany({ enrollmentId: enrollment.id }, { session });
+      await TuitionInvoice.deleteMany({ enrollmentId: enrollment.id }, { session });
+      await Attendance.deleteMany({ classId, studentId }, { session });
+      await Enrollment.deleteOne({ id: enrollment.id }, { session });
     });
 
     return successResponse(res, null, 'Hủy ghi danh học viên thành công');
   } catch (error) {
-    console.error('Error removing enrollment:', error);
-    return errorResponse(res, 'Lỗi khi hủy ghi danh học viên', 500);
+    if (!error.status) console.error('Error removing enrollment:', error);
+    return errorResponse(res, error.status ? error.message : 'Lỗi khi hủy ghi danh học viên', error.status || 500);
   }
 });
 
@@ -384,39 +257,32 @@ router.post('/classes/:id/schedules', authenticateJWT, authorizeRoles('ADMIN'), 
       return errorResponse(res, 'Ca học phải từ Slot 1 đến Slot 6', 400);
     }
 
-    const currentClass = await prisma.class.findUnique({
-      where: { id: classId },
-      include: { teacher: true }
-    });
+    const currentClass = await Class.findOne({ id: classId }).populate('teacher');
 
     if (!currentClass) {
       return errorResponse(res, 'Không tìm thấy lớp học phần', 404);
     }
 
     const timeSlot = SLOT_HOURS[shiftNum];
-    const roomClean = room.trim().toUpperCase();
+    const roomClean = String(room).trim().toUpperCase();
 
     // === THUẬT TOÁN KIỂM TRA XUNG ĐỘT (CONFLICT DETECTION) ===
+    const sameSemesterClasses = await Class.find({ semester: currentClass.semester, id: { $ne: classId } }).select('id classCode teacherId');
+    const classById = new Map(sameSemesterClasses.map(c => [c.id, c]));
 
     // 1. Kiểm tra Trùng phòng học:
     // Cùng học kỳ, cùng thứ, cùng ca học, cùng phòng học với lớp khác
-    const roomConflict = await prisma.schedule.findFirst({
-      where: {
-        dayOfWeek: dayNum,
-        shift: shiftNum,
-        room: roomClean,
-        class: {
-          semester: currentClass.semester,
-          id: { not: classId }
-        }
-      },
-      include: { class: true }
+    const roomConflict = await Schedule.findOne({
+      dayOfWeek: dayNum,
+      shift: shiftNum,
+      room: roomClean,
+      classId: { $in: [...classById.keys()] }
     });
 
     if (roomConflict) {
       return errorResponse(
         res,
-        `[Xung đột lịch] Phòng ${roomClean} đã có lớp ${roomConflict.class.classCode} sử dụng vào Thứ ${dayNum}, Slot ${shiftNum} (Học kỳ ${currentClass.semester}).`,
+        `[Xung đột lịch] Phòng ${roomClean} đã có lớp ${classById.get(roomConflict.classId).classCode} sử dụng vào Thứ ${dayNum}, Slot ${shiftNum} (Học kỳ ${currentClass.semester}).`,
         409
       );
     }
@@ -424,41 +290,33 @@ router.post('/classes/:id/schedules', authenticateJWT, authorizeRoles('ADMIN'), 
     // 2. Kiểm tra Trùng giảng viên:
     // Nếu lớp có giảng viên phân công, kiểm tra xem giảng viên có dạy lớp nào khác cùng Thứ và Ca trong học kỳ đó không
     if (currentClass.teacherId) {
-      const teacherConflict = await prisma.schedule.findFirst({
-        where: {
-          dayOfWeek: dayNum,
-          shift: shiftNum,
-          class: {
-            semester: currentClass.semester,
-            teacherId: currentClass.teacherId,
-            id: { not: classId }
-          }
-        },
-        include: { class: true }
+      const teacherClassIds = sameSemesterClasses.filter(c => c.teacherId === currentClass.teacherId).map(c => c.id);
+      const teacherConflict = await Schedule.findOne({
+        dayOfWeek: dayNum,
+        shift: shiftNum,
+        classId: { $in: teacherClassIds }
       });
 
       if (teacherConflict) {
         return errorResponse(
           res,
-          `[Xung đột lịch] Giảng viên ${currentClass.teacher?.fullName || ''} đang có lịch dạy lớp ${teacherConflict.class.classCode} vào Thứ ${dayNum}, Slot ${shiftNum}.`,
+          `[Xung đột lịch] Giảng viên ${currentClass.teacher?.fullName || ''} đang có lịch dạy lớp ${classById.get(teacherConflict.classId).classCode} vào Thứ ${dayNum}, Slot ${shiftNum}.`,
           409
         );
       }
     }
 
     // Lưu lịch học mới
-    const schedule = await prisma.schedule.create({
-      data: {
-        classId,
-        dayOfWeek: dayNum,
-        shift: shiftNum,
-        startTime: timeSlot.start,
-        endTime: timeSlot.end,
-        room: roomClean
-      }
+    const schedule = await Schedule.create({
+      classId,
+      dayOfWeek: dayNum,
+      shift: shiftNum,
+      startTime: timeSlot.start,
+      endTime: timeSlot.end,
+      room: roomClean
     });
 
-    return successResponse(res, schedule, 'Xếp lịch học thành công', 201);
+    return successResponse(res, plain(schedule), 'Xếp lịch học thành công', 201);
   } catch (error) {
     console.error('Error adding schedule:', error);
     return errorResponse(res, 'Lỗi khi xếp lịch học', 500);
@@ -469,7 +327,8 @@ router.post('/classes/:id/schedules', authenticateJWT, authorizeRoles('ADMIN'), 
 router.delete('/classes/:id/schedules/:scheduleId', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
   try {
     const scheduleId = parseInt(req.params.scheduleId);
-    await prisma.schedule.delete({ where: { id: scheduleId } });
+    const result = await Schedule.deleteOne({ id: scheduleId });
+    if (!result.deletedCount) return errorResponse(res, 'Không tìm thấy lịch học', 404);
     return successResponse(res, null, 'Xóa lịch học thành công');
   } catch (error) {
     console.error('Error deleting schedule:', error);
@@ -484,34 +343,21 @@ router.get('/schedules/my-schedule', authenticateJWT, async (req, res) => {
     const role = req.user.role;
     const { semester } = req.query;
 
-    let classWhere = {
-      ...(semester ? { semester } : {})
+    const classWhere = {
+      ...(semester ? { semester: String(semester) } : {})
     };
 
     if (role === 'TEACHER') {
       classWhere.teacherId = userId;
     } else if (role === 'STUDENT') {
-      const activeEnrollments = await prisma.enrollment.findMany({
-        where: { studentId: userId, status: 'ACTIVE' },
-        select: { classId: true }
-      });
-      classWhere.id = { in: activeEnrollments.map(e => e.classId) };
+      const activeEnrollments = await Enrollment.find({ studentId: userId, status: 'ACTIVE' }).select('classId');
+      classWhere.id = { $in: activeEnrollments.map(e => e.classId) };
     }
 
-    const schedules = await prisma.schedule.findMany({
-      where: {
-        class: classWhere
-      },
-      include: {
-        class: {
-          include: {
-            course: true,
-            teacher: { select: { fullName: true, code: true } }
-          }
-        }
-      },
-      orderBy: [{ dayOfWeek: 'asc' }, { shift: 'asc' }]
-    });
+    const classIds = (await Class.find(classWhere).select('id')).map(c => c.id);
+    const schedules = (await Schedule.find({ classId: { $in: classIds } })
+      .sort({ dayOfWeek: 1, shift: 1 })
+      .populate({ path: 'class', populate: ['course', { path: 'teacher', select: 'fullName code' }] })).map(plain);
 
     return successResponse(
       res,
@@ -519,8 +365,8 @@ router.get('/schedules/my-schedule', authenticateJWT, async (req, res) => {
         id: s.id,
         classId: s.classId,
         classCode: s.class.classCode,
-        courseCode: s.class.course.courseCode,
-        courseName: s.class.course.name,
+        courseCode: s.class.course?.courseCode,
+        courseName: s.class.course?.name,
         teacherName: s.class.teacher?.fullName || 'Chưa phân công',
         dayOfWeek: s.dayOfWeek,
         shift: s.shift,

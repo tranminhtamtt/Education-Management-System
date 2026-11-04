@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ConfigProvider } from 'antd';
 import viVN from 'antd/locale/vi_VN';
 
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import MainLayout from './layouts/MainLayout';
 
 import LoginPage from './pages/auth/LoginPage';
@@ -27,10 +27,16 @@ import AssignmentsPage from './pages/attendance-assignments/AssignmentsPage';
 import GradesPage from './pages/grades-tuition/GradesPage';
 import TuitionPage from './pages/grades-tuition/TuitionPage';
 import TuitionReportPage from './pages/grades-tuition/TuitionReportPage';
+import PaymentOperationsPage from './pages/grades-tuition/PaymentOperationsPage';
 
 // Cụm 5: Tương tác, Đơn từ & Báo cáo
 import RequestsPage from './pages/notifications-analytics/RequestsPage';
 import NotificationsPage from './pages/notifications-analytics/NotificationsPage';
+
+const TuitionReportRoute = () => {
+  const { user } = useAuth();
+  return user?.role === 'ACCOUNTANT' ? <Navigate to="/dashboard" replace /> : <TuitionReportPage />;
+};
 
 const App = () => {
   return (
@@ -71,7 +77,8 @@ const App = () => {
               {/* Cụm 4 */}
               <Route path="grades" element={<GradesPage />} />
               <Route path="tuition" element={<TuitionPage />} />
-              <Route path="tuition-report" element={<TuitionReportPage />} />
+              <Route path="tuition-report" element={<TuitionReportRoute />} />
+              <Route path="payment-operations" element={<PaymentOperationsPage />} />
 
               {/* Cụm 5 */}
               <Route path="requests" element={<RequestsPage />} />

@@ -1,28 +1,21 @@
-const prisma = require('../config/prisma');
+const { Class, Attendance, Enrollment, Grade } = require('../models');
 
 /**
  * Đồng bộ trạng thái Chuyên cần, Cảnh báo Cấm thi (is_banned) và Điểm chuyên cần giữa Member 3 & Member 4
- * @param {object} tx - Prisma Client hoặc Transaction Client
+ * @param {import('mongoose').ClientSession|null} session - Session transaction (tùy chọn)
  * @param {number} classId - ID lớp học phần
  * @param {number} studentId - ID học viên
  */
-async function syncAttendanceAndGrades(tx, classId, studentId) {
-  const db = tx || prisma;
-
+async function syncAttendanceAndGrades(session, classId, studentId) {
   // 1. Lấy thông tin lớp và tổng số buổi học của môn
-  const classInfo = await db.class.findUnique({
-    where: { id: classId },
-    include: { course: true }
-  });
+  const classInfo = await Class.findOne({ id: classId }).session(session || null).populate('course');
 
   if (!classInfo) return null;
 
   const totalSessions = classInfo.course?.totalSessions || 30;
 
   // 2. Lấy tất cả bản ghi điểm danh của học viên trong lớp
-  const attendances = await db.attendance.findMany({
-    where: { classId, studentId }
-  });
+  const attendances = await Attendance.find({ classId, studentId }).session(session || null);
 
   const absentUnexcused = attendances.filter(a => a.status === 'ABSENT_UNEXCUSED').length;
   const absentExcused = attendances.filter(a => a.status === 'ABSENT_EXCUSED').length;
@@ -43,19 +36,13 @@ async function syncAttendanceAndGrades(tx, classId, studentId) {
   }
 
   // 3. Tìm bản ghi enrollment để cập nhật Grade
-  const enrollment = await db.enrollment.findUnique({
-    where: {
-      classId_studentId: { classId, studentId }
-    },
-    include: { grade: true }
-  });
+  const enrollment = await Enrollment.findOne({ classId, studentId }).session(session || null);
 
   if (!enrollment) return null;
 
-  const currentGrade = enrollment.grade;
-  let finalIsBanned = isBanned;
+  const currentGrade = await Grade.findOne({ enrollmentId: enrollment.id }).session(session || null);
+  const finalIsBanned = isBanned;
   let finalPassed = false;
-  let attendanceScore = currentGrade?.attendanceScore !== null ? currentGrade.attendanceScore : autoAttendanceScore;
 
   if (currentGrade) {
     const fin = currentGrade.finalScore !== null ? parseFloat(currentGrade.finalScore) : null;
@@ -67,15 +54,18 @@ async function syncAttendanceAndGrades(tx, classId, studentId) {
       finalPassed = fin >= 3.5 && tot >= 4.0;
     }
 
-    await db.grade.update({
-      where: { enrollmentId: enrollment.id },
-      data: {
-        isBanned: finalIsBanned,
-        isPassed: finalPassed,
-        // Nếu điểm chuyên cần trước đó chưa có thì điền điểm gợi ý
-        ...(currentGrade.attendanceScore === null ? { attendanceScore: autoAttendanceScore } : {})
-      }
-    });
+    await Grade.updateOne(
+      { enrollmentId: enrollment.id },
+      {
+        $set: {
+          isBanned: finalIsBanned,
+          isPassed: finalPassed,
+          // Nếu điểm chuyên cần trước đó chưa có thì điền điểm gợi ý
+          ...(currentGrade.attendanceScore === null ? { attendanceScore: autoAttendanceScore } : {})
+        }
+      },
+      { session: session || undefined }
+    );
   }
 
   return {
