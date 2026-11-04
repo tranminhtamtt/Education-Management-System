@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
+const xlsx = require('xlsx');
+const fs = require('fs');
+const upload = require('../../config/upload');
 const { login, getMe } = require('./auth.controller');
 const authenticateJWT = require('../../middlewares/auth.middleware');
 const authorizeRoles = require('../../middlewares/role.middleware');
@@ -93,12 +96,12 @@ router.post('/students', authenticateJWT, authorizeRoles('ADMIN'), async (req, r
       return errorResponse(res, 'Vui lòng điền Họ tên và Email hợp lệ', 400);
     }
 
-    // Tự sinh mã nếu chưa có
+    // Tự sinh mã nếu chưa có (STU2026xxx theo đặc tả Use Case)
     let studentCode = code;
     if (!studentCode) {
-      const count = await prisma.user.count({ where: { role: 'STUDENT' } });
       const year = enrollmentYear || new Date().getFullYear();
-      studentCode = `HE${String(year).slice(-2)}${String(count + 1).padStart(4, '0')}`;
+      const count = await prisma.user.count({ where: { role: 'STUDENT' } });
+      studentCode = `STU${year}${String(count + 1).padStart(3, '0')}`;
     }
 
     // Kiểm tra trùng email hoặc code
@@ -268,6 +271,192 @@ router.get('/students/:id/profile-360', authenticateJWT, async (req, res) => {
 });
 
 // ==========================================
+// UC1.3: IMPORT / EXPORT EXCEL HỌC VIÊN
+// ==========================================
+
+// Tải file Excel mẫu để nhập học viên
+router.get('/students/template-excel', authenticateJWT, authorizeRoles('ADMIN'), (req, res) => {
+  try {
+    const templateData = [
+      {
+        'Họ và tên': 'Nguyễn Văn An',
+        'Email': 'annv@fpt.edu.vn',
+        'Số điện thoại': '0901234567',
+        'Giới tính (Nam/Nữ)': 'Nam',
+        'Ngày sinh (YYYY-MM-DD)': '2004-05-15',
+        'Khóa tuyển sinh': 2026,
+        'Địa chỉ': 'Hà Nội'
+      },
+      {
+        'Họ và tên': 'Trần Thị Bình',
+        'Email': 'binhtt@fpt.edu.vn',
+        'Số điện thoại': '0901234568',
+        'Giới tính (Nam/Nữ)': 'Nữ',
+        'Ngày sinh (YYYY-MM-DD)': '2004-08-20',
+        'Khóa tuyển sinh': 2026,
+        'Địa chỉ': 'Đà Nẵng'
+      }
+    ];
+
+    const worksheet = xlsx.utils.json_to_sheet(templateData);
+    const workbook = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(workbook, worksheet, 'Mau_Hoc_Vien');
+
+    const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Disposition', 'attachment; filename="Mau_Import_Hoc_Vien.xlsx"');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    return res.send(buffer);
+  } catch (error) {
+    console.error('Error generating template:', error);
+    return errorResponse(res, 'Lỗi khi tạo file mẫu Excel', 500);
+  }
+});
+
+// Xuất danh sách học viên ra file Excel
+router.get('/students/export-excel', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
+  try {
+    const students = await prisma.user.findMany({
+      where: { role: 'STUDENT' },
+      include: {
+        studentProfile: true,
+        _count: { select: { enrollments: true } }
+      },
+      orderBy: { code: 'asc' }
+    });
+
+    const exportData = students.map((s, index) => ({
+      'STT': index + 1,
+      'Mã học viên': s.code,
+      'Họ và tên': s.fullName,
+      'Email': s.email,
+      'Số điện thoại': s.phone || '',
+      'Giới tính': s.studentProfile?.gender === 'FEMALE' ? 'Nữ' : (s.studentProfile?.gender === 'MALE' ? 'Nam' : 'Khác'),
+      'Ngày sinh': s.studentProfile?.dob ? new Date(s.studentProfile.dob).toISOString().split('T')[0] : '',
+      'Khóa tuyển sinh': s.studentProfile?.enrollmentYear || '',
+      'Địa chỉ': s.studentProfile?.address || '',
+      'Số lớp đã học': s._count?.enrollments || 0,
+      'Trạng thái': s.status === 'ACTIVE' ? 'Đang học' : (s.status === 'INACTIVE' ? 'Tạm ngưng' : 'Đình chỉ')
+    }));
+
+    const worksheet = xlsx.utils.json_to_sheet(exportData);
+    const workbook = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(workbook, worksheet, 'Danh_Sach_Hoc_Vien');
+
+    const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Disposition', 'attachment; filename="Danh_sach_hoc_vien_EMS.xlsx"');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    return res.send(buffer);
+  } catch (error) {
+    console.error('Error exporting students:', error);
+    return errorResponse(res, 'Lỗi xuất file Excel học viên', 500);
+  }
+});
+
+// Import học viên hàng loạt từ file Excel
+router.post('/students/import-excel', authenticateJWT, authorizeRoles('ADMIN'), upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return errorResponse(res, 'Vui lòng tải lên file Excel (.xlsx, .xls)', 400);
+  }
+
+  try {
+    const workbook = xlsx.readFile(req.file.path);
+    if (fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
+    const firstSheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[firstSheetName];
+    const rows = xlsx.utils.sheet_to_json(worksheet);
+
+    if (!rows || rows.length === 0) {
+      return errorResponse(res, 'File Excel không có dữ liệu', 400);
+    }
+
+    let createdCount = 0;
+    let skippedCount = 0;
+    const errors = [];
+    const defaultPasswordHash = await bcrypt.hash('123456', 10);
+    let currentStudentCount = await prisma.user.count({ where: { role: 'STUDENT' } });
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const fullName = (row['Họ và tên'] || row['Ho va ten'] || row['fullName'] || row['Name'] || '').toString().trim();
+      const email = (row['Email'] || row['email'] || '').toString().trim().toLowerCase();
+      const phone = (row['Số điện thoại'] || row['So dien thoai'] || row['phone'] || '').toString().trim();
+      const genderRaw = (row['Giới tính (Nam/Nữ)'] || row['Giới tính'] || row['gender'] || '').toString().trim().toLowerCase();
+      const dobRaw = row['Ngày sinh (YYYY-MM-DD)'] || row['Ngày sinh'] || row['dob'];
+      const enrollmentYearRaw = row['Khóa tuyển sinh'] || row['Khóa'] || row['enrollmentYear'];
+      const address = (row['Địa chỉ'] || row['address'] || '').toString().trim();
+
+      if (!fullName || !email) {
+        errors.push(`Dòng ${i + 2}: Thiếu Họ tên hoặc Email`);
+        continue;
+      }
+
+      const existing = await prisma.user.findUnique({ where: { email } });
+      if (existing) {
+        skippedCount++;
+        continue;
+      }
+
+      currentStudentCount++;
+      const year = enrollmentYearRaw ? parseInt(enrollmentYearRaw) : new Date().getFullYear();
+      const studentCode = `STU${year}${String(currentStudentCount).padStart(3, '0')}`;
+
+      let gender = 'MALE';
+      if (genderRaw.includes('nữ') || genderRaw.includes('female')) gender = 'FEMALE';
+      else if (genderRaw.includes('khác') || genderRaw.includes('other')) gender = 'OTHER';
+
+      let dob = null;
+      if (dobRaw) {
+        const parsedDate = new Date(dobRaw);
+        if (!isNaN(parsedDate.getTime())) {
+          dob = parsedDate;
+        }
+      }
+
+      await prisma.user.create({
+        data: {
+          code: studentCode,
+          fullName,
+          email,
+          phone: phone || null,
+          passwordHash: defaultPasswordHash,
+          role: 'STUDENT',
+          status: 'ACTIVE',
+          studentProfile: {
+            create: {
+              gender,
+              dob,
+              address: address || null,
+              enrollmentYear: year
+            }
+          }
+        }
+      });
+      createdCount++;
+    }
+
+    return successResponse(
+      res,
+      {
+        totalRows: rows.length,
+        createdCount,
+        skippedCount,
+        errors
+      },
+      `Import Excel hoàn tất: Đã tạo ${createdCount} học viên mới, bỏ qua ${skippedCount} bản ghi trùng.`
+    );
+  } catch (error) {
+    console.error('Error importing students from Excel:', error);
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    return errorResponse(res, `Lỗi khi xử lý file Excel: ${error.message}`, 500);
+  }
+});
+
+// ==========================================
 // 3. TEACHERS MANAGEMENT (UC2.1 - UC2.2)
 // ==========================================
 
@@ -326,7 +515,7 @@ router.post('/teachers', authenticateJWT, authorizeRoles('ADMIN'), async (req, r
     let teacherCode = code;
     if (!teacherCode) {
       const count = await prisma.user.count({ where: { role: 'TEACHER' } });
-      teacherCode = `GV${String(count + 1).padStart(3, '0')}`;
+      teacherCode = `TEA${String(count + 1).padStart(3, '0')}`;
     }
 
     const existing = await prisma.user.findFirst({

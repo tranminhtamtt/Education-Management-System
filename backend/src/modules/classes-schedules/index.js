@@ -206,7 +206,7 @@ router.post('/classes/:id/enrollments', authenticateJWT, authorizeRoles('ADMIN')
     if (classItem.enrollments.length >= classItem.maxStudents) {
       return errorResponse(
         res,
-        `Lớp đã đạt sĩ số tối đa (${classItem.maxStudents} sinh viên). Không thể thêm học viên.`,
+        `Vượt sĩ số (${classItem.enrollments.length}/${classItem.maxStudents}). Lớp đã đủ sĩ số tối đa, không thể thêm học viên.`,
         400
       );
     }
@@ -416,7 +416,7 @@ router.post('/classes/:id/schedules', authenticateJWT, authorizeRoles('ADMIN'), 
     if (roomConflict) {
       return errorResponse(
         res,
-        `[Xung đột lịch] Phòng ${roomClean} đã có lớp ${roomConflict.class.classCode} sử dụng vào Thứ ${dayNum}, Slot ${shiftNum} (Học kỳ ${currentClass.semester}).`,
+        `[Xung đột lịch] Lỗi trùng phòng ${roomClean}! Phòng này đã được lớp ${roomConflict.class.classCode} sử dụng vào Thứ ${dayNum}, Slot ${shiftNum} (Học kỳ ${currentClass.semester}).`,
         409
       );
     }
@@ -440,7 +440,7 @@ router.post('/classes/:id/schedules', authenticateJWT, authorizeRoles('ADMIN'), 
       if (teacherConflict) {
         return errorResponse(
           res,
-          `[Xung đột lịch] Giảng viên ${currentClass.teacher?.fullName || ''} đang có lịch dạy lớp ${teacherConflict.class.classCode} vào Thứ ${dayNum}, Slot ${shiftNum}.`,
+          `[Xung đột lịch] Lỗi trùng giảng viên ${currentClass.teacher?.fullName || ''} (Mã: ${currentClass.teacher?.code})! Giảng viên đang có lịch dạy lớp ${teacherConflict.class.classCode} vào Thứ ${dayNum}, Slot ${shiftNum}.`,
           409
         );
       }
