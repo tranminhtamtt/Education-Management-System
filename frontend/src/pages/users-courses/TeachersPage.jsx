@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Table, Card, Button, Input, Space, Tag, Modal, Form, Typography, message, Select, Row, Col } from 'antd';
-import { PlusOutlined, TeamOutlined } from '@ant-design/icons';
+import { PlusOutlined, TeamOutlined, SearchOutlined } from '@ant-design/icons';
 import apiClient from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 
@@ -12,6 +12,7 @@ const TeachersPage = () => {
 
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
@@ -105,10 +106,29 @@ const TeachersPage = () => {
           )
         }
       >
+        <Space style={{ marginBottom: 16 }}>
+          <Input
+            placeholder="Tìm theo Mã GV, Họ tên, Email, Chuyên ngành..."
+            prefix={<SearchOutlined />}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            allowClear
+            style={{ width: 320 }}
+          />
+        </Space>
         <Table
           rowKey="id"
           columns={columns}
-          dataSource={data}
+          dataSource={data.filter(t => {
+            if (!search) return true;
+            const s = search.toLowerCase();
+            return (
+              (t.code && t.code.toLowerCase().includes(s)) ||
+              (t.fullName && t.fullName.toLowerCase().includes(s)) ||
+              (t.email && t.email.toLowerCase().includes(s)) ||
+              (t.specialty && t.specialty.toLowerCase().includes(s))
+            );
+          })}
           loading={loading}
           pagination={{ pageSize: 10 }}
         />

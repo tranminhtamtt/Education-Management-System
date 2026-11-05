@@ -11,7 +11,10 @@ const login = async (req, res) => {
       return errorResponse(res, 'Vui lòng nhập đầy đủ email và mật khẩu.', 400);
     }
 
-    const user = await User.findOne({ email: String(email) }).select('+passwordHash');
+    const trimmed = String(email).trim();
+    const user = await User.findOne({
+      $or: [{ email: trimmed }, { code: trimmed }]
+    }).select('+passwordHash');
 
     if (!user) {
       return errorResponse(res, 'Tài khoản không tồn tại trên hệ thống.', 401);
