@@ -1,12 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Card, Button, Input, Select, Space, Tag, Modal, Form, Typography, message, Row, Col, Descriptions, Divider, Tabs } from 'antd';
-import { PlusOutlined, SearchOutlined, EyeOutlined, UserOutlined, BookOutlined } from '@ant-design/icons';
+import { Table, Card, Button, Input, Select, Space, Tag, Modal, Form, Typography, message, Row, Col, Descriptions, Divider, Tabs, Upload, Alert } from 'antd';
+import { PlusOutlined, SearchOutlined, EyeOutlined, UserOutlined, BookOutlined, FileExcelOutlined, UploadOutlined, DownloadOutlined, InboxOutlined } from '@ant-design/icons';
 import apiClient from '../../api/client';
+import { useAuth } from '../../context/AuthContext';
 import dayjs from 'dayjs';
 
 const { Title, Text } = Typography;
 
 const StudentsPage = () => {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
+
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
@@ -17,6 +21,12 @@ const StudentsPage = () => {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createForm] = Form.useForm();
   const [creating, setCreating] = useState(false);
+
+  // Modal Import Excel
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importFileList, setImportFileList] = useState([]);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
 
   // Modal Hồ Sơ 360
   const [profile360ModalOpen, setProfile360ModalOpen] = useState(false);
@@ -90,6 +100,52 @@ const StudentsPage = () => {
     }
   };
 
+  // Tải file mẫu Excel
+  const handleDownloadTemplate = async () => {
+    try {
+      const response = await apiClient.get('/students/import/template', {
+        responseType: 'blob'
+      });
+      const url = window.URL.createObjectURL(new Blob([response]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'Mau_Import_Hoc_Vien_EMS.xlsx');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      message.error('Không thể tải file mẫu Excel');
+    }
+  };
+
+  // Xử lý nộp file Excel Import
+  const handleImportSubmit = async () => {
+    if (importFileList.length === 0) {
+      message.warning('Vui lòng chọn file Excel để tải lên');
+      return;
+    }
+    const formData = new FormData();
+    formData.append('file', importFileList[0]);
+
+    try {
+      setImporting(true);
+      setImportResult(null);
+      const res = await apiClient.post('/students/import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      if (res.success) {
+        setImportResult(res.data);
+        message.success(res.message || 'Import thành công');
+        fetchStudents(1, pagination.pageSize);
+      }
+    } catch (err) {
+      message.error(err.response?.data?.message || 'Lỗi khi import file Excel');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const columns = [
     {
       title: 'Mã SV',
@@ -156,14 +212,29 @@ const StudentsPage = () => {
       <Card
         title="Quản lý Danh sách Học viên"
         extra={
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            style={{ backgroundColor: '#F26F21', borderColor: '#F26F21' }}
-            onClick={() => setCreateModalOpen(true)}
-          >
-            Thêm Học Viên Mới
-          </Button>
+          isAdmin && (
+            <Space>
+              <Button
+                icon={<FileExcelOutlined />}
+                style={{ borderColor: '#52c41a', color: '#52c41a' }}
+                onClick={() => {
+                  setImportModalOpen(true);
+                  setImportFileList([]);
+                  setImportResult(null);
+                }}
+              >
+                Import Excel
+              </Button>
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                style={{ backgroundColor: '#F26F21', borderColor: '#F26F21' }}
+                onClick={() => setCreateModalOpen(true)}
+              >
+                Thêm Học Viên Mới
+              </Button>
+            </Space>
+          )
         }
       >
         <Space style={{ marginBottom: 16 }} wrap>
@@ -378,6 +449,104 @@ const StudentsPage = () => {
             />
           </div>
         ) : null}
+      </Modal>
+
+      {/* Modal Import Excel */}
+      <Modal
+        title={
+          <Space>
+            <FileExcelOutlined style={{ color: '#52c41a' }} />
+            <span>Import Danh Sách Học Viên Từ Excel</span>
+          </Space>
+        }
+        open={importModalOpen}
+        onCancel={() => {
+          setImportModalOpen(false);
+          setImportFileList([]);
+          setImportResult(null);
+        }}
+        width={650}
+        footer={[
+          <Button
+            key="template"
+            icon={<DownloadOutlined />}
+            onClick={handleDownloadTemplate}
+          >
+            Tải File Mẫu (.xlsx)
+          </Button>,
+          <Button
+            key="cancel"
+            onClick={() => setImportModalOpen(false)}
+          >
+            Đóng
+          </Button>,
+          <Button
+            key="submit"
+            type="primary"
+            icon={<UploadOutlined />}
+            loading={importing}
+            disabled={importFileList.length === 0}
+            style={{ backgroundColor: '#52c41a', borderColor: '#52c41a' }}
+            onClick={handleImportSubmit}
+          >
+            Tiến Hành Import
+          </Button>
+        ]}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <Text type="secondary">
+            Hệ thống hỗ trợ file <b>.xlsx</b> hoặc <b>.xls</b>. Vui lòng tải file mẫu để xem đúng cấu trúc các cột (Họ và Tên, Email, Mã SV, SĐT, Giới tính, Ngày sinh, Địa chỉ, Năm nhập học).
+          </Text>
+        </div>
+
+        <Upload.Dragger
+          accept=".xlsx,.xls"
+          maxCount={1}
+          beforeUpload={(file) => {
+            setImportFileList([file]);
+            setImportResult(null);
+            return false;
+          }}
+          onRemove={() => {
+            setImportFileList([]);
+            setImportResult(null);
+          }}
+          fileList={importFileList}
+        >
+          <p className="ant-upload-drag-icon">
+            <InboxOutlined style={{ color: '#52c41a', fontSize: 48 }} />
+          </p>
+          <p className="ant-upload-text">Kéo thả file Excel vào đây hoặc bấm để chọn file</p>
+          <p className="ant-upload-hint">Chỉ chấp nhận file định dạng .xlsx, .xls</p>
+        </Upload.Dragger>
+
+        {importResult && (
+          <div style={{ marginTop: 20 }}>
+            <Alert
+              type={importResult.failedCount > 0 ? 'warning' : 'success'}
+              showIcon
+              message={
+                <b>
+                  Tổng số: {importResult.totalRows} dòng | Thành công: {importResult.importedCount} học viên | Thất bại / Bỏ qua: {importResult.failedCount} dòng
+                </b>
+              }
+              description={
+                importResult.errors && importResult.errors.length > 0 ? (
+                  <div style={{ maxHeight: 150, overflowY: 'auto', marginTop: 8 }}>
+                    <Text strong type="danger">Chi tiết các dòng bị lỗi:</Text>
+                    <ul style={{ paddingLeft: 20, margin: '4px 0' }}>
+                      {importResult.errors.map((err, i) => (
+                        <li key={i}>
+                          <b>Dòng {err.row}:</b> {err.error}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null
+              }
+            />
+          </div>
+        )}
       </Modal>
     </div>
   );
