@@ -101,6 +101,33 @@ const StudentsPage = () => {
   };
 
   // Tải file mẫu Excel
+  
+  // UC1.3: Xuất Excel danh sách học viên
+  const handleExportExcel = async () => {
+    try {
+      message.loading({ content: 'Đang chuẩn bị file Excel...', key: 'exportMsg' });
+      const token = localStorage.getItem('ems_token');
+      const response = await fetch('/api/v1/students/export-excel', {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      if (!response.ok) throw new Error('Không thể xuất file');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Danh_sach_hoc_vien_${dayjs().format('YYYYMMDD')}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      message.success({ content: 'Xuất file Excel thành công!', key: 'exportMsg' });
+    } catch (err) {
+      message.error({ content: 'Lỗi khi xuất file Excel', key: 'exportMsg' });
+    }
+  };
+
   const handleDownloadTemplate = async () => {
     try {
       const response = await apiClient.get('/students/import/template', {

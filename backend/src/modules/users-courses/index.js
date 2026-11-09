@@ -326,6 +326,57 @@ router.post('/students/import', authenticateJWT, authorizeRoles('ADMIN'), upload
   }
 });
 
+// ==========================================
+// UC1.3: XUẤT EXCEL DANH SÁCH HỌC VIÊN
+// ==========================================
+router.get('/students/export-excel', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
+  try {
+    const students = await User.find({ role: 'STUDENT' }).sort({ code: 1 }).lean();
+    const studentIds = students.map(s => s.id);
+    const enrollments = await Enrollment.find({ studentId: { $in: studentIds } }).select('studentId').lean();
+    const countMap = {};
+    for (const e of enrollments) {
+      countMap[e.studentId] = (countMap[e.studentId] || 0) + 1;
+    }
+
+    const exportData = students.map((s, index) => ({
+      'STT': index + 1,
+      'Mã học viên': s.code,
+      'Họ và tên': s.fullName,
+      'Email': s.email,
+      'Số điện thoại': s.phone || '',
+      'Giới tính': s.studentProfile?.gender === 'FEMALE' ? 'Nữ' : (s.studentProfile?.gender === 'MALE' ? 'Nam' : 'Khác'),
+      'Ngày sinh': s.studentProfile?.dob ? new Date(s.studentProfile.dob).toISOString().split('T')[0] : '',
+      'Khóa tuyển sinh': s.studentProfile?.enrollmentYear || '',
+      'Địa chỉ': s.studentProfile?.address || '',
+      'Số lớp đã học': countMap[s.id] || 0,
+      'Trạng thái': s.status === 'ACTIVE' ? 'Đang học' : (s.status === 'INACTIVE' ? 'Tạm ngưng' : 'Đình chỉ')
+    }));
+
+    const worksheet = xlsx.utils.json_to_sheet(exportData);
+    const workbook = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(workbook, worksheet, 'Danh_Sach_Hoc_Vien');
+
+    const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Disposition', 'attachment; filename="Danh_sach_hoc_vien_EMS.xlsx"');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    return res.send(buffer);
+  } catch (error) {
+    console.error('Error exporting students:', error);
+    return errorResponse(res, 'Lỗi xuất file Excel học viên', 500);
+  }
+});
+
+// Alias cho template & import
+router.get('/students/template-excel', authenticateJWT, authorizeRoles('ADMIN'), (req, res, next) => {
+  req.url = '/students/import/template';
+  router.handle(req, res, next);
+});
+router.post('/students/import-excel', authenticateJWT, authorizeRoles('ADMIN'), upload.single('file'), (req, res, next) => {
+  req.url = '/students/import';
+  router.handle(req, res, next);
+});
+
 // UC1.2: Cập nhật học viên
 router.put('/students/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
   try {

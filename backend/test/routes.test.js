@@ -160,7 +160,6 @@ test('reconciliation compares independent SePay evidence and never changes debt;
     global.fetch = nativeFetch;
   }
 });
-
 test('teacher dashboard, attendance, and assignment grading are limited to assigned classes', async () => {
   await seedBasic();
   await M.User.create([
@@ -212,4 +211,15 @@ test('teacher dashboard, attendance, and assignment grading are limited to assig
   assert.equal((await call(`/submissions/${submission.id}/grade`, ['TEACHER', 3], 'PATCH', {
     score: 9, teacherFeedback: 'Good work'
   })).status, 200);
+});
+
+test('UC1.3: export-excel and template routes respond with spreadsheet', async () => {
+  await seedBasic();
+  const resExp = await fetch(base + '/students/export-excel', { headers: { Authorization: token('ADMIN', 2) } });
+  assert.equal(resExp.status, 200);
+  assert.ok(resExp.headers.get('content-type').includes('spreadsheetml'));
+
+  const resTpl = await fetch(base + '/students/import/template', { headers: { Authorization: token('ADMIN', 2) } });
+  assert.equal(resTpl.status, 200);
+  assert.ok(resTpl.headers.get('content-type').includes('spreadsheetml'));
 });
