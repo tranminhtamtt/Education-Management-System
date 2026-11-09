@@ -775,58 +775,27 @@ const ClassesPage = () => {
                         dataSource={selectedClass.enrollments}
                         pagination={false}
                         columns={[
-                          {
-                            title: 'Mã SV',
-                            dataIndex: ['student', 'code'],
-                            width: 130,
-                            render: (c) => <Text strong style={{ color: '#F26F21' }}>{c}</Text>
-                          },
-                          {
-                            title: 'Họ và Tên',
-                            dataIndex: ['student', 'fullName'],
-                            render: (n) => <Text strong>{n}</Text>
-                          },
-                          {
-                            title: 'Chuyên cần (10%)',
-                            width: 140,
-                            align: 'center',
-                            render: (_, r) => r.grade?.attendanceScore !== null && r.grade?.attendanceScore !== undefined
-                              ? <Text>{r.grade.attendanceScore}</Text>
-                              : <Text type="secondary">-</Text>
-                          },
-                          {
-                            title: 'Giữa kỳ (30%)',
-                            width: 130,
-                            align: 'center',
-                            render: (_, r) => r.grade?.midtermScore !== null && r.grade?.midtermScore !== undefined
-                              ? <Text>{r.grade.midtermScore}</Text>
-                              : <Text type="secondary">-</Text>
-                          },
-                          {
-                            title: 'Cuối kỳ (60%)',
-                            width: 130,
-                            align: 'center',
-                            render: (_, r) => r.grade?.finalScore !== null && r.grade?.finalScore !== undefined
-                              ? <Text>{r.grade.finalScore}</Text>
-                              : <Text type="secondary">-</Text>
-                          },
-                          {
-                            title: 'Tổng kết',
-                            width: 110,
-                            align: 'center',
-                            render: (_, r) => r.grade?.totalScore !== null && r.grade?.totalScore !== undefined
-                              ? <Text strong style={{ color: '#1890ff', fontSize: 15 }}>{r.grade.totalScore}</Text>
-                              : <Text type="secondary">-</Text>
-                          },
+                          { title: 'Mã SV', dataIndex: ['student', 'code'], width: 120, render: val => <Text strong style={{ color: '#F26F21' }}>{val}</Text> },
+                          { title: 'Họ và Tên', dataIndex: ['student', 'fullName'], render: val => <Text strong>{val}</Text> },
+                          ...['attendanceScore:Chuyên cần (10%)', 'midtermScore:Giữa kỳ (30%)', 'finalScore:Cuối kỳ (60%)', 'totalScore:Tổng kết'].map(col => {
+                            const [f, h] = col.split(':');
+                            const isTot = f === 'totalScore';
+                            return {
+                              title: h,
+                              align: 'center',
+                              render: (_, row) => {
+                                const sc = row.grade?.[f];
+                                return sc != null ? <Text strong={isTot} style={isTot ? { color: '#1890ff', fontSize: 15 } : {}}>{sc}</Text> : <Text type="secondary">-</Text>;
+                              }
+                            };
+                          }),
                           {
                             title: 'Kết quả',
-                            width: 140,
                             align: 'center',
-                            render: (_, r) => {
-                              if (r.grade?.isBanned) return <Tag color="error">CẤM THI</Tag>;
-                              if (r.grade?.isPassed) return <Tag color="success">QUA MÔN</Tag>;
-                              if (r.grade?.totalScore !== null && r.grade?.totalScore !== undefined) return <Tag color="warning">TRƯỢT MÔN</Tag>;
-                              return <Tag color="default">Đang học</Tag>;
+                            render: (_, row) => {
+                              const gd = row.grade;
+                              const tagMap = gd?.isBanned ? ['error', 'CẤM THI'] : gd?.isPassed ? ['success', 'QUA MÔN'] : gd?.totalScore != null ? ['warning', 'TRƯỢT MÔN'] : ['default', 'Đang học'];
+                              return <Tag color={tagMap[0]}>{tagMap[1]}</Tag>;
                             }
                           }
                         ]}
