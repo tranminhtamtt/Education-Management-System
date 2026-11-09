@@ -20,7 +20,12 @@ const { calculateGrade } = require('../src/modules/grades-tuition');
 const STUDENTS_PER_TERM = 3;
 const FEE_PER_CREDIT = 1400000;
 const DAY = 86400000;
-const SLOT_HOURS = { 1: ['07:30', '09:50'], 2: ['10:00', '12:20'] };
+const SLOT_HOURS = {
+  1: ['07:30', '09:50'],
+  2: ['10:00', '12:20'],
+  3: ['12:50', '15:10'],
+  4: ['15:20', '17:40']
+};
 
 const LAST = ['Nguyễn', 'Trần', 'Lê', 'Phạm', 'Hoàng', 'Huỳnh', 'Phan', 'Vũ', 'Võ', 'Đặng', 'Bùi', 'Đỗ', 'Hồ', 'Ngô', 'Dương'];
 const MIDDLE_M = ['Văn', 'Minh', 'Đức', 'Quang', 'Hữu', 'Gia'];
@@ -53,7 +58,7 @@ function pastScores(seed) {
  * Sinh toàn bộ dữ liệu trong bộ nhớ (thuần, không chạm DB) để có thể kiểm thử.
  * Sinh viên kỳ K: đã PASS toàn bộ môn kỳ 1..K-1, đang học toàn bộ môn kỳ K.
  */
-function buildSeed({ passwordHash, now = new Date() }) {
+function buildSeed({ passwordHash, now = new Date(), fullTwoWeekSchedule = false }) {
   const currentIndex = currentCalendarIndex(now);
   const ids = {};
   const next = name => (ids[name] = (ids[name] || 0) + 1);
@@ -100,9 +105,16 @@ function buildSeed({ passwordHash, now = new Date() }) {
         const cls = { id: next('classes'), classCode: `${c.courseCode}-${cal.semester}-K${term}`, courseId: course.id, teacherId: teacherByCourse.get(c.courseCode).id, semester: cal.semester, status: isCurrent ? 'ONGOING' : 'COMPLETED', maxStudents: 30, createdAt: cal.date };
         data.classes.push(cls);
         // Mỗi kỳ khung dùng dãy phòng riêng → các khóa học cùng kỳ lịch không trùng phòng; môn trong kỳ khác thứ → không trùng lịch SV
-        const shift = 1 + (t % 2);
-        const dayOfWeek = 2 + slot;
-        data.schedules.push({ id: next('schedules'), classId: cls.id, dayOfWeek, shift, startTime: SLOT_HOURS[shift][0], endTime: SLOT_HOURS[shift][1], room: `R${t}0${slot + 1}` });
+        const days = isCurrent && fullTwoWeekSchedule
+          ? (slot % 2 === 0 ? [2, 4, 6] : [3, 5, 7])
+          : [2 + slot];
+        const shift = isCurrent && fullTwoWeekSchedule
+          ? (slot < 2 ? 1 + (t % 2) : 3 + (t % 2))
+          : 1 + (t % 2);
+        const room = `R${t}0${slot + 1}`;
+        for (const dayOfWeek of days) {
+          data.schedules.push({ id: next('schedules'), classId: cls.id, dayOfWeek, shift, startTime: SLOT_HOURS[shift][0], endTime: SLOT_HOURS[shift][1], room });
+        }
 
         let asg1 = null;
         if (isCurrent) {
@@ -135,12 +147,15 @@ function buildSeed({ passwordHash, now = new Date() }) {
             : { id: next('grades'), enrollmentId: enrollment.id, ...pastScores(enrollment.id) });
 
           if (isCurrent) {
-            const w1Date = `2026-11-${String(2 + (dayOfWeek - 2)).padStart(2, '0')}`;
-            const w2Date = `2026-11-${String(9 + (dayOfWeek - 2)).padStart(2, '0')}`;
-            for (const dateStr of [w1Date, w2Date]) {
+            const sessionDates = [];
+            for (const dayOfWeek of days) {
+              sessionDates.push(`2026-11-${String(2 + (dayOfWeek - 2)).padStart(2, '0')}`);
+              sessionDates.push(`2026-11-${String(9 + (dayOfWeek - 2)).padStart(2, '0')}`);
+            }
+            for (const dateStr of sessionDates) {
               // Chỉ điểm danh các buổi đã diễn ra tính đến ngày 09/11/2026
               if (dateStr <= '2026-11-09') {
-                const status = si === 2 && slot === 0 && dateStr === w1Date ? 'LATE' : 'PRESENT';
+                const status = si === 2 && slot === 0 && dateStr === sessionDates[0] ? 'LATE' : 'PRESENT';
                 extraData.attendances.push({
                   id: next('attendances'),
                   classId: cls.id,
@@ -237,7 +252,7 @@ async function main() {
   for (const m of Object.values(models).filter(m => m && m.modelName)) await m.deleteMany({});
 
   // 3. Tạo dữ liệu mới
-  const seed = buildSeed({ passwordHash: await bcrypt.hash(process.env.SEED_PASSWORD, 10) });
+  const seed = buildSeed({ passwordHash: await bcrypt.hash(process.env.SEED_PASSWORD, 10), fullTwoWeekSchedule: true });
   for (const [collection, rows] of Object.entries({ ...seed.data, ...(seed.extraData || {}) })) {
     if (rows.length) await COLLECTION_MODELS[collection].insertMany(rows, { ordered: true });
   }
