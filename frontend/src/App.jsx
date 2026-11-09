@@ -38,6 +38,11 @@ const TuitionReportRoute = () => {
   return user?.role === 'ACCOUNTANT' ? <Navigate to="/dashboard" replace /> : <TuitionReportPage />;
 };
 
+const GradesRoute = () => {
+  const { user } = useAuth();
+  return user?.role === 'TEACHER' ? <Navigate to="/dashboard" replace /> : <GradesPage />;
+};
+
 const App = () => {
   return (
     <ConfigProvider
@@ -75,7 +80,7 @@ const App = () => {
               <Route path="assignments" element={<AssignmentsPage />} />
 
               {/* Cụm 4 */}
-              <Route path="grades" element={<GradesPage />} />
+              <Route path="grades" element={<GradesRoute />} />
               <Route path="tuition" element={<TuitionPage />} />
               <Route path="tuition-report" element={<TuitionReportRoute />} />
               <Route path="payment-operations" element={<PaymentOperationsPage />} />

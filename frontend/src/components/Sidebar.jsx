@@ -86,12 +86,14 @@ const Sidebar = () => {
       icon: <FileTextOutlined />,
       label: role === 'STUDENT' ? 'Bài tập & Nộp bài' : 'Quản lý Bài tập'
     },
-    // Bảng điểm
-    {
-      key: '/grades',
-      icon: <TrophyOutlined />,
-      label: role === 'STUDENT' ? 'Bảng điểm & GPA' : 'Quản lý Điểm số'
-    },
+    // Bảng điểm chỉ dành cho học viên và quản trị; teacher chỉ chấm bài tập.
+    ...(['ADMIN', 'STUDENT'].includes(role)
+      ? [{
+          key: '/grades',
+          icon: <TrophyOutlined />,
+          label: role === 'STUDENT' ? 'Bảng điểm & GPA' : 'Quản lý Điểm số'
+        }]
+      : []),
     // Khung chương trình (FAP Curriculum)
     ...(['ADMIN', 'STUDENT'].includes(role)
       ? [

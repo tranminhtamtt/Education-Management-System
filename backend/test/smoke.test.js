@@ -79,7 +79,7 @@ test('seeded data is consistent through the API: term placement, schedules, debt
   assert.ok(revenue.body.data.kpi.debtAmount > 0);
 });
 
-test('core write flows of other actors still work (class, schedule conflict, attendance, grades, assignment, request)', async () => {
+test('core write flows still work and teachers cannot edit course grades', async () => {
   const course = seed.data.courses[0];
   const created = await call('/classes', 'ADMIN', 'POST', { classCode: 'TEST-NEW', courseId: course.id, semester: 'SP27' });
   assert.equal(created.status, 201, created.body.message);
@@ -94,9 +94,9 @@ test('core write flows of other actors still work (class, schedule conflict, att
   const roster = await call(`/classes/${cls.id}/grades`, 'TEACHER');
   const first = roster.body.data.grades[0];
   assert.equal((await call(`/classes/${cls.id}/attendances`, 'TEACHER', 'POST', { sessionDate: '2026-11-04', records: [{ studentId: first.studentId, status: 'LATE' }] })).status, 200);
-  const graded = await call(`/classes/${cls.id}/grades`, 'TEACHER', 'PUT', { gradesList: [{ enrollmentId: first.enrollmentId, attendanceScore: 9, midtermScore: 7, finalScore: 8 }] });
-  assert.equal(graded.body.data[0].totalScore, 7.8);
-  assert.equal(graded.body.data[0].isPassed, true);
+  assert.equal((await call(`/classes/${cls.id}/grades`, 'TEACHER', 'PUT', {
+    gradesList: [{ enrollmentId: first.enrollmentId, attendanceScore: 9, midtermScore: 7, finalScore: 8 }]
+  })).status, 403);
 
   const n = await call('/notifications', 'STUDENT');
   assert.equal((await call(`/notifications/${n.body.data.notifications[0].id}/read`, 'STUDENT', 'PATCH')).status, 200);
@@ -109,4 +109,3 @@ test('core write flows of other actors still work (class, schedule conflict, att
   assert.equal(reminders.status, 201, reminders.body.message);
   assert.equal(reminders.body.data.studentCount, 9); // SV đầu tiên của mỗi khóa có hóa đơn quá hạn
 });
-

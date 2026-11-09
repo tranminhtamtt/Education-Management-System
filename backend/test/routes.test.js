@@ -160,3 +160,56 @@ test('reconciliation compares independent SePay evidence and never changes debt;
     global.fetch = nativeFetch;
   }
 });
+
+test('teacher dashboard, attendance, and assignment grading are limited to assigned classes', async () => {
+  await seedBasic();
+  await M.User.create([
+    { id: 3, code: 'TEA003', email: 'tea3@x', passwordHash: 'h', fullName: 'Teacher A', role: 'TEACHER' },
+    { id: 4, code: 'TEA004', email: 'tea4@x', passwordHash: 'h', fullName: 'Teacher B', role: 'TEACHER' }
+  ]);
+  await M.Course.create([
+    { id: 4, courseCode: 'NET201', name: 'Networking', totalSessions: 10 },
+    { id: 5, courseCode: 'NET101', name: 'Networking', totalSessions: 10 }
+  ]);
+  await M.Class.create([
+    { id: 4, classCode: 'NET201-SP26-01', courseId: 4, teacherId: 3, semester: 'SP26', status: 'ONGOING' },
+    { id: 5, classCode: 'NET101-SP26-01', courseId: 5, teacherId: 4, semester: 'SP26', status: 'ONGOING' }
+  ]);
+  await M.Schedule.create({ id: 4, classId: 4, dayOfWeek: 2, shift: 1, startTime: '07:30', endTime: '09:50', room: 'P101' });
+  await M.Enrollment.create([
+    { id: 4, classId: 4, studentId: 10, status: 'ACTIVE' },
+    { id: 5, classId: 4, studentId: 11, status: 'ACTIVE' }
+  ]);
+  await M.Attendance.create([
+    ...[1, 2, 3].map(day => ({ classId: 4, studentId: 10, sessionDate: new Date(`2026-11-0${day}`), status: 'ABSENT_UNEXCUSED' })),
+    ...[1, 2].map(day => ({ classId: 4, studentId: 11, sessionDate: new Date(`2026-11-1${day}`), status: 'ABSENT_UNEXCUSED' }))
+  ]);
+  const assignment = await M.Assignment.create({
+    id: 4, classId: 4, title: 'BT01', description: 'Network programming',
+    dueDate: new Date('2026-12-01T00:00:00Z')
+  });
+  const submission = await M.Submission.create({
+    id: 4, assignmentId: assignment.id, studentId: 10, fileUrl: '/uploads/work.zip'
+  });
+
+  const dashboard = await call('/teacher/dashboard', ['TEACHER', 3]);
+  assert.equal(dashboard.status, 200, JSON.stringify(dashboard.body));
+  assert.deepEqual(dashboard.body.data.classes.map(item => item.classCode), ['NET201-SP26-01']);
+  assert.equal(dashboard.body.data.schedules.length, 1);
+  assert.equal(dashboard.body.data.summary.assignmentCount, 1);
+  assert.equal(dashboard.body.data.summary.submissionCount, 1);
+  assert.deepEqual(dashboard.body.data.attendanceWarnings.map(item => item.studentId), [10]);
+  assert.deepEqual((await call('/classes?teacherId=4', ['TEACHER', 3])).body.data.map(item => item.id), [4]);
+
+  assert.equal((await call('/classes/5/attendances', ['TEACHER', 3])).status, 404);
+  assert.equal((await call('/classes/5/attendances', ['TEACHER', 3], 'POST', {
+    sessionDate: '2026-11-05', records: [{ studentId: 10, status: 'PRESENT' }]
+  })).status, 404);
+  assert.equal((await call('/classes/5/assignments', ['TEACHER', 3], 'POST', {
+    title: 'Not assigned', dueDate: '2026-12-01'
+  })).status, 404);
+  assert.equal((await call(`/submissions/${submission.id}/grade`, ['TEACHER', 4], 'PATCH', { score: 9 })).status, 403);
+  assert.equal((await call(`/submissions/${submission.id}/grade`, ['TEACHER', 3], 'PATCH', {
+    score: 9, teacherFeedback: 'Good work'
+  })).status, 200);
+});

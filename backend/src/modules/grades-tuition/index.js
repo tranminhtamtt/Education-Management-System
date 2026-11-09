@@ -42,11 +42,13 @@ const num = v => (v !== null && v !== undefined ? Number(v) : null);
 // ==========================================
 
 // UC8.1: Lấy bảng điểm đầy đủ của lớp học phần
-router.get('/classes/:id/grades', authenticateJWT, async (req, res) => {
+router.get('/classes/:id/grades', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
   try {
     const classId = parseInt(req.params.id);
+    const classFilter = { id: classId };
+    if (req.user.role === 'TEACHER') classFilter.teacherId = req.user.id;
 
-    const classDoc = await Class.findOne({ id: classId }).populate(['course', {
+    const classDoc = await Class.findOne(classFilter).populate(['course', {
       path: 'enrollments',
       match: { status: 'ACTIVE' },
       populate: [{ path: 'student', select: 'id code fullName email' }, 'grade']
@@ -92,7 +94,7 @@ router.get('/classes/:id/grades', authenticateJWT, async (req, res) => {
 });
 
 // UC8.2: Cập nhật điểm thành phần hàng loạt & Tự động xét qua môn
-router.put('/classes/:id/grades', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
+router.put('/classes/:id/grades', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
   try {
     const classId = parseInt(req.params.id);
     const { gradesList } = req.body;

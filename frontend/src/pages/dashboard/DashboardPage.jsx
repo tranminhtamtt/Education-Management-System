@@ -1,15 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Row, Col, Card, Statistic, Typography, Table, Tag, Alert, Progress, Spin } from 'antd';
+import { Row, Col, Card, Statistic, Typography, Table, Tag, Alert, Progress, Spin, Button, Space } from 'antd';
 import {
   UserOutlined,
   TeamOutlined,
   ApartmentOutlined,
   DollarCircleOutlined,
-  TrophyOutlined
+  TrophyOutlined,
+  WarningOutlined,
+  CalendarOutlined,
+  FileTextOutlined
 } from '@ant-design/icons';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, PieChart, Pie, Cell } from 'recharts';
 import apiClient from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import TuitionReportPage from '../grades-tuition/TuitionReportPage';
 
@@ -17,12 +21,14 @@ const { Title, Text } = Typography;
 
 const DashboardPage = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const role = user?.role;
 
   const [loading, setLoading] = useState(true);
   const [adminData, setAdminData] = useState(null);
   const [studentData, setStudentData] = useState(null);
   const [todaySchedules, setTodaySchedules] = useState([]);
+  const [teacherData, setTeacherData] = useState(null);
 
   useEffect(() => {
     const fetchDashboard = async () => {
@@ -35,6 +41,14 @@ const DashboardPage = () => {
         } else if (role === 'STUDENT') {
           const res = await apiClient.get('/analytics/student-overview');
           if (res.success) setStudentData(res.data);
+        } else if (role === 'TEACHER') {
+          const res = await apiClient.get('/teacher/dashboard');
+          if (res.success) {
+            setTeacherData(res.data);
+            const currentDayOfWeek = dayjs().day() === 0 ? 8 : dayjs().day() + 1;
+            setTodaySchedules(res.data.schedules.filter(s => s.dayOfWeek === currentDayOfWeek));
+          }
+          return;
         }
 
         // Kế toán không có lịch học/lịch dạy -> dashboard riêng (TuitionReportPage tự tải dữ liệu)
@@ -278,8 +292,72 @@ const DashboardPage = () => {
       ======================================================== */}
       {role === 'TEACHER' && (
         <Row gutter={[16, 16]}>
+          <Col xs={24} sm={12} lg={6}>
+            <Card bordered={false}>
+              <Statistic title="Lớp phụ trách" value={teacherData?.summary.classCount || 0} prefix={<ApartmentOutlined style={{ color: '#F26F21' }} />} />
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} lg={6}>
+            <Card bordered={false}>
+              <Statistic title="Ca dạy mỗi tuần" value={teacherData?.summary.weeklySessionCount || 0} prefix={<CalendarOutlined style={{ color: '#1890ff' }} />} />
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} lg={6}>
+            <Card bordered={false}>
+              <Statistic title="Bài tập" value={teacherData?.summary.assignmentCount || 0} prefix={<FileTextOutlined style={{ color: '#52c41a' }} />} />
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} lg={6}>
+            <Card bordered={false}>
+              <Statistic title="Cảnh báo vắng trên 20%" value={teacherData?.summary.warningCount || 0} prefix={<WarningOutlined style={{ color: '#ff4d4f' }} />} />
+            </Card>
+          </Col>
           <Col xs={24}>
-            <Card title="Lịch giảng dạy hôm nay" bordered={false}>
+            <Card
+              title="Teacher Dashboard"
+              bordered={false}
+              extra={<Space><Button onClick={() => navigate('/attendance')}>Điểm danh</Button><Button type="primary" onClick={() => navigate('/assignments')}>Bài tập & chấm bài</Button></Space>}
+            >
+              <Space direction="vertical" style={{ width: '100%' }} size="large">
+                <div>
+                  <Text strong>Lớp học phần</Text>
+                  <Table
+                    size="small"
+                    rowKey="id"
+                    pagination={false}
+                    dataSource={teacherData?.classes || []}
+                    locale={{ emptyText: 'Bạn chưa được phân công lớp nào' }}
+                    columns={[
+                      { title: 'Lớp', dataIndex: 'classCode', render: code => <Text strong>{code}</Text> },
+                      { title: 'Học kỳ', dataIndex: 'semester' },
+                      { title: 'Trạng thái', dataIndex: 'status' },
+                      { title: 'Sinh viên', dataIndex: 'studentCount' },
+                      { title: 'Bài tập', dataIndex: 'assignmentCount' }
+                    ]}
+                  />
+                </div>
+                <div>
+                  <Text strong>Lịch giảng dạy trong tuần</Text>
+                  <Table
+                    size="small"
+                    rowKey="id"
+                    pagination={false}
+                    locale={{ emptyText: 'Chưa có lịch giảng dạy' }}
+                    dataSource={teacherData?.schedules || []}
+                    columns={[
+                      { title: 'Thứ', dataIndex: 'dayOfWeek', render: day => day === 8 ? 'Chủ Nhật' : `Thứ ${day}` },
+                      { title: 'Ca', dataIndex: 'shift', render: shift => <Tag color="orange">Slot {shift}</Tag> },
+                      { title: 'Thời gian', render: (_, item) => `${item.startTime} – ${item.endTime}` },
+                      { title: 'Lớp', dataIndex: 'classCode' },
+                      { title: 'Phòng', dataIndex: 'room' }
+                    ]}
+                  />
+                </div>
+              </Space>
+            </Card>
+          </Col>
+          <Col xs={24} lg={12}>
+            <Card title="Lịch dạy hôm nay" bordered={false}>
               {todaySchedules.length === 0 ? (
                 <Alert message="Hôm nay Thầy/Cô không có ca dạy nào theo lịch phân công." type="info" showIcon />
               ) : (
@@ -296,6 +374,23 @@ const DashboardPage = () => {
                   ]}
                 />
               )}
+            </Card>
+          </Col>
+          <Col xs={24} lg={12}>
+            <Card title="Cảnh báo chuyên cần — vắng trên 20%" bordered={false}>
+              <Table
+                size="small"
+                rowKey={item => `${item.classId}-${item.studentId}`}
+                dataSource={teacherData?.attendanceWarnings || []}
+                pagination={{ pageSize: 5 }}
+                locale={{ emptyText: 'Chưa có sinh viên vượt ngưỡng vắng 20%' }}
+                columns={[
+                  { title: 'Lớp', dataIndex: 'classCode' },
+                  { title: 'Sinh viên', render: (_, item) => `${item.code} — ${item.fullName}` },
+                  { title: 'Số buổi vắng', render: (_, item) => `${item.absentUnexcused}/${item.totalSessions}` },
+                  { title: 'Tỷ lệ', dataIndex: 'absentRate', render: rate => <Tag color="error">{rate}%</Tag> }
+                ]}
+              />
             </Card>
           </Col>
         </Row>

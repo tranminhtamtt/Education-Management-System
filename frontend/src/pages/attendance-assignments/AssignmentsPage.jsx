@@ -451,7 +451,7 @@ const AssignmentsPage = () => {
               title: 'Chấm điểm',
               render: (_, r) => (
                 <Button size="small" type="primary" onClick={() => handleOpenGradeForm(r)}>
-                  Nhập điểm
+                    Chấm bài
                 </Button>
               )
             }

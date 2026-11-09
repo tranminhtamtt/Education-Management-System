@@ -10,17 +10,44 @@ const { plain } = require('../../utils/query');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
 
 const byStudentCode = (a, b) => String(a.student?.code || '').localeCompare(String(b.student?.code || ''));
+const teacherOwnsClass = async (classId, user) => {
+  const filter = { id: classId };
+  if (user.role === 'TEACHER') filter.teacherId = user.id;
+  return Class.findOne(filter).select('id');
+};
+const canAccessClass = async (classId, user) => {
+  if (user.role === 'ADMIN') return Boolean(await Class.exists({ id: classId }));
+  if (user.role === 'TEACHER') return Boolean(await Class.exists({ id: classId, teacherId: user.id }));
+  if (user.role === 'STUDENT') return Boolean(await Enrollment.exists({ classId, studentId: user.id, status: 'ACTIVE' }));
+  return false;
+};
+const requireAssignedClass = async (req, res, next) => {
+  try {
+    const classId = parseInt(req.params.id);
+    if (!await canAccessClass(classId, req.user)) {
+      return errorResponse(res, 'Không tìm thấy lớp được phân công', 404);
+    }
+    return next();
+  } catch (error) {
+    console.error('Error checking class access:', error);
+    return errorResponse(res, 'Lỗi kiểm tra quyền truy cập lớp học', 500);
+  }
+};
 
 // ==========================================
 // 1. ATTENDANCE MANAGEMENT (UC6.1 - UC6.2)
 // ==========================================
 
 // UC6.1: Lấy danh sách điểm danh lớp theo ngày học
-router.get('/classes/:id/attendances', authenticateJWT, async (req, res) => {
+router.get('/classes/:id/attendances', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
   try {
     const classId = parseInt(req.params.id);
+    if (!await teacherOwnsClass(classId, req.user)) {
+      return errorResponse(res, 'Không tìm thấy lớp được phân công', 404);
+    }
     const dateStr = req.query.date || new Date().toISOString().split('T')[0];
     const targetDate = new Date(dateStr);
+    if (Number.isNaN(targetDate.getTime())) return errorResponse(res, 'Ngày điểm danh không hợp lệ', 400);
 
     // Lấy danh sách học viên trong lớp
     const enrollments = (await Enrollment.find({ classId, status: 'ACTIVE' })
@@ -68,11 +95,29 @@ router.post('/classes/:id/attendances', authenticateJWT, authorizeRoles('ADMIN',
     const classId = parseInt(req.params.id);
     const { sessionDate, records } = req.body;
 
+    if (!await teacherOwnsClass(classId, req.user)) {
+      return errorResponse(res, 'Không tìm thấy lớp được phân công', 404);
+    }
     if (!sessionDate || !Array.isArray(records)) {
       return errorResponse(res, 'Dữ liệu điểm danh không hợp lệ (cần sessionDate và mảng records)', 400);
     }
 
     const date = new Date(sessionDate);
+    if (Number.isNaN(date.getTime())) return errorResponse(res, 'Ngày điểm danh không hợp lệ', 400);
+    const validStatuses = ['PRESENT', 'LATE', 'ABSENT_EXCUSED', 'ABSENT_UNEXCUSED'];
+    const studentIds = records.map(record => Number(record.studentId));
+    if (studentIds.some(id => !Number.isSafeInteger(id)) || new Set(studentIds).size !== studentIds.length ||
+      records.some(record => !validStatuses.includes(record.status || 'PRESENT'))) {
+      return errorResponse(res, 'Danh sách hoặc trạng thái điểm danh không hợp lệ', 400);
+    }
+    const activeEnrollments = await Enrollment.find({
+      classId,
+      studentId: { $in: studentIds },
+      status: 'ACTIVE'
+    }).select('studentId');
+    if (activeEnrollments.length !== studentIds.length) {
+      return errorResponse(res, 'Danh sách có học viên không thuộc lớp hoặc đã ngừng học', 400);
+    }
 
     // Lưu từng bản ghi điểm danh (upsert theo UNIQUE classId, studentId, sessionDate)
     await withTransaction(async session => {
@@ -103,9 +148,12 @@ router.post('/classes/:id/attendances', authenticateJWT, authorizeRoles('ADMIN',
 });
 
 // UC6.2: Thống kê tỷ lệ chuyên cần cả kỳ của lớp, gắn cờ cấm thi
-router.get('/classes/:id/attendance-summary', authenticateJWT, async (req, res) => {
+router.get('/classes/:id/attendance-summary', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
   try {
     const classId = parseInt(req.params.id);
+    if (!await teacherOwnsClass(classId, req.user)) {
+      return errorResponse(res, 'Không tìm thấy lớp được phân công', 404);
+    }
 
     const classDoc = await Class.findOne({ id: classId }).populate(['course', {
       path: 'enrollments',
@@ -209,6 +257,9 @@ router.get('/attendances/my-report', authenticateJWT, async (req, res) => {
 router.get('/classes/:id/assignments', authenticateJWT, async (req, res) => {
   try {
     const classId = parseInt(req.params.id);
+    if (!await canAccessClass(classId, req.user)) {
+      return errorResponse(res, 'Không tìm thấy lớp được phân công', 404);
+    }
     const userId = req.user.id;
     const role = req.user.role;
 
@@ -240,13 +291,16 @@ router.get('/classes/:id/assignments', authenticateJWT, async (req, res) => {
 });
 
 // UC7.1: Giảng viên giao bài tập mới (hỗ trợ upload file đề bài)
-router.post('/classes/:id/assignments', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), upload.single('file'), async (req, res) => {
+router.post('/classes/:id/assignments', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), requireAssignedClass, upload.single('file'), async (req, res) => {
   try {
     const classId = parseInt(req.params.id);
     const { title, description, dueDate } = req.body;
 
     if (!title || !dueDate) {
       return errorResponse(res, 'Tiêu đề và Hạn nộp bài là bắt buộc', 400);
+    }
+    if (Number.isNaN(new Date(dueDate).getTime())) {
+      return errorResponse(res, 'Hạn nộp bài không hợp lệ', 400);
     }
 
     const fileUrl = req.file ? `/uploads/${req.file.filename}` : null;
@@ -284,6 +338,11 @@ router.get('/assignments/:id', authenticateJWT, async (req, res) => {
     const id = parseInt(req.params.id);
     const role = req.user.role;
     const userId = req.user.id;
+    const assignment = await Assignment.findOne({ id }).select('classId');
+    if (!assignment) return errorResponse(res, 'Không tìm thấy bài tập', 404);
+    if (!await canAccessClass(assignment.classId, req.user)) {
+      return errorResponse(res, 'Bạn không có quyền xem bài tập này', 403);
+    }
 
     const doc = await Assignment.findOne({ id }).populate([
       { path: 'class', populate: ['course', { path: 'teacher', select: 'fullName' }] },
@@ -315,6 +374,9 @@ router.post('/assignments/:id/submissions', authenticateJWT, authorizeRoles('STU
 
     if (!assignment) {
       return errorResponse(res, 'Không tìm thấy bài tập', 404);
+    }
+    if (!await canAccessClass(assignment.classId, req.user)) {
+      return errorResponse(res, 'Bạn không có quyền nộp bài cho lớp này', 403);
     }
 
     if (!req.file) {
@@ -353,6 +415,11 @@ router.patch('/submissions/:id/grade', authenticateJWT, authorizeRoles('ADMIN', 
   try {
     const id = parseInt(req.params.id);
     const { score, teacherFeedback } = req.body;
+    const existing = await Submission.findOne({ id }).populate('assignment');
+    if (!existing || !existing.assignment) return errorResponse(res, 'Không tìm thấy bài nộp', 404);
+    if (!await canAccessClass(existing.assignment.classId, req.user)) {
+      return errorResponse(res, 'Bạn không có quyền chấm bài này', 403);
+    }
 
     const numericScore = parseFloat(score);
     if (isNaN(numericScore) || numericScore < 0 || numericScore > 10) {
