@@ -31,6 +31,8 @@ const TEACHER_FIELDS = 'id code fullName email';
 router.get('/classes', authenticateJWT, async (req, res) => {
   try {
     const { semester, courseId, teacherId, status } = req.query;
+    const role = req.user.role;
+    const userId = req.user.id;
 
     const where = {
       ...(semester ? { semester: String(semester) } : {}),
@@ -38,6 +40,16 @@ router.get('/classes', authenticateJWT, async (req, res) => {
       ...(teacherId ? { teacherId: parseInt(teacherId) } : {}),
       ...(status ? { status: String(status) } : {})
     };
+
+    if (role === 'STUDENT') {
+      const enrolled = await Enrollment.find({ studentId: userId, status: 'ACTIVE' }).select('classId');
+      where.id = { $in: enrolled.map(e => e.classId) };
+      if (!status) {
+        where.status = 'ONGOING';
+      }
+    } else if (role === 'TEACHER' && !teacherId) {
+      where.teacherId = userId;
+    }
 
     const classes = (await Class.find(where)
       .sort({ createdAt: -1, id: -1 })
@@ -48,6 +60,9 @@ router.get('/classes', authenticateJWT, async (req, res) => {
       { $group: { _id: '$classId', n: { $sum: 1 } } }
     ]);
     const countMap = new Map(counts.map(c => [c._id, c.n]));
+
+    const statusOrder = { ONGOING: 1, UPCOMING: 2, COMPLETED: 3 };
+    classes.sort((a, b) => (statusOrder[a.status] || 9) - (statusOrder[b.status] || 9));
 
     return successResponse(
       res,
@@ -336,7 +351,7 @@ router.delete('/classes/:id/schedules/:scheduleId', authenticateJWT, authorizeRo
   }
 });
 
-// UC5.4: Lấy thời khóa biểu tuần của người dùng (TEACHER / STUDENT / ADMIN)
+// UC5.4: Lấy thời khóa biểu tuần của người dùng (TEACHER / STUDENT / ADMIN) - Hỗ trợ kỳ học 2 tuần
 router.get('/schedules/my-schedule', authenticateJWT, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -344,7 +359,7 @@ router.get('/schedules/my-schedule', authenticateJWT, async (req, res) => {
     const { semester } = req.query;
 
     const classWhere = {
-      ...(semester ? { semester: String(semester) } : {})
+      ...(semester ? { semester: String(semester) } : { status: 'ONGOING' })
     };
 
     if (role === 'TEACHER') {
@@ -359,22 +374,51 @@ router.get('/schedules/my-schedule', authenticateJWT, async (req, res) => {
       .sort({ dayOfWeek: 1, shift: 1 })
       .populate({ path: 'class', populate: ['course', { path: 'teacher', select: 'fullName code' }] })).map(plain);
 
+    const studentAttendances = role === 'STUDENT' && classIds.length > 0
+      ? (await Attendance.find({ studentId: userId, classId: { $in: classIds } })).map(plain)
+      : [];
+
     return successResponse(
       res,
-      schedules.map(s => ({
-        id: s.id,
-        classId: s.classId,
-        classCode: s.class.classCode,
-        courseCode: s.class.course?.courseCode,
-        courseName: s.class.course?.name,
-        teacherName: s.class.teacher?.fullName || 'Chưa phân công',
-        dayOfWeek: s.dayOfWeek,
-        shift: s.shift,
-        startTime: s.startTime,
-        endTime: s.endTime,
-        room: s.room,
-        semester: s.class.semester
-      })),
+      schedules.map(s => {
+        const slotTime = SLOT_HOURS[s.shift] || { start: '07:30', end: '09:50' };
+        const w1Date = `2026-11-${String(2 + (s.dayOfWeek - 2)).padStart(2, '0')}`;
+        const w2Date = `2026-11-${String(9 + (s.dayOfWeek - 2)).padStart(2, '0')}`;
+
+        const attendances = studentAttendances.filter(a => a.classId === s.classId);
+        const findAttByDate = (dateStr) =>
+          attendances.find(a => a.sessionDate && new Date(a.sessionDate).toISOString().split('T')[0] === dateStr);
+
+        const attW1 = role === 'STUDENT' ? findAttByDate(w1Date) : null;
+        const attW2 = role === 'STUDENT' ? findAttByDate(w2Date) : null;
+
+        return {
+          id: s.id,
+          classId: s.classId,
+          classCode: s.class?.classCode,
+          courseCode: s.class?.course?.courseCode,
+          courseName: s.class?.course?.name,
+          teacherName: s.class?.teacher?.fullName || 'Chưa phân công',
+          dayOfWeek: s.dayOfWeek,
+          shift: s.shift,
+          startTime: s.startTime || slotTime.start,
+          endTime: s.endTime || slotTime.end,
+          room: s.room,
+          semester: s.class?.semester,
+          week1Session: {
+            week: 1,
+            date: w1Date,
+            status: attW1 ? attW1.status : null,
+            note: attW1 ? attW1.note : null
+          },
+          week2Session: {
+            week: 2,
+            date: w2Date,
+            status: attW2 ? attW2.status : null,
+            note: attW2 ? attW2.note : null
+          }
+        };
+      }),
       'Lấy thời khóa biểu thành công'
     );
   } catch (error) {

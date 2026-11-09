@@ -160,27 +160,68 @@ router.get('/classes/:id/attendance-summary', authenticateJWT, async (req, res) 
   }
 });
 
-// Báo cáo chuyên cần cá nhân của học viên
+// Báo cáo chuyên cần cá nhân của học viên (Kỳ học 2 tuần)
 router.get('/attendances/my-report', authenticateJWT, async (req, res) => {
   try {
     const studentId = req.user.id;
     const enrollments = (await Enrollment.find({ studentId, status: 'ACTIVE' })
-      .populate({ path: 'class', populate: 'course' })).map(plain).filter(e => e.class);
-    const allRecords = await Attendance.find({ studentId, classId: { $in: enrollments.map(e => e.classId) } });
+      .populate([
+        'grade',
+        { path: 'class', populate: ['course', { path: 'teacher', select: 'fullName' }, 'schedules'] }
+      ])).map(plain).filter(e => e.class && e.class.status === 'ONGOING');
+    const allRecords = (await Attendance.find({ studentId, classId: { $in: enrollments.map(e => e.classId) } })
+      .sort({ sessionDate: 1 })).map(plain);
 
     const report = enrollments.map(e => {
       const records = allRecords.filter(r => r.classId === e.classId);
-      const totalSessions = e.class.course?.totalSessions || 30;
+
+      // Xây dựng danh sách đầy đủ buổi học trong 2 tuần (Tuần 1: 02/11 - 08/11, Tuần 2: 09/11 - 15/11)
+      const recordByDate = new Map();
+      records.forEach(r => {
+        const dStr = new Date(r.sessionDate).toISOString().split('T')[0];
+        recordByDate.set(dStr, r);
+      });
+
+      const schedules = e.class.schedules || [];
+      const plannedSessions = [];
+      // Tuần 1
+      schedules.forEach(s => {
+        const dateStr = `2026-11-${String(2 + (s.dayOfWeek - 2)).padStart(2, '0')}`;
+        plannedSessions.push({ week: 1, dateStr, dayOfWeek: s.dayOfWeek, shift: s.shift, room: s.room });
+      });
+      // Tuần 2
+      schedules.forEach(s => {
+        const dateStr = `2026-11-${String(9 + (s.dayOfWeek - 2)).padStart(2, '0')}`;
+        plannedSessions.push({ week: 2, dateStr, dayOfWeek: s.dayOfWeek, shift: s.shift, room: s.room });
+      });
+
+      const totalSessions = plannedSessions.length || e.class.course?.totalSessions || 6;
       const present = records.filter(r => r.status === 'PRESENT').length;
       const absentExcused = records.filter(r => r.status === 'ABSENT_EXCUSED').length;
       const absentUnexcused = records.filter(r => r.status === 'ABSENT_UNEXCUSED').length;
       const late = records.filter(r => r.status === 'LATE').length;
       const absentRate = parseFloat(((absentUnexcused / totalSessions) * 100).toFixed(1));
-      const isBanned = absentRate >= 20.0;
+      const isBanned = e.grade?.isBanned || absentRate >= 20.0;
+
+      const sessions = plannedSessions.map((ps, idx) => {
+        const rec = recordByDate.get(ps.dateStr);
+        return {
+          sessionNo: idx + 1,
+          week: ps.week,
+          sessionDate: ps.dateStr,
+          dayOfWeek: ps.dayOfWeek,
+          shift: ps.shift,
+          room: ps.room,
+          status: rec ? rec.status : 'UPCOMING',
+          note: rec ? (rec.note || '') : 'Chưa đến buổi học (Chưa điểm danh)'
+        };
+      });
 
       return {
         classId: e.class.id,
         classCode: e.class.classCode,
+        semester: e.class.semester,
+        teacherName: e.class.teacher?.fullName || 'Chưa phân công',
         courseCode: e.class.course?.courseCode,
         courseName: e.class.course?.name,
         totalSessions,
@@ -190,7 +231,9 @@ router.get('/attendances/my-report', authenticateJWT, async (req, res) => {
         absentUnexcused,
         late,
         absentRate,
-        isBanned
+        attendanceScore: e.grade?.attendanceScore !== null && e.grade?.attendanceScore !== undefined ? Number(e.grade.attendanceScore) : 10.0,
+        isBanned,
+        sessions
       };
     });
 

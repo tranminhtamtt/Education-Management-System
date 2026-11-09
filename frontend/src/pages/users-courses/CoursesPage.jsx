@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Table, Card, Button, Input, Space, Tag, Modal, Form, Typography, message, InputNumber, Row, Col } from 'antd';
-import { PlusOutlined, BookOutlined, LinkOutlined } from '@ant-design/icons';
+import { PlusOutlined, BookOutlined, LinkOutlined, SearchOutlined } from '@ant-design/icons';
 import apiClient from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 
@@ -12,6 +12,7 @@ const CoursesPage = () => {
 
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
@@ -120,10 +121,27 @@ const CoursesPage = () => {
           )
         }
       >
+        <Space style={{ marginBottom: 16 }}>
+          <Input
+            placeholder="Tìm theo Mã môn (PRN231), Tên môn học..."
+            prefix={<SearchOutlined />}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            allowClear
+            style={{ width: 320 }}
+          />
+        </Space>
         <Table
           rowKey="id"
           columns={columns}
-          dataSource={data}
+          dataSource={data.filter(c => {
+            if (!search) return true;
+            const s = search.toLowerCase();
+            return (
+              (c.courseCode && c.courseCode.toLowerCase().includes(s)) ||
+              (c.name && c.name.toLowerCase().includes(s))
+            );
+          })}
           loading={loading}
           pagination={{ pageSize: 10 }}
         />
