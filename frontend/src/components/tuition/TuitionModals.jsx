@@ -10,28 +10,64 @@ const { Text } = Typography;
 // ============================================================
 // UC9.3: Modal hiển thị mã VietQR theo số tiền còn nợ (DF32 -> DF33)
 // ============================================================
-export const VietQRModal = ({ open, invoiceId, onClose }) => {
+export const VietQRModal = ({ open, invoiceId, onClose, onPayment }) => {
   const [loading, setLoading] = useState(false);
   const [qrData, setQrData] = useState(null);
   const [error, setError] = useState('');
+  const [payment, setPayment] = useState(null);
+  const [pollError, setPollError] = useState('');
+  const onPaymentRef = useRef(onPayment);
+  onPaymentRef.current = onPayment;
 
   useEffect(() => {
     if (!open || !invoiceId) return;
+    let cancelled = false;
+    setPayment(null);
+    setPollError('');
     const load = async () => {
       try {
         setLoading(true);
         setError('');
         setQrData(null);
-        const res = await apiClient.get(`/tuition-invoices/${invoiceId}/vietqr`);
-        if (res.success) setQrData(res.data);
+        const res = await apiClient.post('/payment-orders', { invoiceId });
+        if (!cancelled && res.success) setQrData(res.data);
       } catch (err) {
-        setError(err.response?.data?.message || 'Lỗi khi tạo mã VietQR');
+        if (!cancelled) setError(err.response?.data?.message || 'Lỗi khi tạo mã VietQR');
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
     load();
+    return () => { cancelled = true; };
   }, [open, invoiceId]);
+
+  useEffect(() => {
+    if (!open || !qrData?.id || qrData.invoiceId !== invoiceId) return;
+    let cancelled = false;
+    let timer;
+    let previous = '';
+    const check = async () => {
+      try {
+        const res = await apiClient.get(`/payment-orders/${qrData.id}`);
+        if (cancelled) return;
+        setPollError('');
+        const result = res.data;
+        const signature = JSON.stringify([result.invoiceStatus, result.transactions]);
+        if (result.transactions?.length || result.invoiceStatus === 'PAID') {
+          setPayment(result);
+          if (signature !== previous) onPaymentRef.current?.();
+        }
+        previous = signature;
+        if (result.invoiceStatus === 'PAID') return;
+      } catch {
+        if (cancelled) return;
+        setPollError('Chưa kiểm tra được kết quả. Hệ thống sẽ tự thử lại; không chuyển khoản lại chỉ vì trạng thái chưa đổi.');
+      }
+      if (!cancelled) timer = setTimeout(check, 5000);
+    };
+    check();
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [open, invoiceId, qrData]);
 
   const copy = (text) => {
     navigator.clipboard?.writeText(String(text));
@@ -59,12 +95,18 @@ export const VietQRModal = ({ open, invoiceId, onClose }) => {
       {error && <Alert type="warning" showIcon message={error} />}
       {qrData && !loading && (
         <div style={{ textAlign: 'center' }}>
-          <Image
+          {!payment && <Image
             src={qrData.qrImageUrl}
             alt="Mã VietQR thanh toán học phí"
             width={260}
             style={{ borderRadius: 8, border: '1px solid #f0f0f0', padding: 8 }}
-          />
+          />}
+          {payment && <Alert showIcon style={{ marginBottom: 12, textAlign: 'left' }}
+            type={payment.invoiceStatus === 'PAID' ? 'success' : 'warning'}
+            message={payment.invoiceStatus === 'PAID' ? 'Học phí đã thanh toán đủ' : 'Đã nhận giao dịch — công nợ đã được cập nhật'}
+            description={payment.invoiceStatus === 'PAID'
+              ? 'Bạn có thể đóng cửa sổ để xem phiếu thu. Không cần chuyển khoản thêm.'
+              : 'Nếu còn nợ, đóng cửa sổ và tạo QR mới cho số tiền còn lại. Giao dịch chuyển thừa hoặc chưa khớp sẽ được kế toán kiểm tra.'} />}
           <div style={{ marginTop: 16, textAlign: 'left', background: '#fafafa', padding: 12, borderRadius: 8, lineHeight: 1.9 }}>
             <div>
               <b>Học viên:</b> {qrData.studentName} • <b>Môn:</b> {qrData.courseName}
@@ -77,7 +119,7 @@ export const VietQRModal = ({ open, invoiceId, onClose }) => {
               <Button size="small" type="link" icon={<CopyOutlined />} onClick={() => copy(qrData.accountNo)} />
             </div>
             <div>
-              <b>Số tiền còn nợ:</b>{' '}
+              <b>Số tiền của lệnh thanh toán:</b>{' '}
               <Text strong style={{ color: '#F26F21', fontSize: 16 }}>
                 {formatVnd(qrData.amount)}
               </Text>
@@ -92,11 +134,12 @@ export const VietQRModal = ({ open, invoiceId, onClose }) => {
             </div>
           </div>
           <Alert
-            message="Vui lòng ghi đúng nội dung chuyển khoản. Phòng Kế toán sẽ đối soát và gạch nợ sau khi nhận được tiền."
+            message="Mỗi lệnh có mã chuyển khoản riêng. Quét QR và xác nhận chuyển tiền trong ứng dụng ngân hàng; hệ thống tự kiểm tra kết quả mỗi 5 giây sau khi nhận xác nhận tiền vào. Không sửa nội dung chuyển khoản."
             type="info"
             showIcon
             style={{ marginTop: 12, textAlign: 'left' }}
           />
+          {pollError && <Alert type="warning" showIcon message={pollError} style={{ marginTop: 12 }} />}
         </div>
       )}
     </Modal>

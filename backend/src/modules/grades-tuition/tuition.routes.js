@@ -2,38 +2,32 @@
  * ==========================================================================
  * CỤM KẾ TOÁN / HỌC PHÍ (Người 3 - ACCOUNTANT)
  * --------------------------------------------------------------------------
- * UC9.1   Ghi nhận & tra cứu công nợ học phí (hóa đơn tự tạo ở UC4.2)
- * UC9.2   Cập nhật trạng thái thanh toán UNPAID -> PARTIAL -> PAID (DF34, DF35)
- * UC9.3   Xuất mã VietQR (DF32, DF33) & In phiếu thu / biên lai (DF35)
+ * UC9.1   Tra cứu công nợ học phí (hóa đơn tự tạo khi ghi danh UC4.2)
+ * Payment writes are owned by accountant/payment.service.js (SePay webhook).
+ * UC-PAY.1: Payment Order + dynamic VietQR, confirmed receipts only.
  * UC9.4*  Học viên kiểm tra công nợ cá nhân (DF30)
- * UC10.2  Trigger 3: Thông báo nhắc nợ học phí loại TUITION (DF08b)
- * UC11.1b* Thống kê doanh thu đã thu vs còn nợ theo tháng (DF12b)
+ * UC9.6 / UC10.2 Trigger 3: Thông báo nhắc nợ học phí loại TUITION (DF08b)
+ * UC9.7 / UC11.1b* Thống kê doanh thu đã thu vs còn nợ theo tháng (DF12b)
  * ==========================================================================
  */
 const express = require('express');
 const router = express.Router();
 const authenticateJWT = require('../../middlewares/auth.middleware');
 const authorizeRoles = require('../../middlewares/role.middleware');
-const prisma = require('../../config/prisma');
-const { generateVietQRData } = require('../../utils/vietqrGenerator');
+const { withTransaction } = require('../../config/db');
+const { TuitionInvoice, TuitionPayment, Notification } = require('../../models');
+const { plain } = require('../../utils/query');
 const { numberToVietnameseWords } = require('../../utils/numberToWords');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
 
 const FINANCE_ROLES = ['ACCOUNTANT', 'ADMIN'];
-const PAYMENT_METHODS = ['CASH', 'BANK_TRANSFER', 'VIETQR'];
+const STUDENT_SELECT = 'id code fullName email phone';
 
-const INVOICE_INCLUDE = {
-  student: { select: { id: true, code: true, fullName: true, email: true, phone: true } },
-  enrollment: {
-    include: {
-      class: { include: { course: true } }
-    }
-  },
-  payments: {
-    orderBy: { paidAt: 'asc' },
-    include: { collectedBy: { select: { code: true, fullName: true } } }
-  }
-};
+const INVOICE_POPULATE = [
+  { path: 'student', select: STUDENT_SELECT },
+  { path: 'enrollment', populate: { path: 'class', populate: 'course' } },
+  { path: 'payments', populate: { path: 'collectedBy', select: 'code fullName' } }
+];
 
 const startOfToday = () => {
   const d = new Date();
@@ -50,6 +44,7 @@ const mapPayment = (p) => ({
   method: p.method,
   note: p.note,
   paidAt: p.paidAt,
+  transactionId: p.transactionId ?? null,
   collectedBy: p.collectedBy ? `${p.collectedBy.fullName} (${p.collectedBy.code})` : null
 });
 
@@ -57,18 +52,21 @@ const mapInvoice = (inv) => {
   const amount = Number(inv.amount);
   const paidAmount = Number(inv.paidAmount);
   const remainingAmount = Math.max(0, amount - paidAmount);
+  const cls = inv.enrollment?.class;
   return {
     id: inv.id,
-    student: inv.student,
-    classCode: inv.enrollment.class.classCode,
-    semester: inv.enrollment.class.semester,
-    courseCode: inv.enrollment.class.course.courseCode,
-    courseName: inv.enrollment.class.course.name,
+    student: inv.student || null,
+    classId: cls?.id ?? null,
+    classCode: cls?.classCode,
+    semester: cls?.semester,
+    courseCode: cls?.course?.courseCode,
+    courseName: cls?.course?.name,
     amount,
     paidAmount,
     remainingAmount,
     status: inv.status,
     dueDate: inv.dueDate,
+    createdAt: inv.createdAt,
     isOverdue: inv.status !== 'PAID' && new Date(inv.dueDate) < startOfToday(),
     payments: (inv.payments || []).map(mapPayment)
   };
@@ -88,7 +86,9 @@ router.get(
   async (req, res) => {
     try {
       const { role, id: userId } = req.user;
-      const { status, classId, search, overdue } = req.query;
+      const { status, classId, search, overdue, semester } = req.query;
+      if (status && String(status).split(',').some(s => !['UNPAID', 'PARTIAL', 'PAID'].includes(s))) return errorResponse(res, 'Trạng thái hóa đơn không hợp lệ', 400);
+      if (classId && (!Number.isSafeInteger(Number(classId)) || Number(classId) <= 0)) return errorResponse(res, 'Mã lớp không hợp lệ', 400);
 
       const where = {};
       if (role === 'STUDENT') {
@@ -98,36 +98,25 @@ router.get(
       if (status) {
         // Hỗ trợ lọc nhiều trạng thái: ?status=UNPAID,PARTIAL
         const statuses = String(status).split(',').filter(Boolean);
-        where.status = statuses.length > 1 ? { in: statuses } : statuses[0];
-      }
-
-      if (classId) {
-        where.enrollment = { class: { id: parseInt(classId) } };
-      }
-
-      if (search && role !== 'STUDENT') {
-        const q = String(search).trim();
-        where.OR = [
-          { student: { code: { contains: q } } },
-          { student: { fullName: { contains: q } } },
-          { student: { email: { contains: q } } },
-          { enrollment: { class: { classCode: { contains: q } } } },
-          { enrollment: { class: { course: { courseCode: { contains: q } } } } }
-        ];
+        where.status = statuses.length > 1 ? { $in: statuses } : statuses[0];
       }
 
       if (overdue === 'true') {
-        where.status = { not: 'PAID' };
-        where.dueDate = { lt: startOfToday() };
+        where.status = { $ne: 'PAID' };
+        where.dueDate = { $lt: startOfToday() };
       }
 
-      const invoices = await prisma.tuitionInvoice.findMany({
-        where,
-        include: INVOICE_INCLUDE,
-        orderBy: [{ dueDate: 'asc' }, { id: 'desc' }]
-      });
+      let data = (await TuitionInvoice.find(where).sort({ dueDate: 1, id: -1 }).populate(INVOICE_POPULATE))
+        .map(d => mapInvoice(plain(d)));
 
-      const data = invoices.map(mapInvoice);
+      // Bộ lọc theo quan hệ (lớp, học kỳ, tìm kiếm sinh viên/lớp/môn)
+      if (classId) data = data.filter(inv => inv.classId === Number(classId));
+      if (semester) data = data.filter(inv => inv.semester === String(semester));
+      if (search && role !== 'STUDENT') {
+        const q = String(search).trim().toLowerCase();
+        data = data.filter(inv => [inv.student?.code, inv.student?.fullName, inv.student?.email, inv.classCode, inv.courseCode]
+          .some(v => String(v || '').toLowerCase().includes(q)));
+      }
 
       const summary = data.reduce(
         (acc, inv) => {
@@ -149,142 +138,40 @@ router.get(
   }
 );
 
-// ==========================================
-// UC9.2: Ghi nhận thanh toán (cộng dồn paid_amount, UNPAID -> PARTIAL -> PAID)
-// ==========================================
-router.patch('/tuition-invoices/:id/pay', authenticateJWT, authorizeRoles('ACCOUNTANT'), async (req, res) => {
+// UC9.1: Chi tiết hóa đơn (kèm phiếu thu, lệnh thanh toán, giao dịch ngân hàng)
+router.get('/tuition-invoices/:id(\\d+)', authenticateJWT, authorizeRoles('ACCOUNTANT', 'ADMIN', 'STUDENT'), async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
-    const { amountPaid, method = 'BANK_TRANSFER', note } = req.body;
-
-    const payment = Math.round(Number(amountPaid));
-    if (!Number.isFinite(payment) || payment <= 0) {
-      return errorResponse(res, 'Số tiền thanh toán phải lớn hơn 0', 400);
-    }
-    if (!PAYMENT_METHODS.includes(method)) {
-      return errorResponse(res, 'Hình thức thanh toán không hợp lệ', 400);
-    }
-
-    const result = await prisma.$transaction(async (tx) => {
-      const invoice = await tx.tuitionInvoice.findUnique({
-        where: { id },
-        include: { student: true, enrollment: { include: { class: { include: { course: true } } } } }
-      });
-
-      if (!invoice) {
-        const err = new Error('Không tìm thấy hóa đơn học phí');
-        err.status = 404;
-        throw err;
-      }
-
-      const totalAmount = Number(invoice.amount);
-      const currentPaid = Number(invoice.paidAmount);
-      const remaining = totalAmount - currentPaid;
-
-      // Luồng ngoại lệ: Hóa đơn đã PAID -> khóa không cho thu thêm
-      if (invoice.status === 'PAID' || remaining <= 0) {
-        const err = new Error('Hóa đơn đã thanh toán đủ (PAID), không thể thu thêm');
-        err.status = 400;
-        throw err;
-      }
-
-      // Luồng ngoại lệ: paid_amount mới vượt quá amount
-      if (payment > remaining) {
-        const err = new Error(
-          `Số tiền thu (${formatVnd(payment)}) vượt quá số tiền còn nợ (${formatVnd(remaining)})`
-        );
-        err.status = 400;
-        throw err;
-      }
-
-      const newPaidAmount = currentPaid + payment;
-      const newStatus = newPaidAmount >= totalAmount ? 'PAID' : 'PARTIAL';
-      const now = new Date();
-
-      // Khóa lạc quan: chỉ cập nhật khi paid_amount chưa bị người khác thay đổi
-      // (chống thu trùng khi 2 kế toán bấm cùng lúc trên cùng 1 hóa đơn)
-      const locked = await tx.tuitionInvoice.updateMany({
-        where: { id, paidAmount: invoice.paidAmount, status: { not: 'PAID' } },
-        data: { paidAmount: newPaidAmount, status: newStatus, paidAt: newStatus === 'PAID' ? now : null }
-      });
-      if (locked.count !== 1) throw Object.assign(new Error('Hóa đơn vừa được cập nhật bởi người khác, vui lòng tải lại'), { status: 409 });
-      const updated = await tx.tuitionInvoice.findUnique({ where: { id } });
-
-      // Tạo phiếu thu cho đợt này. Số phiếu: PT-YYYYMM-<id 5 chữ số>
-      const tempNo = `TMP-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const created = await tx.tuitionPayment.create({
-        data: {
-          invoiceId: id,
-          receiptNo: tempNo,
-          amount: payment,
-          method,
-          note: note ? String(note).slice(0, 255) : null,
-          collectedById: req.user.id,
-          paidAt: now
-        }
-      });
-      const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
-      const receipt = await tx.tuitionPayment.update({
-        where: { id: created.id },
-        data: { receiptNo: `PT-${ym}-${String(created.id).padStart(5, '0')}` }
-      });
-
-      const courseCode = invoice.enrollment.class.course.courseCode;
-      const remainingAfter = totalAmount - newPaidAmount;
-
-      // Thông báo TUITION cho học viên (DF29)
-      await tx.notification.create({
-        data: {
-          userId: invoice.studentId,
-          title: newStatus === 'PAID' ? `Hoàn tất học phí môn ${courseCode}` : `Đã ghi nhận đóng học phí môn ${courseCode}`,
-          message:
-            `Phòng Kế toán đã ghi nhận khoản thanh toán ${formatVnd(payment)} (Phiếu thu ${receipt.receiptNo}) ` +
-            `cho hóa đơn #${id}. ` +
-            (newStatus === 'PAID' ? 'Bạn đã hoàn thành học phí môn này.' : `Số tiền còn nợ: ${formatVnd(remainingAfter)}.`),
-          type: 'TUITION'
-        }
-      });
-
-      return { invoice: updated, receipt, previousStatus: invoice.status, remainingAfter };
-    });
-
-    return successResponse(
-      res,
-      {
-        invoiceId: id,
-        status: result.invoice.status,
-        previousStatus: result.previousStatus,
-        paidAmount: Number(result.invoice.paidAmount),
-        remainingAmount: result.remainingAfter,
-        receipt: mapPayment(result.receipt)
-      },
-      `Ghi nhận thanh toán thành công. Trạng thái: ${result.previousStatus} → ${result.invoice.status}`
-    );
+    const doc = await TuitionInvoice.findOne({ id: parseInt(req.params.id) }).populate([...INVOICE_POPULATE, 'orders', 'transactions']);
+    if (!doc) return errorResponse(res, 'Không tìm thấy hóa đơn', 404);
+    if (!canViewInvoice(req.user, doc)) return errorResponse(res, 'Bạn không có quyền xem hóa đơn này', 403);
+    const inv = plain(doc);
+    return successResponse(res, {
+      ...mapInvoice(inv),
+      orders: (inv.orders || []).map(o => ({ id: o.id, code: o.code, amount: o.amount, createdAt: o.createdAt })),
+      transactions: (inv.transactions || []).map(t => ({ id: t.id, providerId: t.providerId, reference: t.reference, amount: t.amount, appliedAmount: t.appliedAmount, status: t.status, occurredAt: t.occurredAt }))
+    }, 'Lấy chi tiết hóa đơn thành công');
   } catch (error) {
-    if (error.status) return errorResponse(res, error.message, error.status);
-    console.error('Error paying tuition invoice:', error);
-    return errorResponse(res, 'Lỗi ghi nhận thanh toán', 500);
+    console.error('Error fetching invoice detail:', error);
+    return errorResponse(res, 'Lỗi lấy chi tiết hóa đơn', 500);
   }
 });
 
 // ==========================================
-// UC9.3: Dữ liệu phiếu thu / biên lai để in trên trình duyệt (DF35)
+// Confirmed payment receipts. Manual collection endpoint was removed.
 // ==========================================
 router.get('/tuition-payments/:id/receipt', authenticateJWT, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const payment = await prisma.tuitionPayment.findUnique({
-      where: { id },
-      include: {
-        collectedBy: { select: { code: true, fullName: true } },
-        invoice: { include: INVOICE_INCLUDE }
-      }
-    });
+    const paymentDoc = await TuitionPayment.findOne({ id }).populate([
+      { path: 'collectedBy', select: 'code fullName' },
+      { path: 'invoice', populate: INVOICE_POPULATE }
+    ]);
 
-    if (!payment) return errorResponse(res, 'Không tìm thấy phiếu thu', 404);
-    if (!canViewInvoice(req.user, payment.invoice)) {
+    if (!paymentDoc || !paymentDoc.invoice) return errorResponse(res, 'Không tìm thấy phiếu thu', 404);
+    if (!canViewInvoice(req.user, paymentDoc.invoice)) {
       return errorResponse(res, 'Bạn không có quyền xem phiếu thu này', 403);
     }
+    const payment = plain(paymentDoc);
 
     const invoice = mapInvoice(payment.invoice);
     // Số dư trước/sau tại thời điểm thu của đợt này
@@ -333,91 +220,53 @@ router.get('/tuition-payments/:id/receipt', authenticateJWT, async (req, res) =>
 });
 
 // ==========================================
-// UC9.3: Xuất mã VietQR theo số tiền còn nợ (DF32 -> DF33)
+// UC-PAY.1 (tương thích giao diện Student cũ): tạo Payment Order + VietQR theo số tiền còn nợ
 // ==========================================
 router.get('/tuition-invoices/:id/vietqr', authenticateJWT, async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
-
-    const invoice = await prisma.tuitionInvoice.findUnique({
-      where: { id },
-      include: {
-        student: true,
-        enrollment: { include: { class: { include: { course: true } } } }
-      }
-    });
-
-    if (!invoice) return errorResponse(res, 'Không tìm thấy hóa đơn học phí', 404);
-    if (!canViewInvoice(req.user, invoice)) {
-      return errorResponse(res, 'Bạn không có quyền xem hóa đơn này', 403);
-    }
-
-    const remaining = Number(invoice.amount) - Number(invoice.paidAmount);
-    if (remaining <= 0 || invoice.status === 'PAID') {
-      return errorResponse(res, 'Hóa đơn đã thanh toán đủ, không cần tạo mã VietQR', 400);
-    }
-
-    const qrData = generateVietQRData({
-      amount: remaining,
-      studentCode: invoice.student.code,
-      courseCode: invoice.enrollment.class.course.courseCode,
-      classCode: invoice.enrollment.class.classCode
-    });
-
-    return successResponse(
-      res,
-      {
-        ...qrData,
-        studentName: invoice.student.fullName,
-        courseName: invoice.enrollment.class.course.name,
-        totalAmount: Number(invoice.amount),
-        paidAmount: Number(invoice.paidAmount),
-        status: invoice.status
-      },
-      'Tạo mã thanh toán VietQR thành công'
-    );
-  } catch (error) {
-    console.error('Error generating VietQR:', error);
-    return errorResponse(res, 'Lỗi tạo mã VietQR', 500);
+    const data = await require('../accountant/payment.service').createOrder(Number(req.params.id), req.user);
+    return successResponse(res, data);
+  } catch (e) {
+    if (!e.status) console.error('Error creating payment order:', e);
+    return errorResponse(res, e.status ? e.message : 'Lỗi tạo lệnh thanh toán', e.status || 500);
   }
 });
 
 // ==========================================
-// UC10.2 (Trigger 3): Gửi thông báo nhắc đóng học phí loại TUITION (DF08b)
-// Body: { invoiceIds?: number[], onlyOverdue?: boolean, note?: string }
-// Không truyền invoiceIds -> gửi cho toàn bộ hóa đơn chưa PAID
+// UC9.6 / UC10.2 Trigger 3: Gửi nhắc nợ học phí (không gửi cho hóa đơn PAID)
 // ==========================================
 router.post('/tuition-invoices/reminders', authenticateJWT, authorizeRoles('ACCOUNTANT'), async (req, res) => {
   try {
     const { invoiceIds, onlyOverdue, note } = req.body || {};
+    if (note !== undefined && (typeof note !== 'string' || note.length > 500)) return errorResponse(res, 'Ghi chú tối đa 500 ký tự', 400);
 
-    const where = { status: { not: 'PAID' } };
+    const where = { status: { $ne: 'PAID' } };
     if (Array.isArray(invoiceIds) && invoiceIds.length > 0) {
-      where.id = { in: invoiceIds.map((x) => parseInt(x)).filter(Number.isFinite) };
+      where.id = { $in: invoiceIds.map((x) => parseInt(x)).filter(Number.isFinite) };
     }
     if (onlyOverdue) {
-      where.dueDate = { lt: startOfToday() };
+      where.dueDate = { $lt: startOfToday() };
     }
 
-    const invoices = await prisma.tuitionInvoice.findMany({
-      where,
-      include: {
-        student: { select: { id: true, code: true, fullName: true } },
-        enrollment: { include: { class: { include: { course: true } } } }
+    const result = await withTransaction(async session => {
+      // Ghi lockVersion để giao dịch thanh toán đồng thời (chuyển PAID) xung đột và được retry,
+      // đảm bảo không nhắc nợ cho hóa đơn vừa được thanh toán đủ.
+      await TuitionInvoice.updateMany(where, { $inc: { lockVersion: 1 } }, { session });
+      const invoices = (await TuitionInvoice.find(where).session(session).populate([
+        { path: 'student', select: 'id code fullName' },
+        { path: 'enrollment', populate: { path: 'class', populate: 'course' } }
+      ])).map(plain);
+
+      if (invoices.length === 0) {
+        throw Object.assign(new Error('Không có hóa đơn nào còn nợ phù hợp để gửi nhắc'), { status: 400 });
       }
-    });
 
-    if (invoices.length === 0) {
-      return errorResponse(res, 'Không có hóa đơn nào còn nợ phù hợp để gửi nhắc', 400);
-    }
+      const today = startOfToday();
+      const extra = note ? ` Ghi chú: ${String(note).trim()}` : '';
 
-    const today = startOfToday();
-    const extra = note ? ` Ghi chú: ${String(note).trim()}` : '';
-
-    await prisma.notification.createMany({
-      data: invoices.map((inv) => {
+      await Notification.insertMany(invoices.map((inv) => {
         const remaining = Number(inv.amount) - Number(inv.paidAmount);
-        const course = inv.enrollment.class.course;
+        const course = inv.enrollment?.class?.course || {};
         const due = new Date(inv.dueDate);
         const dueText = due.toLocaleDateString('vi-VN');
         const overdueText = due < today ? ` (ĐÃ QUÁ HẠN từ ${dueText})` : ` trước ngày ${dueText}`;
@@ -425,29 +274,30 @@ router.post('/tuition-invoices/reminders', authenticateJWT, authorizeRoles('ACCO
           userId: inv.studentId,
           title: `Nhắc đóng học phí môn ${course.courseCode}`,
           message:
-            `Học viên ${inv.student.fullName} (${inv.student.code}) còn nợ ${formatVnd(remaining)} học phí ` +
-            `môn ${course.name} - lớp ${inv.enrollment.class.classCode}. Vui lòng hoàn tất${overdueText}. ` +
-            `Bạn có thể thanh toán bằng mã VietQR tại mục "Học phí & VietQR" với nội dung "${inv.student.code} ${course.courseCode}".${extra}`,
+            `Học viên ${inv.student?.fullName} (${inv.student?.code}) còn nợ ${formatVnd(remaining)} học phí ` +
+            `môn ${course.name} - lớp ${inv.enrollment?.class?.classCode}. Vui lòng hoàn tất${overdueText}. ` +
+            `Vui lòng mở mục "Học phí & VietQR" và dùng nguyên nội dung chuyển khoản của mã QR mới được tạo.${extra}`,
           type: 'TUITION'
         };
-      })
-    });
+      }), { session });
 
-    const uniqueStudents = new Set(invoices.map((i) => i.studentId)).size;
+      const uniqueStudents = new Set(invoices.map((i) => i.studentId)).size;
+      return { invoiceCount: invoices.length, studentCount: uniqueStudents };
+    });
     return successResponse(
       res,
-      { invoiceCount: invoices.length, studentCount: uniqueStudents },
-      `Đã gửi ${invoices.length} thông báo nhắc học phí tới ${uniqueStudents} học viên`,
+      result,
+      `Đã gửi ${result.invoiceCount} thông báo nhắc học phí tới ${result.studentCount} học viên`,
       201
     );
   } catch (error) {
-    console.error('Error sending tuition reminders:', error);
-    return errorResponse(res, 'Lỗi gửi thông báo nhắc học phí', 500);
+    if (!error.status) console.error('Error sending tuition reminders:', error);
+    return errorResponse(res, error.status ? error.message : 'Lỗi gửi thông báo nhắc học phí', error.status || 500);
   }
 });
 
 // ==========================================
-// UC11.1b*: Thống kê doanh thu học phí theo tháng (DF12b)
+// UC9.7 / UC11.1b*: Thống kê doanh thu học phí theo tháng (DF12b)
 // Query: ?year=2026
 // ==========================================
 router.get('/analytics/tuition-revenue', authenticateJWT, authorizeRoles(...FINANCE_ROLES), async (req, res) => {
@@ -459,29 +309,15 @@ router.get('/analytics/tuition-revenue', authenticateJWT, authorizeRoles(...FINA
     const now = new Date();
 
     const [allInvoices, yearPayments, recentPayments] = await Promise.all([
-      prisma.tuitionInvoice.findMany({
-        include: {
-          student: { select: { id: true, code: true, fullName: true, email: true, phone: true } },
-          enrollment: { include: { class: { include: { course: true } } } }
-        }
-      }),
-      prisma.tuitionPayment.findMany({
-        where: { paidAt: { gte: yearStart, lt: yearEnd } },
-        select: { amount: true, paidAt: true }
-      }),
-      prisma.tuitionPayment.findMany({
-        take: 8,
-        orderBy: { paidAt: 'desc' },
-        include: {
-          collectedBy: { select: { code: true, fullName: true } },
-          invoice: {
-            include: {
-              student: { select: { code: true, fullName: true } },
-              enrollment: { include: { class: { include: { course: true } } } }
-            }
-          }
-        }
-      })
+      TuitionInvoice.find({}).populate([
+        { path: 'student', select: STUDENT_SELECT },
+        { path: 'enrollment', populate: { path: 'class', populate: 'course' } }
+      ]).then(list => list.map(plain)),
+      TuitionPayment.find({ paidAt: { $gte: yearStart, $lt: yearEnd } }).select('amount paidAt'),
+      TuitionPayment.find({}).sort({ paidAt: -1, id: -1 }).limit(8).populate([
+        { path: 'collectedBy', select: 'code fullName' },
+        { path: 'invoice', populate: [{ path: 'student', select: 'code fullName' }, { path: 'enrollment', populate: { path: 'class', populate: 'course' } }] }
+      ]).then(list => list.map(plain))
     ]);
 
     // ----- KPI tổng -----
@@ -532,10 +368,11 @@ router.get('/analytics/tuition-revenue', authenticateJWT, authorizeRoles(...FINA
     for (const p of yearPayments) {
       const d = new Date(p.paidAt);
       monthly[d.getMonth()].collected += Number(p.amount);
-      if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()) {
-        kpi.collectedThisMonth += Number(p.amount);
-      }
     }
+    // KPI "đã thu tháng này" luôn tính theo tháng hiện tại, độc lập với năm đang xem
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthAgg = await TuitionPayment.aggregate([{ $match: { paidAt: { $gte: monthStart } } }, { $group: { _id: null, sum: { $sum: '$amount' } } }]);
+    kpi.collectedThisMonth = Number(monthAgg[0]?.sum || 0);
 
     for (const inv of allInvoices) {
       const d = new Date(inv.createdAt);
@@ -548,7 +385,8 @@ router.get('/analytics/tuition-revenue', authenticateJWT, authorizeRoles(...FINA
     // ----- Doanh thu theo môn học -----
     const courseMap = new Map();
     for (const inv of allInvoices) {
-      const c = inv.enrollment.class.course;
+      const c = inv.enrollment?.class?.course;
+      if (!c) continue;
       const row = courseMap.get(c.id) || { courseCode: c.courseCode, courseName: c.name, total: 0, paid: 0, debt: 0 };
       row.total += Number(inv.amount);
       row.paid += Number(inv.paidAmount);
@@ -564,10 +402,10 @@ router.get('/analytics/tuition-revenue', authenticateJWT, authorizeRoles(...FINA
         const isOverdue = new Date(inv.dueDate) < today;
         return {
           id: inv.id,
-          student: inv.student,
-          classCode: inv.enrollment.class.classCode,
-          courseCode: inv.enrollment.class.course.courseCode,
-          courseName: inv.enrollment.class.course.name,
+          student: inv.student || null,
+          classCode: inv.enrollment?.class?.classCode,
+          courseCode: inv.enrollment?.class?.course?.courseCode,
+          courseName: inv.enrollment?.class?.course?.name,
           amount: Number(inv.amount),
           paidAmount: Number(inv.paidAmount),
           remainingAmount: remaining,
@@ -592,12 +430,12 @@ router.get('/analytics/tuition-revenue', authenticateJWT, authorizeRoles(...FINA
         ],
         byCourse: Array.from(courseMap.values()).sort((a, b) => b.total - a.total),
         debtList,
-        recentPayments: recentPayments.map((p) => ({
+        recentPayments: recentPayments.filter(p => p.invoice).map((p) => ({
           ...mapPayment(p),
           invoiceId: p.invoiceId,
-          studentCode: p.invoice.student.code,
-          studentName: p.invoice.student.fullName,
-          courseCode: p.invoice.enrollment.class.course.courseCode
+          studentCode: p.invoice.student?.code,
+          studentName: p.invoice.student?.fullName,
+          courseCode: p.invoice.enrollment?.class?.course?.courseCode
         }))
       },
       'Lấy thống kê doanh thu học phí thành công'

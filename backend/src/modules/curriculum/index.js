@@ -2,55 +2,47 @@ const express = require('express');
 const router = express.Router();
 const authenticateJWT = require('../../middlewares/auth.middleware');
 const authorizeRoles = require('../../middlewares/role.middleware');
-const prisma = require('../../config/prisma');
+const { User, Class, Enrollment } = require('../../models');
+const { plain } = require('../../utils/query');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
-const { SE_CURRICULUM, calculateStudentTerm, checkPrerequisites } = require('./curriculumData');
+const { SE_CURRICULUM, TOTAL_TERMS, checkPrerequisites, summarizeEnrollments, findCurriculumCourse } = require('./curriculumData');
+const { enrollStudent, loadStudentEnrollments } = require('./enrollmentPolicy');
+
+const MAJOR = 'Kỹ thuật phần mềm (Software Engineering - SE)';
+const cohortOf = year => `K${(year || 2024) - 2006}`; // K18, K19, K20...
 
 /**
  * Helper: Lấy lịch sử học tập & điểm số của 1 học viên
  */
 async function getStudentAcademicHistory(studentId) {
-  const enrollments = await prisma.enrollment.findMany({
-    where: { studentId: parseInt(studentId) },
-    include: {
-      class: {
-        include: {
-          course: true,
-          schedules: true
-        }
-      },
-      grade: true
-    },
-    orderBy: { enrolledAt: 'desc' }
-  });
+  const enrollments = (await loadStudentEnrollments(parseInt(studentId)))
+    .sort((a, b) => new Date(b.enrolledAt) - new Date(a.enrolledAt));
 
-  // Map theo courseCode
+  // Map theo courseCode (ưu tiên lượt học mới nhất)
   const passedCoursesMap = new Map();
   const studyingCoursesMap = new Map();
   const failedCoursesMap = new Map();
 
-  let totalPassedCredits = 0;
-
   for (const enr of enrollments) {
-    const courseCode = enr.class.course?.courseCode?.toUpperCase();
-    if (!courseCode) continue;
+    const courseCode = enr.class?.course?.courseCode?.toUpperCase();
+    const curriculumCourse = findCurriculumCourse(courseCode);
+    if (!curriculumCourse) continue;
 
     const grade = enr.grade;
-    const isClassOngoing = enr.class.status === 'ONGOING' || enr.class.status === 'UPCOMING';
+    const hasTotal = grade && grade.totalScore !== null && grade.totalScore !== undefined;
 
     if (grade && grade.isPassed) {
       if (!passedCoursesMap.has(courseCode)) {
         passedCoursesMap.set(courseCode, {
           courseCode,
           courseName: enr.class.course.name,
-          credits: enr.class.course.credits,
+          credits: curriculumCourse.credits,
           classCode: enr.class.classCode,
           semester: enr.class.semester,
-          totalScore: grade.totalScore ? Number(grade.totalScore) : null
+          totalScore: hasTotal ? Number(grade.totalScore) : null
         });
-        totalPassedCredits += enr.class.course.credits;
       }
-    } else if (isClassOngoing && (!grade || grade.totalScore === null)) {
+    } else if (!hasTotal && enr.class.status !== 'COMPLETED') {
       if (!studyingCoursesMap.has(courseCode)) {
         studyingCoursesMap.set(courseCode, {
           courseCode,
@@ -58,31 +50,27 @@ async function getStudentAcademicHistory(studentId) {
           semester: enr.class.semester
         });
       }
-    } else if (grade && grade.totalScore !== null && !grade.isPassed) {
-      if (!failedCoursesMap.has(courseCode)) {
-        failedCoursesMap.set(courseCode, {
-          courseCode,
-          classCode: enr.class.classCode,
-          semester: enr.class.semester,
-          totalScore: grade.totalScore ? Number(grade.totalScore) : null,
-          isBanned: grade.isBanned
-        });
-      }
+    } else if (!failedCoursesMap.has(courseCode)) {
+      failedCoursesMap.set(courseCode, {
+        courseCode,
+        classCode: enr.class.classCode,
+        semester: enr.class.semester,
+        totalScore: hasTotal ? Number(grade.totalScore) : null,
+        isBanned: !!grade?.isBanned
+      });
     }
   }
 
-  const passedCodes = Array.from(passedCoursesMap.keys());
-  const studyingCodes = Array.from(studyingCoursesMap.keys());
-  const currentTerm = calculateStudentTerm(totalPassedCredits, studyingCodes);
+  const summary = summarizeEnrollments(enrollments);
 
   return {
     studentId,
     passedCoursesMap,
     studyingCoursesMap,
     failedCoursesMap,
-    passedCodes,
-    totalPassedCredits,
-    currentTerm,
+    passedCodes: summary.passedCodes,
+    totalPassedCredits: summary.passedCredits,
+    currentTerm: summary.currentTerm,
     rawEnrollments: enrollments
   };
 }
@@ -108,13 +96,13 @@ function buildCurriculumProgress(history) {
       status = 'STUDYING';
       details = studyingCoursesMap.get(code);
     } else if (failedCoursesMap.has(code)) {
-      status = 'FAILED';
+      status = 'FAILED'; // cần học lại
       details = failedCoursesMap.get(code);
     } else {
-      // Kiểm tra môn tiên quyết
+      // Kiểm tra môn tiên quyết + không vượt kỳ hiện tại
       const check = checkPrerequisites(code, passedCodes);
-      if (check.isEligible) {
-        status = 'ELIGIBLE'; // Đủ điều kiện đăng ký kỳ tới
+      if (check.isEligible && c.term <= currentTerm) {
+        status = 'ELIGIBLE'; // Đủ điều kiện đăng ký
       } else {
         status = 'LOCKED'; // Chưa đủ điều kiện
         missingPrerequisites = check.missingPrerequisites;
@@ -131,7 +119,7 @@ function buildCurriculumProgress(history) {
 
   // Gom theo từng học kỳ
   const termsMap = new Map();
-  for (let t = 1; t <= 9; t++) {
+  for (let t = 1; t <= TOTAL_TERMS; t++) {
     termsMap.set(t, {
       term: t,
       title: `Học kỳ ${t} (Term ${t})`,
@@ -142,13 +130,7 @@ function buildCurriculumProgress(history) {
   }
 
   for (const item of coursesWithStatus) {
-    const termObj = termsMap.get(item.term) || {
-      term: item.term,
-      title: `Học kỳ ${item.term}`,
-      courses: [],
-      termCredits: 0,
-      passedCredits: 0
-    };
+    const termObj = termsMap.get(item.term);
     termObj.courses.push(item);
     termObj.termCredits += item.credits;
     if (item.status === 'PASSED') {
@@ -156,23 +138,37 @@ function buildCurriculumProgress(history) {
     }
   }
 
+  for (const t of termsMap.values()) {
+    t.status = t.passedCredits === t.termCredits ? 'COMPLETED' : t.term === currentTerm ? 'CURRENT' : t.term < currentTerm ? 'HAS_DEBT' : 'UPCOMING';
+  }
+
   return {
-    major: 'Kỹ thuật phần mềm (Software Engineering - SE)',
+    major: MAJOR,
     totalProgramCredits,
     accumulatedCredits: totalPassedCredits,
     completionRate: Number(((totalPassedCredits / totalProgramCredits) * 100).toFixed(1)),
     currentTerm,
+    retakeCourses: coursesWithStatus.filter(c => c.status === 'FAILED').map(c => c.courseCode),
     terms: Array.from(termsMap.values()),
     allCourses: coursesWithStatus
   };
 }
+
+const studentHeader = s => ({
+  id: s.id,
+  code: s.code,
+  fullName: s.fullName,
+  email: s.email,
+  enrollmentYear: s.studentProfile?.enrollmentYear || 2024,
+  cohort: cohortOf(s.studentProfile?.enrollmentYear)
+});
 
 // =========================================================================
 // 1. GET /curriculum - Khung chương trình chuẩn (Public / All Roles)
 // =========================================================================
 router.get('/curriculum', authenticateJWT, (req, res) => {
   const termsMap = new Map();
-  for (let t = 1; t <= 9; t++) {
+  for (let t = 1; t <= TOTAL_TERMS; t++) {
     termsMap.set(t, {
       term: t,
       title: `Học kỳ ${t} (Term ${t})`,
@@ -192,9 +188,9 @@ router.get('/curriculum', authenticateJWT, (req, res) => {
   return successResponse(
     res,
     {
-      major: 'Kỹ thuật phần mềm (Software Engineering - SE)',
+      major: MAJOR,
       totalCredits: SE_CURRICULUM.reduce((sum, c) => sum + c.credits, 0),
-      totalTerms: 9,
+      totalTerms: TOTAL_TERMS,
       terms: Array.from(termsMap.values())
     },
     'Lấy khung chương trình đào tạo thành công'
@@ -207,33 +203,14 @@ router.get('/curriculum', authenticateJWT, (req, res) => {
 router.get('/curriculum/my-progress', authenticateJWT, authorizeRoles('STUDENT'), async (req, res) => {
   try {
     const studentId = req.user.id;
+    const studentInfo = await User.findOne({ id: studentId });
+    if (!studentInfo) return errorResponse(res, 'Không tìm thấy học viên', 404);
     const history = await getStudentAcademicHistory(studentId);
     const progress = buildCurriculumProgress(history);
 
-    const studentInfo = await prisma.user.findUnique({
-      where: { id: studentId },
-      select: {
-        id: true,
-        code: true,
-        fullName: true,
-        email: true,
-        studentProfile: true
-      }
-    });
-
     return successResponse(
       res,
-      {
-        student: {
-          id: studentInfo.id,
-          code: studentInfo.code,
-          fullName: studentInfo.fullName,
-          email: studentInfo.email,
-          enrollmentYear: studentInfo.studentProfile?.enrollmentYear || 2024,
-          cohort: `K${(studentInfo.studentProfile?.enrollmentYear || 2024) - 2006}` // K18, K19, K20...
-        },
-        ...progress
-      },
+      { student: studentHeader(plain(studentInfo)), ...progress },
       'Lấy tiến độ khung chương trình học viên thành công'
     );
   } catch (error) {
@@ -248,17 +225,7 @@ router.get('/curriculum/my-progress', authenticateJWT, authorizeRoles('STUDENT')
 router.get('/curriculum/student/:studentId', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
   try {
     const studentId = parseInt(req.params.studentId);
-    const studentInfo = await prisma.user.findUnique({
-      where: { id: studentId },
-      select: {
-        id: true,
-        code: true,
-        fullName: true,
-        email: true,
-        role: true,
-        studentProfile: true
-      }
-    });
+    const studentInfo = await User.findOne({ id: studentId });
 
     if (!studentInfo || studentInfo.role !== 'STUDENT') {
       return errorResponse(res, 'Không tìm thấy học viên', 404);
@@ -269,22 +236,39 @@ router.get('/curriculum/student/:studentId', authenticateJWT, authorizeRoles('AD
 
     return successResponse(
       res,
-      {
-        student: {
-          id: studentInfo.id,
-          code: studentInfo.code,
-          fullName: studentInfo.fullName,
-          email: studentInfo.email,
-          enrollmentYear: studentInfo.studentProfile?.enrollmentYear || 2024,
-          cohort: `K${(studentInfo.studentProfile?.enrollmentYear || 2024) - 2006}`
-        },
-        ...progress
-      },
+      { student: studentHeader(plain(studentInfo)), ...progress },
       'Lấy tiến độ khung chương trình của học viên thành công'
     );
   } catch (error) {
     console.error('Error fetching student curriculum progress:', error);
     return errorResponse(res, 'Lỗi lấy tiến độ khung chương trình của học viên', 500);
+  }
+});
+
+// =========================================================================
+// 3b. GET /curriculum/term-overview - Thống kê sinh viên theo kỳ khung (ADMIN / ACADEMIC STAFF)
+// =========================================================================
+router.get('/curriculum/term-overview', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
+  try {
+    const students = (await User.find({ role: 'STUDENT', status: 'ACTIVE' }).sort({ code: 1 })).map(plain);
+    const enrollments = (await Enrollment.find({ studentId: { $in: students.map(s => s.id) }, status: 'ACTIVE' })
+      .populate([{ path: 'class', populate: 'course' }, 'grade'])).map(plain);
+    const byStudent = new Map();
+    for (const e of enrollments) {
+      if (!byStudent.has(e.studentId)) byStudent.set(e.studentId, []);
+      byStudent.get(e.studentId).push(e);
+    }
+    const terms = Array.from({ length: TOTAL_TERMS }, (_, i) => ({ term: i + 1, studentCount: 0, students: [] }));
+    for (const s of students) {
+      const summary = summarizeEnrollments(byStudent.get(s.id) || []);
+      const retakes = summary.finishedCodes.filter(c => !summary.passedCodes.includes(c));
+      terms[summary.currentTerm - 1].studentCount += 1;
+      terms[summary.currentTerm - 1].students.push({ ...studentHeader(s), passedCredits: summary.passedCredits, studying: summary.inProgressCodes, retakeCourses: retakes });
+    }
+    return successResponse(res, { totalStudents: students.length, terms }, 'Lấy thống kê sinh viên theo kỳ thành công');
+  } catch (error) {
+    console.error('Error building term overview:', error);
+    return errorResponse(res, 'Lỗi thống kê sinh viên theo kỳ', 500);
   }
 });
 
@@ -295,48 +279,33 @@ router.get('/curriculum/eligible-students/:classId', authenticateJWT, authorizeR
   try {
     const classId = parseInt(req.params.classId);
 
-    const targetClass = await prisma.class.findUnique({
-      where: { id: classId },
-      include: {
-        course: true,
-        schedules: true,
-        enrollments: {
-          select: { studentId: true }
-        }
-      }
-    });
-
-    if (!targetClass) {
+    const targetDoc = await Class.findOne({ id: classId }).populate(['course', 'schedules']);
+    if (!targetDoc) {
       return errorResponse(res, 'Không tìm thấy lớp học phần', 404);
     }
+    const targetClass = plain(targetDoc);
+    const classEnrollments = await Enrollment.find({ classId, status: 'ACTIVE' }).select('studentId');
 
     const courseCode = targetClass.course.courseCode.toUpperCase();
-    const enrolledStudentIds = new Set(targetClass.enrollments.map(e => e.studentId));
+    const enrolledStudentIds = new Set(classEnrollments.map(e => e.studentId));
+    const currentStudents = classEnrollments.length;
 
     // Lấy thông tin môn học trong khung chương trình để biết điều kiện tiên quyết
-    const curriculumCourse = SE_CURRICULUM.find(c => c.courseCode.toUpperCase() === courseCode) || {
+    const curriculumCourse = findCurriculumCourse(courseCode) || {
       courseCode,
       name: targetClass.course.name,
       prerequisites: []
     };
 
-    // Lấy tất cả sinh viên ACTIVE
-    const allStudents = await prisma.user.findMany({
-      where: { role: 'STUDENT', status: 'ACTIVE' },
-      include: {
-        studentProfile: true,
-        enrollments: {
-          where: { status: 'ACTIVE' },
-          include: {
-            class: {
-              include: { course: true, schedules: true }
-            },
-            grade: true
-          }
-        }
-      },
-      orderBy: { code: 'asc' }
-    });
+    // Lấy tất cả sinh viên ACTIVE + lịch sử ghi danh
+    const allStudents = (await User.find({ role: 'STUDENT', status: 'ACTIVE' }).sort({ code: 1 })).map(plain);
+    const allEnrollments = (await Enrollment.find({ studentId: { $in: allStudents.map(s => s.id) }, status: 'ACTIVE' })
+      .populate([{ path: 'class', populate: ['course', 'schedules'] }, 'grade'])).map(plain);
+    const enrollmentsByStudent = new Map();
+    for (const e of allEnrollments) {
+      if (!enrollmentsByStudent.has(e.studentId)) enrollmentsByStudent.set(e.studentId, []);
+      enrollmentsByStudent.get(e.studentId).push(e);
+    }
 
     const eligibleStudents = [];
     const ineligibleStudents = [];
@@ -347,41 +316,33 @@ router.get('/curriculum/eligible-students/:classId', authenticateJWT, authorizeR
         continue; // Đã trong lớp, bỏ qua không liệt kê vào danh sách chờ xếp
       }
 
+      const enrollments = enrollmentsByStudent.get(student.id) || [];
+      const summary = summarizeEnrollments(enrollments);
       const reasons = [];
       let isEligible = true;
+      if (targetClass.status === 'COMPLETED' || currentStudents >= targetClass.maxStudents) {
+        isEligible = false;
+        reasons.push('Lớp đã kết thúc hoặc đã đủ sĩ số');
+      }
 
-      // Danh sách môn sinh viên đã PASS & đang STUDYING
-      const passedCourseCodes = [];
-      const studyingCourseCodes = [];
-      let totalPassedCredits = 0;
-      let alreadyPassedThisCourse = false;
-      let alreadyEnrolledThisCourseInSemester = false;
-      let hasScheduleConflict = false;
+      let alreadyStudyingThisCourse = null;
       let conflictScheduleInfo = null;
 
-      for (const enr of student.enrollments) {
-        const enrCourseCode = enr.class.course?.courseCode?.toUpperCase();
-        if (enr.grade && enr.grade.isPassed) {
-          passedCourseCodes.push(enrCourseCode);
-          totalPassedCredits += enr.class.course?.credits || 3;
-          if (enrCourseCode === courseCode) {
-            alreadyPassedThisCourse = true;
-          }
-        } else if (enr.class.status === 'ONGOING' || enr.class.status === 'UPCOMING') {
-          if (enrCourseCode) studyingCourseCodes.push(enrCourseCode);
-        }
+      for (const enr of enrollments) {
+        const enrCourseCode = enr.class?.course?.courseCode?.toUpperCase();
+        if (!enrCourseCode) continue;
+        const hasResult = enr.grade?.isPassed || (enr.grade?.totalScore !== null && enr.grade?.totalScore !== undefined) || enr.class.status === 'COMPLETED';
 
-        // Kiểm tra đang học môn này ở lớp khác trong cùng kỳ
-        if (enr.class.semester === targetClass.semester && enrCourseCode === courseCode && enr.class.id !== classId) {
-          alreadyEnrolledThisCourseInSemester = true;
+        // Đang học môn này ở lớp khác (bất kỳ kỳ nào) và chưa có kết quả
+        if (enrCourseCode === courseCode && enr.class.id !== classId && !hasResult) {
+          alreadyStudyingThisCourse = `${enr.class.classCode} (${enr.class.semester})`;
         }
 
         // Kiểm tra trùng lịch học trong cùng kỳ
-        if (enr.class.semester === targetClass.semester && targetClass.schedules && targetClass.schedules.length > 0) {
+        if (enr.class.semester === targetClass.semester && enr.class.status !== 'COMPLETED' && (targetClass.schedules || []).length > 0) {
           for (const targetSched of targetClass.schedules) {
-            for (const existSched of enr.class.schedules) {
+            for (const existSched of enr.class.schedules || []) {
               if (existSched.dayOfWeek === targetSched.dayOfWeek && existSched.shift === targetSched.shift) {
-                hasScheduleConflict = true;
                 conflictScheduleInfo = `Lớp ${enr.class.classCode} (Thứ ${targetSched.dayOfWeek}, Slot ${targetSched.shift})`;
               }
             }
@@ -390,28 +351,34 @@ router.get('/curriculum/eligible-students/:classId', authenticateJWT, authorizeR
       }
 
       // Kiểm tra 1: Đã pass môn này chưa?
-      if (alreadyPassedThisCourse) {
+      if (summary.passedCodes.includes(courseCode)) {
         isEligible = false;
         reasons.push(`Đã hoàn thành môn ${courseCode} trước đó (Đã qua môn)`);
       }
 
-      // Kiểm tra 2: Đang học môn này ở lớp khác trong cùng kỳ
-      if (alreadyEnrolledThisCourseInSemester) {
+      // Kiểm tra 2: Đang học môn này ở lớp khác
+      if (alreadyStudyingThisCourse) {
         isEligible = false;
-        reasons.push(`Đã đăng ký môn ${courseCode} ở lớp khác trong học kỳ ${targetClass.semester}`);
+        reasons.push(`Đang học môn ${courseCode} ở lớp ${alreadyStudyingThisCourse}`);
       }
 
       // Kiểm tra 3: Trùng lịch học
-      if (hasScheduleConflict) {
+      if (conflictScheduleInfo) {
         isEligible = false;
         reasons.push(`Trùng lịch học với ${conflictScheduleInfo}`);
       }
 
       // Kiểm tra 4: Điều kiện tiên quyết (Prerequisite Check)
-      const prereqCheck = checkPrerequisites(courseCode, passedCourseCodes);
+      const prereqCheck = checkPrerequisites(courseCode, summary.passedCodes);
       if (!prereqCheck.isEligible) {
         isEligible = false;
         reasons.push(`Chưa hoàn thành môn tiên quyết: ${prereqCheck.missingPrerequisites.join(', ')}`);
+      }
+
+      // Kiểm tra 5: Không vượt kỳ hiện tại trong khung
+      if (curriculumCourse.term && curriculumCourse.term > summary.currentTerm) {
+        isEligible = false;
+        reasons.push(`Môn thuộc kỳ ${curriculumCourse.term}, vượt kỳ hiện tại (kỳ ${summary.currentTerm})`);
       }
 
       const studentSummary = {
@@ -421,25 +388,20 @@ router.get('/curriculum/eligible-students/:classId', authenticateJWT, authorizeR
         email: student.email,
         phone: student.phone,
         enrollmentYear: student.studentProfile?.enrollmentYear || 2024,
-        cohort: `K${(student.studentProfile?.enrollmentYear || 2024) - 2006}`,
-        passedCredits: totalPassedCredits,
-        calculatedTerm: calculateStudentTerm(totalPassedCredits, studyingCourseCodes)
+        cohort: cohortOf(student.studentProfile?.enrollmentYear),
+        passedCredits: summary.passedCredits,
+        calculatedTerm: summary.currentTerm,
+        isRetake: summary.finishedCodes.includes(courseCode) && !summary.passedCodes.includes(courseCode)
       };
 
       if (isEligible) {
-        eligibleStudents.push({
-          ...studentSummary,
-          isEligible: true
-        });
+        eligibleStudents.push({ ...studentSummary, isEligible: true });
       } else {
-        ineligibleStudents.push({
-          ...studentSummary,
-          isEligible: false,
-          reasons
-        });
+        ineligibleStudents.push({ ...studentSummary, isEligible: false, reasons });
       }
     }
 
+    const availableSlots = Math.max(0, targetClass.maxStudents - currentStudents);
     return successResponse(
       res,
       {
@@ -448,13 +410,14 @@ router.get('/curriculum/eligible-students/:classId', authenticateJWT, authorizeR
           classCode: targetClass.classCode,
           semester: targetClass.semester,
           maxStudents: targetClass.maxStudents,
-          currentStudents: targetClass.enrollments.length,
-          availableSlots: Math.max(0, targetClass.maxStudents - targetClass.enrollments.length),
+          currentStudents,
+          availableSlots,
           course: {
             id: targetClass.course.id,
             courseCode: targetClass.course.courseCode,
             name: targetClass.course.name,
             credits: targetClass.course.credits,
+            term: curriculumCourse.term || null,
             prerequisites: curriculumCourse.prerequisites
           }
         },
@@ -463,7 +426,7 @@ router.get('/curriculum/eligible-students/:classId', authenticateJWT, authorizeR
         summary: {
           totalEligible: eligibleStudents.length,
           totalIneligible: ineligibleStudents.length,
-          availableSlots: Math.max(0, targetClass.maxStudents - targetClass.enrollments.length)
+          availableSlots
         }
       },
       'Phân tích điều kiện xếp lớp học viên thành công'
@@ -485,74 +448,25 @@ router.post('/curriculum/batch-enroll/:classId', authenticateJWT, authorizeRoles
     if (!Array.isArray(studentIds) || studentIds.length === 0) {
       return errorResponse(res, 'Vui lòng cung cấp danh sách ID sinh viên cần xếp vào lớp', 400);
     }
+    if (!studentIds.every(s => Number.isSafeInteger(Number(s)) && Number(s) > 0)) return errorResponse(res, 'ID sinh viên không hợp lệ', 400);
 
-    const targetClass = await prisma.class.findUnique({
-      where: { id: classId },
-      include: {
-        course: true,
-        enrollments: true,
-        schedules: true
-      }
-    });
-
+    const targetClass = await Class.findOne({ id: classId });
     if (!targetClass) {
       return errorResponse(res, 'Không tìm thấy lớp học phần', 404);
     }
 
-    const availableSlots = targetClass.maxStudents - targetClass.enrollments.length;
-    if (availableSlots <= 0) {
-      return errorResponse(res, `Lớp đã đủ sĩ số tối đa (${targetClass.maxStudents} sinh viên).`, 400);
-    }
-
-    const toEnroll = studentIds.slice(0, availableSlots);
+    const toEnroll = [...new Set(studentIds.map(Number))];
     const enrolled = [];
     const errors = [];
 
-    const tuitionFee = targetClass.course?.baseTuitionFee || 5000000;
-    const dueDate = new Date();
-    dueDate.setDate(dueDate.getDate() + 30);
-
+    // Mỗi sinh viên một transaction riêng: lỗi của một người không chặn người khác,
+    // sĩ số được kiểm tra lại trong từng transaction (không cắt danh sách âm thầm).
     for (const sid of toEnroll) {
       try {
-        await prisma.$transaction(async (tx) => {
-          // 1. Tạo Enrollment
-          const enrollment = await tx.enrollment.create({
-            data: {
-              classId,
-              studentId: parseInt(sid),
-              status: 'ACTIVE'
-            }
-          });
-
-          // 2. Tạo Grade trống
-          await tx.grade.create({
-            data: {
-              enrollmentId: enrollment.id,
-              attendanceScore: null,
-              midtermScore: null,
-              finalScore: null,
-              totalScore: null,
-              isPassed: false,
-              isBanned: false
-            }
-          });
-
-          // 3. Tạo TuitionInvoice
-          await tx.tuitionInvoice.create({
-            data: {
-              studentId: parseInt(sid),
-              enrollmentId: enrollment.id,
-              amount: tuitionFee,
-              paidAmount: 0,
-              dueDate,
-              status: 'UNPAID'
-            }
-          });
-
-          enrolled.push(sid);
-        });
+        await enrollStudent(classId, sid);
+        enrolled.push(sid);
       } catch (err) {
-        errors.push({ studentId: sid, message: err.message });
+        errors.push({ studentId: sid, message: err.code === 11000 ? 'Đã có trong lớp' : err.message });
       }
     }
 
@@ -560,11 +474,11 @@ router.post('/curriculum/batch-enroll/:classId', authenticateJWT, authorizeRoles
       res,
       {
         enrolledCount: enrolled.length,
-        requestedCount: studentIds.length,
+        requestedCount: toEnroll.length,
         classCode: targetClass.classCode,
         errors
       },
-      `Đã xếp thành công ${enrolled.length} sinh viên vào lớp ${targetClass.classCode}`
+      `Đã xếp thành công ${enrolled.length}/${toEnroll.length} sinh viên vào lớp ${targetClass.classCode}` + (errors.length ? ` (${errors.length} sinh viên không đủ điều kiện)` : '')
     );
   } catch (error) {
     console.error('Error batch enrolling students:', error);
@@ -573,4 +487,4 @@ router.post('/curriculum/batch-enroll/:classId', authenticateJWT, authorizeRoles
 });
 
 module.exports = router;
-
+module.exports.buildCurriculumProgress = buildCurriculumProgress;

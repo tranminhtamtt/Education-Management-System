@@ -2,10 +2,14 @@ const express = require('express');
 const router = express.Router();
 const authenticateJWT = require('../../middlewares/auth.middleware');
 const authorizeRoles = require('../../middlewares/role.middleware');
-const prisma = require('../../config/prisma');
+const { withTransaction } = require('../../config/db');
+const { Enrollment, Attendance, Class, Assignment, Submission, Notification } = require('../../models');
 const upload = require('../../config/upload');
 const { syncAttendanceAndGrades } = require('../../utils/gradeHelper');
+const { plain } = require('../../utils/query');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
+
+const byStudentCode = (a, b) => String(a.student?.code || '').localeCompare(String(b.student?.code || ''));
 
 // ==========================================
 // 1. ATTENDANCE MANAGEMENT (UC6.1 - UC6.2)
@@ -19,29 +23,17 @@ router.get('/classes/:id/attendances', authenticateJWT, async (req, res) => {
     const targetDate = new Date(dateStr);
 
     // Lấy danh sách học viên trong lớp
-    const enrollments = await prisma.enrollment.findMany({
-      where: { classId, status: 'ACTIVE' },
-      include: {
-        student: {
-          select: { id: true, code: true, fullName: true, email: true, avatar: true }
-        }
-      },
-      orderBy: { student: { code: 'asc' } }
-    });
+    const enrollments = (await Enrollment.find({ classId, status: 'ACTIVE' })
+      .populate({ path: 'student', select: 'id code fullName email avatar' })).map(plain).sort(byStudentCode);
 
     // Lấy các bản ghi điểm danh đã lưu trong ngày đó
-    const attendances = await prisma.attendance.findMany({
-      where: {
-        classId,
-        sessionDate: targetDate
-      }
-    });
+    const attendances = await Attendance.find({ classId, sessionDate: targetDate });
 
     const attendanceMap = new Map();
     attendances.forEach(a => attendanceMap.set(a.studentId, a));
 
     // Ghép dữ liệu cho từng sinh viên: nếu chưa điểm danh thì mặc định PRESENT
-    const result = enrollments.map(e => {
+    const result = enrollments.filter(e => e.student).map(e => {
       const record = attendanceMap.get(e.studentId);
       return {
         studentId: e.student.id,
@@ -83,32 +75,23 @@ router.post('/classes/:id/attendances', authenticateJWT, authorizeRoles('ADMIN',
     const date = new Date(sessionDate);
 
     // Lưu từng bản ghi điểm danh (upsert theo UNIQUE classId, studentId, sessionDate)
-    await prisma.$transaction(async (tx) => {
+    await withTransaction(async session => {
       for (const rec of records) {
         const studentId = parseInt(rec.studentId);
         const status = rec.status || 'PRESENT';
         const note = rec.note || null;
 
-        await tx.attendance.upsert({
-          where: {
-            classId_studentId_sessionDate: {
-              classId,
-              studentId,
-              sessionDate: date
-            }
-          },
-          update: { status, note },
-          create: {
-            classId,
-            studentId,
-            sessionDate: date,
-            status,
-            note
-          }
-        });
+        const existing = await Attendance.findOne({ classId, studentId, sessionDate: date }).session(session);
+        if (existing) {
+          existing.status = status;
+          existing.note = note;
+          await existing.save({ session });
+        } else {
+          await Attendance.create([{ classId, studentId, sessionDate: date, status, note }], { session });
+        }
 
         // ĐỒNG BỘ CỜ CẤM THI (IS_BANNED), XÉT QUA MÔN VÀ GỢI Ý ĐIỂM CHUYÊN CẦN
-        await syncAttendanceAndGrades(tx, classId, studentId);
+        await syncAttendanceAndGrades(session, classId, studentId);
       }
     });
 
@@ -124,31 +107,23 @@ router.get('/classes/:id/attendance-summary', authenticateJWT, async (req, res) 
   try {
     const classId = parseInt(req.params.id);
 
-    const classInfo = await prisma.class.findUnique({
-      where: { id: classId },
-      include: {
-        course: true,
-        enrollments: {
-          where: { status: 'ACTIVE' },
-          include: {
-            student: { select: { id: true, code: true, fullName: true, email: true } }
-          }
-        }
-      }
-    });
+    const classDoc = await Class.findOne({ id: classId }).populate(['course', {
+      path: 'enrollments',
+      match: { status: 'ACTIVE' },
+      populate: { path: 'student', select: 'id code fullName email' }
+    }]);
 
-    if (!classInfo) {
+    if (!classDoc) {
       return errorResponse(res, 'Không tìm thấy lớp học', 404);
     }
+    const classInfo = plain(classDoc);
 
-    const totalSessions = classInfo.course.totalSessions || 30;
+    const totalSessions = classInfo.course?.totalSessions || 30;
 
     // Lấy toàn bộ bản ghi điểm danh của lớp
-    const allAttendances = await prisma.attendance.findMany({
-      where: { classId }
-    });
+    const allAttendances = await Attendance.find({ classId });
 
-    const summary = classInfo.enrollments.map(e => {
+    const summary = classInfo.enrollments.filter(e => e.student).map(e => {
       const studentRecords = allAttendances.filter(a => a.studentId === e.student.id);
       const present = studentRecords.filter(a => a.status === 'PRESENT').length;
       const absentExcused = studentRecords.filter(a => a.status === 'ABSENT_EXCUSED').length;
@@ -189,39 +164,18 @@ router.get('/classes/:id/attendance-summary', authenticateJWT, async (req, res) 
 router.get('/attendances/my-report', authenticateJWT, async (req, res) => {
   try {
     const studentId = req.user.id;
-    const enrollments = await prisma.enrollment.findMany({
-      where: {
-        studentId,
-        status: 'ACTIVE',
-        class: { status: 'ONGOING' }
-      },
-      include: {
-        grade: true,
-        class: {
-          include: {
-            course: true,
-            teacher: { select: { fullName: true } },
-            schedules: { orderBy: [{ dayOfWeek: 'asc' }, { shift: 'asc' }] },
-            attendances: {
-              where: { studentId },
-              orderBy: { sessionDate: 'asc' }
-            }
-          }
-        }
-      }
-    });
+    const enrollments = (await Enrollment.find({ studentId, status: 'ACTIVE' })
+      .populate([
+        'grade',
+        { path: 'class', populate: ['course', { path: 'teacher', select: 'fullName' }, 'schedules'] }
+      ])).map(plain).filter(e => e.class && e.class.status === 'ONGOING');
+    const allRecords = (await Attendance.find({ studentId, classId: { $in: enrollments.map(e => e.classId) } })
+      .sort({ sessionDate: 1 })).map(plain);
 
     const report = enrollments.map(e => {
-      const records = e.class.attendances;
-      const totalSessions = e.class.course.totalSessions || 6;
-      const present = records.filter(r => r.status === 'PRESENT').length;
-      const absentExcused = records.filter(r => r.status === 'ABSENT_EXCUSED').length;
-      const absentUnexcused = records.filter(r => r.status === 'ABSENT_UNEXCUSED').length;
-      const late = records.filter(r => r.status === 'LATE').length;
-      const absentRate = parseFloat(((absentUnexcused / totalSessions) * 100).toFixed(1));
-      const isBanned = e.grade?.isBanned || absentRate >= 20.0;
+      const records = allRecords.filter(r => r.classId === e.classId);
 
-      // Xây dựng danh sách đầy đủ 6 buổi học trong 2 tuần (Tuần 1: 02/11 - 08/11, Tuần 2: 09/11 - 15/11)
+      // Xây dựng danh sách đầy đủ buổi học trong 2 tuần (Tuần 1: 02/11 - 08/11, Tuần 2: 09/11 - 15/11)
       const recordByDate = new Map();
       records.forEach(r => {
         const dStr = new Date(r.sessionDate).toISOString().split('T')[0];
@@ -240,6 +194,14 @@ router.get('/attendances/my-report', authenticateJWT, async (req, res) => {
         const dateStr = `2026-11-${String(9 + (s.dayOfWeek - 2)).padStart(2, '0')}`;
         plannedSessions.push({ week: 2, dateStr, dayOfWeek: s.dayOfWeek, shift: s.shift, room: s.room });
       });
+
+      const totalSessions = plannedSessions.length || e.class.course?.totalSessions || 6;
+      const present = records.filter(r => r.status === 'PRESENT').length;
+      const absentExcused = records.filter(r => r.status === 'ABSENT_EXCUSED').length;
+      const absentUnexcused = records.filter(r => r.status === 'ABSENT_UNEXCUSED').length;
+      const late = records.filter(r => r.status === 'LATE').length;
+      const absentRate = parseFloat(((absentUnexcused / totalSessions) * 100).toFixed(1));
+      const isBanned = e.grade?.isBanned || absentRate >= 20.0;
 
       const sessions = plannedSessions.map((ps, idx) => {
         const rec = recordByDate.get(ps.dateStr);
@@ -260,8 +222,8 @@ router.get('/attendances/my-report', authenticateJWT, async (req, res) => {
         classCode: e.class.classCode,
         semester: e.class.semester,
         teacherName: e.class.teacher?.fullName || 'Chưa phân công',
-        courseCode: e.class.course.courseCode,
-        courseName: e.class.course.name,
+        courseCode: e.class.course?.courseCode,
+        courseName: e.class.course?.name,
         totalSessions,
         recordedSessions: records.length,
         present,
@@ -293,14 +255,12 @@ router.get('/classes/:id/assignments', authenticateJWT, async (req, res) => {
     const userId = req.user.id;
     const role = req.user.role;
 
-    const assignments = await prisma.assignment.findMany({
-      where: { classId },
-      include: {
-        _count: { select: { submissions: true } },
-        submissions: role === 'STUDENT' ? { where: { studentId: userId } } : false
-      },
-      orderBy: { createdAt: 'desc' }
-    });
+    const assignments = await Assignment.find({ classId }).sort({ createdAt: -1 });
+    const ids = assignments.map(a => a.id);
+    const counts = await Submission.aggregate([{ $match: { assignmentId: { $in: ids } } }, { $group: { _id: '$assignmentId', n: { $sum: 1 } } }]);
+    const countMap = new Map(counts.map(c => [c._id, c.n]));
+    const mine = role === 'STUDENT' ? await Submission.find({ assignmentId: { $in: ids }, studentId: userId }) : [];
+    const mineMap = new Map(mine.map(s => [s.assignmentId, plain(s)]));
 
     return successResponse(
       res,
@@ -311,8 +271,8 @@ router.get('/classes/:id/assignments', authenticateJWT, async (req, res) => {
         fileUrl: a.fileUrl,
         dueDate: a.dueDate,
         createdAt: a.createdAt,
-        totalSubmissions: a._count?.submissions || 0,
-        mySubmission: role === 'STUDENT' && a.submissions ? a.submissions[0] || null : null
+        totalSubmissions: countMap.get(a.id) || 0,
+        mySubmission: role === 'STUDENT' ? mineMap.get(a.id) || null : null
       })),
       'Lấy danh sách bài tập thành công'
     );
@@ -334,34 +294,27 @@ router.post('/classes/:id/assignments', authenticateJWT, authorizeRoles('ADMIN',
 
     const fileUrl = req.file ? `/uploads/${req.file.filename}` : null;
 
-    const assignment = await prisma.assignment.create({
-      data: {
-        classId,
-        title: title.trim(),
-        description: description || '',
-        fileUrl,
-        dueDate: new Date(dueDate)
-      }
+    const assignment = await Assignment.create({
+      classId,
+      title: title.trim(),
+      description: description || '',
+      fileUrl,
+      dueDate: new Date(dueDate)
     });
 
     // Tạo thông báo cho toàn bộ học viên trong lớp
-    const enrollments = await prisma.enrollment.findMany({
-      where: { classId, status: 'ACTIVE' },
-      select: { studentId: true }
-    });
+    const enrollments = await Enrollment.find({ classId, status: 'ACTIVE' }).select('studentId');
 
     if (enrollments.length > 0) {
-      await prisma.notification.createMany({
-        data: enrollments.map(e => ({
-          userId: e.studentId,
-          title: `Bài tập mới: ${assignment.title}`,
-          message: `Giảng viên vừa giao bài tập mới. Hạn nộp: ${new Date(dueDate).toLocaleString('vi-VN')}`,
-          type: 'ASSIGNMENT'
-        }))
-      });
+      await Notification.insertMany(enrollments.map(e => ({
+        userId: e.studentId,
+        title: `Bài tập mới: ${assignment.title}`,
+        message: `Giảng viên vừa giao bài tập mới. Hạn nộp: ${new Date(dueDate).toLocaleString('vi-VN')}`,
+        type: 'ASSIGNMENT'
+      })));
     }
 
-    return successResponse(res, assignment, 'Giao bài tập thành công', 201);
+    return successResponse(res, plain(assignment), 'Giao bài tập thành công', 201);
   } catch (error) {
     console.error('Error creating assignment:', error);
     return errorResponse(res, 'Lỗi khi tạo bài tập', 500);
@@ -375,30 +328,20 @@ router.get('/assignments/:id', authenticateJWT, async (req, res) => {
     const role = req.user.role;
     const userId = req.user.id;
 
-    const assignment = await prisma.assignment.findUnique({
-      where: { id },
-      include: {
-        class: {
-          include: {
-            course: true,
-            teacher: { select: { fullName: true } }
-          }
-        },
-        submissions: {
-          where: role === 'STUDENT' ? { studentId: userId } : {},
-          include: {
-            student: { select: { id: true, code: true, fullName: true, email: true } }
-          },
-          orderBy: { submittedAt: 'desc' }
-        }
+    const doc = await Assignment.findOne({ id }).populate([
+      { path: 'class', populate: ['course', { path: 'teacher', select: 'fullName' }] },
+      {
+        path: 'submissions',
+        match: role === 'STUDENT' ? { studentId: userId } : {},
+        populate: { path: 'student', select: 'id code fullName email' }
       }
-    });
+    ]);
 
-    if (!assignment) {
+    if (!doc) {
       return errorResponse(res, 'Không tìm thấy bài tập', 404);
     }
 
-    return successResponse(res, assignment, 'Lấy chi tiết bài tập thành công');
+    return successResponse(res, plain(doc), 'Lấy chi tiết bài tập thành công');
   } catch (error) {
     console.error('Error getting assignment detail:', error);
     return errorResponse(res, 'Lỗi lấy chi tiết bài tập', 500);
@@ -411,9 +354,7 @@ router.post('/assignments/:id/submissions', authenticateJWT, authorizeRoles('STU
     const assignmentId = parseInt(req.params.id);
     const studentId = req.user.id;
 
-    const assignment = await prisma.assignment.findUnique({
-      where: { id: assignmentId }
-    });
+    const assignment = await Assignment.findOne({ id: assignmentId });
 
     if (!assignment) {
       return errorResponse(res, 'Không tìm thấy bài tập', 404);
@@ -429,30 +370,19 @@ router.post('/assignments/:id/submissions', authenticateJWT, authorizeRoles('STU
     const submissionStatus = isLate ? 'LATE_SUBMITTED' : 'SUBMITTED';
 
     // Upsert theo ràng buộc UNIQUE(assignment_id, student_id)
-    const submission = await prisma.submission.upsert({
-      where: {
-        assignmentId_studentId: {
-          assignmentId,
-          studentId
-        }
-      },
-      update: {
-        fileUrl,
-        submittedAt: now,
-        status: submissionStatus
-      },
-      create: {
-        assignmentId,
-        studentId,
-        fileUrl,
-        submittedAt: now,
-        status: submissionStatus
-      }
-    });
+    let submission = await Submission.findOne({ assignmentId, studentId });
+    if (submission) {
+      submission.fileUrl = fileUrl;
+      submission.submittedAt = now;
+      submission.status = submissionStatus;
+      await submission.save();
+    } else {
+      submission = await Submission.create({ assignmentId, studentId, fileUrl, submittedAt: now, status: submissionStatus });
+    }
 
     return successResponse(
       res,
-      submission,
+      plain(submission),
       isLate ? 'Nộp bài thành công (Ghi nhận nộp muộn sau hạn LATE_SUBMITTED)' : 'Nộp bài thành công đúng hạn (SUBMITTED)'
     );
   } catch (error) {
@@ -472,29 +402,22 @@ router.patch('/submissions/:id/grade', authenticateJWT, authorizeRoles('ADMIN', 
       return errorResponse(res, 'Điểm số phải là số từ 0.0 đến 10.0', 400);
     }
 
-    const submission = await prisma.submission.update({
-      where: { id },
-      data: {
-        score: numericScore,
-        teacherFeedback: teacherFeedback || null
-      },
-      include: {
-        assignment: true,
-        student: { select: { fullName: true } }
-      }
-    });
+    const submission = await Submission.findOneAndUpdate(
+      { id },
+      { $set: { score: numericScore, teacherFeedback: teacherFeedback || null } },
+      { new: true }
+    ).populate(['assignment', { path: 'student', select: 'fullName' }]);
+    if (!submission) return errorResponse(res, 'Không tìm thấy bài nộp', 404);
 
     // Gửi thông báo cho sinh viên được chấm
-    await prisma.notification.create({
-      data: {
-        userId: submission.studentId,
-        title: `Điểm bài tập: ${submission.assignment.title}`,
-        message: `Bạn nhận được ${numericScore}/10 điểm. Lời nhận xét: ${teacherFeedback || 'Không có'}`,
-        type: 'GRADE'
-      }
+    await Notification.create({
+      userId: submission.studentId,
+      title: `Điểm bài tập: ${submission.assignment.title}`,
+      message: `Bạn nhận được ${numericScore}/10 điểm. Lời nhận xét: ${teacherFeedback || 'Không có'}`,
+      type: 'GRADE'
     });
 
-    return successResponse(res, submission, 'Chấm điểm bài tập thành công');
+    return successResponse(res, plain(submission), 'Chấm điểm bài tập thành công');
   } catch (error) {
     console.error('Error grading submission:', error);
     return errorResponse(res, 'Lỗi chấm điểm bài tập', 500);

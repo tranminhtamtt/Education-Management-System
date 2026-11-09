@@ -63,7 +63,7 @@ const STATUS_CONFIG = {
     label: 'ĐỦ ĐIỀU KIỆN',
     color: 'warning',
     icon: <UnlockOutlined />,
-    description: 'Đã thỏa mãn tất cả môn tiên quyết, sẵn sàng học kỳ tới'
+    description: 'Đã thỏa mãn môn tiên quyết và không vượt kỳ hiện tại — có thể được xếp lớp'
   },
   LOCKED: {
     label: 'CHƯA ĐỦ ĐIỀU KIỆN',
@@ -76,6 +76,18 @@ const STATUS_CONFIG = {
 const CurriculumPage = () => {
   const { user } = useAuth();
   const isStudent = user?.role === 'STUDENT';
+  const isAcademicStaff = user?.role === 'ADMIN';
+  const [termOverview, setTermOverview] = useState(null);
+  const [overviewTerm, setOverviewTerm] = useState(null);
+
+  // Giáo vụ: phân bố sinh viên theo kỳ khung chương trình
+  const fetchTermOverview = () => {
+    if (!isAcademicStaff) return;
+    apiClient.get('/curriculum/term-overview')
+      .then(res => { if (res.success) setTermOverview(res.data); })
+      .catch(err => console.error('Lỗi tải phân bố theo kỳ:', err));
+  };
+  useEffect(fetchTermOverview, [isAcademicStaff]);
 
   const [loading, setLoading] = useState(false);
   const [curriculumData, setCurriculumData] = useState(null);
@@ -262,12 +274,15 @@ const CurriculumPage = () => {
           return <Text style={{ color: '#1890ff' }}>Đang học kỳ này</Text>;
         }
         if (record.status === 'ELIGIBLE') {
-          return <Text type="warning" strong>Sẵn sàng học kỳ sau</Text>;
+          return <Text type="warning" strong>Đủ điều kiện xếp lớp</Text>;
+        }
+        if (record.status === 'FAILED') {
+          return <Text type="danger" style={{ fontSize: 12 }}>Cần học lại{record.details?.isBanned ? ' (cấm thi)' : ''}</Text>;
         }
         if (record.status === 'LOCKED') {
           return (
             <Text type="danger" style={{ fontSize: 12 }}>
-              Thiếu: {record.missingPrerequisites?.join(', ')}
+              {record.missingPrerequisites?.length ? `Thiếu: ${record.missingPrerequisites.join(', ')}` : `Chưa tới kỳ ${record.term}`}
             </Text>
           );
         }
@@ -359,8 +374,13 @@ const CurriculumPage = () => {
                 valueStyle={{ color: '#52c41a', fontWeight: 700 }}
               />
               <Text type="secondary" style={{ fontSize: 12 }}>
-                Dựa trên {curriculumData.accumulatedCredits} tín chỉ đã hoàn thành
+                Kỳ sớm nhất còn môn chưa có kết quả • {curriculumData.accumulatedCredits} TC đã đạt
               </Text>
+              {curriculumData.retakeCourses?.length > 0 && (
+                <div style={{ marginTop: 4 }}>
+                  <Text type="danger" style={{ fontSize: 12 }}>Cần học lại: {curriculumData.retakeCourses.join(', ')}</Text>
+                </div>
+              )}
             </Card>
           </Col>
 
@@ -403,10 +423,52 @@ const CurriculumPage = () => {
         </Row>
       )}
 
+      {/* Giáo vụ: phân bố sinh viên theo kỳ khung chương trình */}
+      {isAcademicStaff && termOverview && (
+        <Card
+          title={<Space><span>Phân bố sinh viên theo kỳ khung chương trình</span><Tag color="orange">{termOverview.totalStudents} sinh viên</Tag></Space>}
+          extra={<Button icon={<ReloadOutlined />} onClick={fetchTermOverview} />}
+          style={{ marginBottom: 16 }}
+        >
+          <Row gutter={[8, 8]}>
+            {termOverview.terms.map(t => (
+              <Col key={t.term} xs={8} sm={6} md={4} lg={3} xl={2} style={{ minWidth: 96 }}>
+                <Card
+                  size="small"
+                  hoverable
+                  onClick={() => setOverviewTerm(overviewTerm === t.term ? null : t.term)}
+                  style={{ textAlign: 'center', borderColor: overviewTerm === t.term ? PRIMARY_COLOR : undefined }}
+                >
+                  <Statistic title={`Kỳ ${t.term}`} value={t.studentCount} valueStyle={{ color: PRIMARY_COLOR, fontWeight: 700 }} />
+                </Card>
+              </Col>
+            ))}
+          </Row>
+          {overviewTerm && (
+            <Table
+              style={{ marginTop: 12 }}
+              size="small"
+              rowKey="id"
+              pagination={{ pageSize: 10 }}
+              dataSource={termOverview.terms[overviewTerm - 1].students}
+              onRow={r => ({ onClick: () => setSelectedStudentId(r.id), style: { cursor: 'pointer' } })}
+              columns={[
+                { title: 'Mã SV', dataIndex: 'code', render: v => <Text strong>{v}</Text> },
+                { title: 'Họ tên', dataIndex: 'fullName' },
+                { title: 'Khóa', dataIndex: 'cohort' },
+                { title: 'TC đã đạt', dataIndex: 'passedCredits' },
+                { title: 'Đang học', dataIndex: 'studying', render: v => (v?.length ? v.join(', ') : <Text type="secondary">Chưa xếp lớp</Text>) },
+                { title: 'Học lại', dataIndex: 'retakeCourses', render: v => (v?.length ? <Text type="danger">{v.join(', ')}</Text> : '—') }
+              ]}
+            />
+          )}
+        </Card>
+      )}
+
       {/* Hướng dẫn nghiệp vụ Điều kiện tiên quyết */}
       <Alert
-        message="Quy chế điều kiện tiên quyết môn học (Prerequisite Rules - FAP FPT)"
-        description="Sinh viên phải hoàn thành và đạt kết quả 'ĐÃ QUA MÔN' (Passed) đối với các môn học tiên quyết thì mới đủ điều kiện đăng ký hoặc được Giáo vụ xếp vào lớp của các môn học ở học kỳ kế tiếp. Các môn đánh dấu 'ĐỦ ĐIỀU KIỆN' sẵn sàng được xếp lớp ở kỳ tới."
+        message="Quy tắc chia kỳ & điều kiện tiên quyết"
+        description="Kỳ hiện tại của sinh viên là kỳ sớm nhất trong khung còn môn chưa có kết quả (chưa học hoặc đang học). Môn trượt/cấm thi không giữ sinh viên ở lại kỳ cũ mà được đánh dấu 'HỌC LẠI'. Sinh viên chỉ được xếp lớp môn thuộc kỳ ≤ kỳ hiện tại và đã ĐẠT toàn bộ môn tiên quyết; Giáo vụ có thể ghi danh đặc cách khi cần."
         type="info"
         showIcon
         closable

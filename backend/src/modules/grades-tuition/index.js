@@ -2,7 +2,9 @@ const express = require('express');
 const router = express.Router();
 const authenticateJWT = require('../../middlewares/auth.middleware');
 const authorizeRoles = require('../../middlewares/role.middleware');
-const prisma = require('../../config/prisma');
+const { withTransaction } = require('../../config/db');
+const { Class, Enrollment, Grade } = require('../../models');
+const { plain } = require('../../utils/query');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
 
 /**
@@ -33,6 +35,8 @@ const calculateGrade = (attendanceScore, midtermScore, finalScore, isBanned) => 
   };
 };
 
+const num = v => (v !== null && v !== undefined ? Number(v) : null);
+
 // ==========================================
 // 1. EXAM & GRADE MANAGEMENT (UC8.1 - UC8.4)
 // ==========================================
@@ -42,48 +46,41 @@ router.get('/classes/:id/grades', authenticateJWT, async (req, res) => {
   try {
     const classId = parseInt(req.params.id);
 
-    const classInfo = await prisma.class.findUnique({
-      where: { id: classId },
-      include: {
-        course: true,
-        enrollments: {
-          where: { status: 'ACTIVE' },
-          include: {
-            student: {
-              select: { id: true, code: true, fullName: true, email: true }
-            },
-            grade: true
-          },
-          orderBy: { student: { code: 'asc' } }
-        }
-      }
-    });
+    const classDoc = await Class.findOne({ id: classId }).populate(['course', {
+      path: 'enrollments',
+      match: { status: 'ACTIVE' },
+      populate: [{ path: 'student', select: 'id code fullName email' }, 'grade']
+    }]);
 
-    if (!classInfo) {
+    if (!classDoc) {
       return errorResponse(res, 'Không tìm thấy lớp học phần', 404);
     }
+    const classInfo = plain(classDoc);
 
-    const grades = classInfo.enrollments.map(e => ({
-      enrollmentId: e.id,
-      studentId: e.student.id,
-      studentCode: e.student.code,
-      studentName: e.student.fullName,
-      studentEmail: e.student.email,
-      attendanceScore: e.grade?.attendanceScore !== null && e.grade?.attendanceScore !== undefined ? Number(e.grade.attendanceScore) : null,
-      midtermScore: e.grade?.midtermScore !== null && e.grade?.midtermScore !== undefined ? Number(e.grade.midtermScore) : null,
-      finalScore: e.grade?.finalScore !== null && e.grade?.finalScore !== undefined ? Number(e.grade.finalScore) : null,
-      totalScore: e.grade?.totalScore !== null && e.grade?.totalScore !== undefined ? Number(e.grade.totalScore) : null,
-      isPassed: e.grade?.isPassed || false,
-      isBanned: e.grade?.isBanned || false
-    }));
+    const grades = classInfo.enrollments
+      .filter(e => e.student)
+      .sort((a, b) => String(a.student.code).localeCompare(String(b.student.code)))
+      .map(e => ({
+        enrollmentId: e.id,
+        studentId: e.student.id,
+        studentCode: e.student.code,
+        studentName: e.student.fullName,
+        studentEmail: e.student.email,
+        attendanceScore: num(e.grade?.attendanceScore),
+        midtermScore: num(e.grade?.midtermScore),
+        finalScore: num(e.grade?.finalScore),
+        totalScore: num(e.grade?.totalScore),
+        isPassed: e.grade?.isPassed || false,
+        isBanned: e.grade?.isBanned || false
+      }));
 
     return successResponse(
       res,
       {
         classId: classInfo.id,
         classCode: classInfo.classCode,
-        courseName: classInfo.course.name,
-        courseCode: classInfo.course.courseCode,
+        courseName: classInfo.course?.name,
+        courseCode: classInfo.course?.courseCode,
         grades
       },
       'Lấy bảng điểm thành công'
@@ -104,16 +101,15 @@ router.put('/classes/:id/grades', authenticateJWT, authorizeRoles('ADMIN', 'TEAC
       return errorResponse(res, 'Dữ liệu gradesList phải là một mảng', 400);
     }
 
-    const updatedResults = [];
-
-    await prisma.$transaction(async (tx) => {
+    const updatedResults = await withTransaction(async session => {
+      const results = [];
       for (const item of gradesList) {
         const enrollmentId = parseInt(item.enrollmentId);
+        // Chỉ cập nhật ghi danh thuộc lớp đang thao tác
+        if (!(await Enrollment.exists({ id: enrollmentId, classId }).session(session))) continue;
 
         // Lấy grade hiện tại để giữ trạng thái isBanned nếu có
-        const currentGrade = await tx.grade.findUnique({
-          where: { enrollmentId }
-        });
+        const currentGrade = await Grade.findOne({ enrollmentId }).session(session);
 
         const isBanned = item.isBanned !== undefined ? !!item.isBanned : (currentGrade?.isBanned || false);
         const att = item.attendanceScore !== undefined && item.attendanceScore !== null && item.attendanceScore !== '' ? parseFloat(item.attendanceScore) : null;
@@ -121,30 +117,18 @@ router.put('/classes/:id/grades', authenticateJWT, authorizeRoles('ADMIN', 'TEAC
         const fin = item.finalScore !== undefined && item.finalScore !== null && item.finalScore !== '' ? parseFloat(item.finalScore) : null;
 
         const { totalScore, isPassed } = calculateGrade(att, mid, fin, isBanned);
+        const data = { attendanceScore: att, midtermScore: mid, finalScore: fin, totalScore, isPassed, isBanned };
 
-        const updated = await tx.grade.upsert({
-          where: { enrollmentId },
-          create: {
-            enrollmentId,
-            attendanceScore: att,
-            midtermScore: mid,
-            finalScore: fin,
-            totalScore,
-            isPassed,
-            isBanned
-          },
-          update: {
-            attendanceScore: att,
-            midtermScore: mid,
-            finalScore: fin,
-            totalScore,
-            isPassed,
-            isBanned
-          }
-        });
-
-        updatedResults.push(updated);
+        let updated;
+        if (currentGrade) {
+          Object.assign(currentGrade, data);
+          updated = await currentGrade.save({ session });
+        } else {
+          [updated] = await Grade.create([{ enrollmentId, ...data }], { session });
+        }
+        results.push(plain(updated));
       }
+      return results;
     });
 
     return successResponse(res, updatedResults, 'Cập nhật điểm và tính kết quả qua môn thành công');
@@ -159,33 +143,25 @@ router.get('/students/my-grades', authenticateJWT, async (req, res) => {
   try {
     const studentId = req.user.id;
 
-    const enrollments = await prisma.enrollment.findMany({
-      where: { studentId },
-      include: {
-        class: {
-          include: {
-            course: true,
-            teacher: { select: { fullName: true } }
-          }
-        },
-        grade: true
-      },
-      orderBy: { class: { semester: 'desc' } }
-    });
+    const enrollments = (await Enrollment.find({ studentId })
+      .populate([{ path: 'class', populate: ['course', { path: 'teacher', select: 'fullName' }] }, 'grade']))
+      .map(plain)
+      .filter(e => e.class)
+      .sort((a, b) => String(b.class.semester).localeCompare(String(a.class.semester)));
 
     const grades = enrollments.map(e => ({
       enrollmentId: e.id,
       classCode: e.class.classCode,
-      courseCode: e.class.course.courseCode,
-      courseName: e.class.course.name,
-      credits: e.class.course.credits,
+      courseCode: e.class.course?.courseCode,
+      courseName: e.class.course?.name,
+      credits: e.class.course?.credits || 0,
       semester: e.class.semester,
       teacherName: e.class.teacher?.fullName || 'Chưa phân công',
       grade: e.grade ? {
-        attendanceScore: e.grade.attendanceScore !== null ? Number(e.grade.attendanceScore) : null,
-        midtermScore: e.grade.midtermScore !== null ? Number(e.grade.midtermScore) : null,
-        finalScore: e.grade.finalScore !== null ? Number(e.grade.finalScore) : null,
-        totalScore: e.grade.totalScore !== null ? Number(e.grade.totalScore) : null,
+        attendanceScore: num(e.grade.attendanceScore),
+        midtermScore: num(e.grade.midtermScore),
+        finalScore: num(e.grade.finalScore),
+        totalScore: num(e.grade.totalScore),
         isPassed: e.grade.isPassed,
         isBanned: e.grade.isBanned
       } : null
@@ -220,3 +196,4 @@ router.get('/students/my-grades', authenticateJWT, async (req, res) => {
 router.use(require('./tuition.routes'));
 
 module.exports = router;
+module.exports.calculateGrade = calculateGrade;

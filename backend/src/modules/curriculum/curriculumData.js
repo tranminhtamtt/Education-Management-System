@@ -224,36 +224,34 @@ const SE_CURRICULUM = [
   }
 ];
 
+const TOTAL_TERMS = 9;
+
 /**
- * Tính toán học kỳ hiện tại của sinh viên dựa trên số tín chỉ đã PASS
- * và các môn đang theo học trong kỳ hiện tại (Academic Standing / Term)
- * @param {number} passedCredits - Tổng số tín chỉ đã pass
- * @param {string[]} studyingCourseCodes - Danh sách mã môn đang học (nếu có)
- * @returns {number} Kỳ học ước tính (1 - 9)
+ * Tính học kỳ hiện tại của sinh viên theo khung chương trình.
+ *
+ * Quy tắc: kỳ hiện tại là kỳ sớm nhất còn môn CHƯA CÓ KẾT QUẢ (chưa học hoặc đang học).
+ * Môn đã có kết quả cuối cùng (PASS, hoặc trượt/cấm thi) được xem là đã hoàn tất lượt học,
+ * nên sinh viên trượt một môn vẫn lên kỳ tiếp theo; môn trượt được học lại ở kỳ sau và
+ * điều kiện tiên quyết vẫn bắt buộc PASS (vd: trượt PRF192 thì chưa học được PRO192).
+ *
+ * @param {string[]|number} passedCourses - Mã môn đã PASS (hoặc tổng tín chỉ — tương thích ngược)
+ * @param {string[]} [finishedCourses] - Mã môn đã có kết quả cuối cùng (PASS hoặc trượt)
+ * @returns {number} Kỳ học hiện tại (1 - 9)
  */
-function calculateStudentTerm(passedCredits = 0, studyingCourseCodes = []) {
-  let creditTerm = 1;
-  if (passedCredits >= 79) creditTerm = 9;
-  else if (passedCredits >= 73) creditTerm = 8;
-  else if (passedCredits >= 64) creditTerm = 7;
-  else if (passedCredits >= 54) creditTerm = 6;
-  else if (passedCredits >= 45) creditTerm = 5;
-  else if (passedCredits >= 36) creditTerm = 4;
-  else if (passedCredits >= 24) creditTerm = 3;
-  else if (passedCredits >= 12) creditTerm = 2;
-
-  if (Array.isArray(studyingCourseCodes) && studyingCourseCodes.length > 0) {
-    let maxStudyingTerm = 1;
-    for (const code of studyingCourseCodes) {
-      const found = SE_CURRICULUM.find(c => c.courseCode.toUpperCase() === String(code).toUpperCase());
-      if (found && found.term > maxStudyingTerm) {
-        maxStudyingTerm = found.term;
-      }
+function calculateStudentTerm(passedCourses = [], finishedCourses = []) {
+  if (!Array.isArray(passedCourses)) {
+    let credits = 0;
+    for (let term = 1; term <= TOTAL_TERMS; term++) {
+      credits += SE_CURRICULUM.filter(c => c.term === term).reduce((n, c) => n + c.credits, 0);
+      if (passedCourses < credits) return term;
     }
-    return Math.max(creditTerm, maxStudyingTerm);
+    return TOTAL_TERMS;
   }
-
-  return creditTerm;
+  const done = new Set([...passedCourses, ...finishedCourses].map(c => String(c).toUpperCase()));
+  for (let term = 1; term <= TOTAL_TERMS; term++) {
+    if (SE_CURRICULUM.some(c => c.term === term && !done.has(c.courseCode.toUpperCase()))) return term;
+  }
+  return TOTAL_TERMS;
 }
 
 /**
@@ -277,9 +275,53 @@ function checkPrerequisites(courseCode, studentPassedCourseCodes = []) {
   };
 }
 
+/**
+ * Tổng hợp trạng thái học tập từ danh sách ghi danh (đã nạp class.course + grade).
+ * Dùng chung cho tiến độ khung, phân loại xếp lớp và kiểm tra ghi danh để không lệch quy tắc.
+ * - PASS: grade.isPassed
+ * - Đã có kết quả (finished): PASS, có điểm tổng kết, hoặc lớp đã COMPLETED (trượt/cấm thi)
+ * - Đang học (inProgress): chưa có kết quả và lớp chưa COMPLETED
+ */
+function summarizeEnrollments(enrollments = []) {
+  const passed = new Set();
+  const finished = new Set();
+  const inProgress = new Set();
+  for (const e of enrollments) {
+    if (!e || e.status === 'DROPPED' || !e.class?.course?.courseCode) continue;
+    const code = e.class.course.courseCode.toUpperCase();
+    const g = e.grade;
+    const hasTotal = g && g.totalScore !== null && g.totalScore !== undefined;
+    if (g?.isPassed) {
+      passed.add(code);
+      finished.add(code);
+    } else if (hasTotal || e.class.status === 'COMPLETED') {
+      finished.add(code);
+    } else {
+      inProgress.add(code);
+    }
+  }
+  for (const code of passed) inProgress.delete(code);
+  const passedCodes = [...passed];
+  const finishedCodes = [...finished];
+  const passedCredits = passedCodes.reduce((n, code) => n + (findCurriculumCourse(code)?.credits || 0), 0);
+  return {
+    passedCodes,
+    finishedCodes,
+    inProgressCodes: [...inProgress],
+    passedCredits,
+    currentTerm: calculateStudentTerm(passedCodes, finishedCodes)
+  };
+}
+
+function findCurriculumCourse(code) {
+  return SE_CURRICULUM.find(c => c.courseCode.toUpperCase() === String(code || '').toUpperCase());
+}
+
 module.exports = {
   SE_CURRICULUM,
+  TOTAL_TERMS,
   calculateStudentTerm,
-  checkPrerequisites
+  checkPrerequisites,
+  summarizeEnrollments,
+  findCurriculumCourse
 };
-
