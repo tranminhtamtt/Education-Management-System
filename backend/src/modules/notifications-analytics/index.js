@@ -318,15 +318,16 @@ router.get('/analytics/student-overview', authenticateJWT, authorizeRoles('STUDE
     const studentId = req.user.id;
 
     // 1. Lớp học đang tham gia
-    const enrollments = (await Enrollment.find({ studentId, status: 'ACTIVE' }).populate('grade')).map(plain);
+    const enrollments = (await Enrollment.find({ studentId, status: 'ACTIVE' }).populate(['grade', 'class'])).map(plain);
 
-    const classIds = enrollments.map(e => e.classId);
+    const ongoingEnrollments = enrollments.filter(e => e.class && e.class.status === 'ONGOING');
+    const ongoingClassIds = ongoingEnrollments.map(e => e.classId);
 
-    // 2. Bài tập sắp đến hạn
+    // 2. Bài tập sắp đến hạn (trong các lớp đang học)
     const now = new Date();
-    const upcoming = (await Assignment.find({ classId: { $in: classIds }, dueDate: { $gte: now } })
+    const upcoming = (await Assignment.find({ classId: { $in: ongoingClassIds }, dueDate: { $gte: now } })
       .sort({ dueDate: 1 })
-      .limit(5)
+      .limit(6)
       .populate({ path: 'class', populate: 'course' })).map(plain);
     const submitted = new Set((await Submission.find({ studentId, assignmentId: { $in: upcoming.map(a => a.id) } }).select('assignmentId')).map(s => s.assignmentId));
 
@@ -339,12 +340,13 @@ router.get('/analytics/student-overview', authenticateJWT, authorizeRoles('STUDE
     return successResponse(
       res,
       {
-        enrolledClassesCount: enrollments.length,
+        enrolledClassesCount: ongoingEnrollments.length,
         gpa: parseFloat(gpa),
         passedCourses: completedGrades.filter(g => g.isPassed).length,
         upcomingDeadlines: upcoming.map(a => ({
           id: a.id,
           title: a.title,
+          classCode: a.class?.classCode,
           courseName: a.class?.course?.name,
           dueDate: a.dueDate,
           isSubmitted: submitted.has(a.id)

@@ -58,6 +58,7 @@ function buildSeed({ passwordHash, now = new Date() }) {
   const ids = {};
   const next = name => (ids[name] = (ids[name] || 0) + 1);
   const data = { users: [], courses: [], classes: [], schedules: [], enrollments: [], grades: [], tuition_invoices: [], tuition_payments: [], notifications: [] };
+  const extraData = { attendances: [], assignments: [], submissions: [] };
 
   data.users.push({ id: next('users'), code: 'ADM001', email: 'admin@fpt.edu.vn', fullName: 'Phòng Quản lý Đào tạo', role: 'ADMIN', passwordHash, phone: '02473005588' });
   data.users.push({ id: next('users'), code: 'ACC001', email: 'ketoan@fpt.edu.vn', fullName: 'Phòng Kế toán - Tài chính', role: 'ACCOUNTANT', passwordHash, phone: '02473005589' });
@@ -100,7 +101,31 @@ function buildSeed({ passwordHash, now = new Date() }) {
         data.classes.push(cls);
         // Mỗi kỳ khung dùng dãy phòng riêng → các khóa học cùng kỳ lịch không trùng phòng; môn trong kỳ khác thứ → không trùng lịch SV
         const shift = 1 + (t % 2);
-        data.schedules.push({ id: next('schedules'), classId: cls.id, dayOfWeek: 2 + slot, shift, startTime: SLOT_HOURS[shift][0], endTime: SLOT_HOURS[shift][1], room: `R${t}0${slot + 1}` });
+        const dayOfWeek = 2 + slot;
+        data.schedules.push({ id: next('schedules'), classId: cls.id, dayOfWeek, shift, startTime: SLOT_HOURS[shift][0], endTime: SLOT_HOURS[shift][1], room: `R${t}0${slot + 1}` });
+
+        let asg1 = null;
+        if (isCurrent) {
+          asg1 = {
+            id: next('assignments'),
+            classId: cls.id,
+            title: `[Tuần 1] Bài tập thực hành Lab 1 - ${c.courseCode}`,
+            description: `Hoàn thành bài tập thực hành Tuần 1 môn ${c.name} (${c.courseCode}). Nộp link GitHub hoặc file PDF báo cáo.`,
+            fileUrl: `https://lms.fpt.edu.vn/materials/${c.courseCode.toLowerCase()}-week1-lab1.pdf`,
+            dueDate: new Date('2026-11-07T23:59:00Z'),
+            createdAt: new Date('2026-11-02T08:00:00Z')
+          };
+          const asg2 = {
+            id: next('assignments'),
+            classId: cls.id,
+            title: `[Tuần 2] Dự án / Kiểm tra định kỳ - ${c.courseCode}`,
+            description: `Hoàn thành bài tập lớn Tuần 2 môn ${c.name} (${c.courseCode}) tổng kết kiến thức 2 tuần học.`,
+            fileUrl: `https://lms.fpt.edu.vn/materials/${c.courseCode.toLowerCase()}-week2-project.pdf`,
+            dueDate: new Date('2026-11-15T23:59:00Z'),
+            createdAt: new Date('2026-11-09T08:00:00Z')
+          };
+          extraData.assignments.push(asg1, asg2);
+        }
 
         students.forEach((s, si) => {
           const enrollment = { id: next('enrollments'), classId: cls.id, studentId: s.id, enrolledAt: cal.date, status: 'ACTIVE' };
@@ -108,6 +133,37 @@ function buildSeed({ passwordHash, now = new Date() }) {
           data.grades.push(isCurrent
             ? { id: next('grades'), enrollmentId: enrollment.id, attendanceScore: null, midtermScore: null, finalScore: null, totalScore: null, isPassed: false, isBanned: false }
             : { id: next('grades'), enrollmentId: enrollment.id, ...pastScores(enrollment.id) });
+
+          if (isCurrent) {
+            const w1Date = `2026-11-${String(2 + (dayOfWeek - 2)).padStart(2, '0')}`;
+            const w2Date = `2026-11-${String(9 + (dayOfWeek - 2)).padStart(2, '0')}`;
+            for (const dateStr of [w1Date, w2Date]) {
+              // Chỉ điểm danh các buổi đã diễn ra tính đến ngày 09/11/2026
+              if (dateStr <= '2026-11-09') {
+                const status = si === 2 && slot === 0 && dateStr === w1Date ? 'LATE' : 'PRESENT';
+                extraData.attendances.push({
+                  id: next('attendances'),
+                  classId: cls.id,
+                  studentId: s.id,
+                  sessionDate: new Date(`${dateStr}T00:00:00.000Z`),
+                  status,
+                  note: status === 'LATE' ? 'Đi muộn 10 phút' : 'Có mặt đúng giờ'
+                });
+              }
+            }
+            if (asg1) {
+              extraData.submissions.push({
+                id: next('submissions'),
+                assignmentId: asg1.id,
+                studentId: s.id,
+                content: `Em nộp bài tập Tuần 1 môn ${c.courseCode} - Sinh viên ${s.fullName} (${s.code})`,
+                fileUrl: `https://github.com/${s.code.toLowerCase()}/${c.courseCode.toLowerCase()}-lab1`,
+                score: Number((7.5 + ((si + slot) % 3) * 0.8).toFixed(1)),
+                feedback: 'Bài làm tốt, nắm vững kiến thức Tuần 1.',
+                submittedAt: new Date('2026-11-06T14:30:00Z')
+              });
+            }
+          }
 
           const amount = course.baseTuitionFee;
           const invoice = { id: next('tuition_invoices'), studentId: s.id, enrollmentId: enrollment.id, amount, paidAmount: 0, status: 'UNPAID', paidAt: null, createdAt: cal.date, dueDate: new Date(cal.date.getTime() + 30 * DAY) };
@@ -127,12 +183,13 @@ function buildSeed({ passwordHash, now = new Date() }) {
 
   data.notifications.push({ id: next('notifications'), userId: null, title: 'Chào mừng học kỳ mới', message: `Học kỳ ${calendarTerm(currentIndex).semester} đã bắt đầu. Sinh viên vui lòng kiểm tra thời khóa biểu và học phí.`, type: 'SYSTEM', createdAt: now });
 
-  return { data, counters: ids, currentSemester: calendarTerm(currentIndex).semester };
+  return { data, extraData, counters: ids, currentSemester: calendarTerm(currentIndex).semester };
 }
 
 const COLLECTION_MODELS = {
   users: models.User, courses: models.Course, classes: models.Class, schedules: models.Schedule, enrollments: models.Enrollment,
-  grades: models.Grade, tuition_invoices: models.TuitionInvoice, tuition_payments: models.TuitionPayment, notifications: models.Notification
+  grades: models.Grade, tuition_invoices: models.TuitionInvoice, tuition_payments: models.TuitionPayment, notifications: models.Notification,
+  attendances: models.Attendance, assignments: models.Assignment, submissions: models.Submission
 };
 
 function describe(seed) {
@@ -181,7 +238,7 @@ async function main() {
 
   // 3. Tạo dữ liệu mới
   const seed = buildSeed({ passwordHash: await bcrypt.hash(process.env.SEED_PASSWORD, 10) });
-  for (const [collection, rows] of Object.entries(seed.data)) {
+  for (const [collection, rows] of Object.entries({ ...seed.data, ...(seed.extraData || {}) })) {
     if (rows.length) await COLLECTION_MODELS[collection].insertMany(rows, { ordered: true });
   }
   for (const [name, seq] of Object.entries(seed.counters)) await models.Counter.updateOne({ _id: name }, { $set: { seq } }, { upsert: true });

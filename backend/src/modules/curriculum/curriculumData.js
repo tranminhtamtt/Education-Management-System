@@ -147,7 +147,7 @@ const SE_CURRICULUM = [
     courseCode: 'SWP391',
     name: 'Software Development Project (CapStone MVP)',
     credits: 3,
-    prerequisites: ['CSD201', 'PRJ301'], // Môn web kỳ 4; không yêu cầu môn cùng kỳ 5.
+    prerequisites: ['CSD201', 'PRJ301'], // Cần pass CSD201 (Kỳ 3) và PRJ301 (Kỳ 4)
     description: 'Thực hiện dự án phần mềm theo nhóm Agile thực tế từ đặc tả yêu cầu, thiết kế kiến trúc đến triển khai MVP.'
   },
   {

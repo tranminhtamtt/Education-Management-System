@@ -1,19 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Table, Tag, Typography, Button, Space, Modal, Form, Select, Input, message, Row, Col } from 'antd';
-import { PlusOutlined, CalendarOutlined, ClockCircleOutlined } from '@ant-design/icons';
+import { Card, Table, Tag, Typography, Button, Space, Modal, Form, Select, Input, message, Row, Col, Radio, Alert, Badge } from 'antd';
+import { PlusOutlined, CalendarOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import apiClient from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 const DAYS = [
-  { label: 'Thứ Hai', value: 2 },
-  { label: 'Thứ Ba', value: 3 },
-  { label: 'Thứ Tư', value: 4 },
-  { label: 'Thứ Năm', value: 5 },
-  { label: 'Thứ Sáu', value: 6 },
-  { label: 'Thứ Bảy', value: 7 },
-  { label: 'Chủ Nhật', value: 8 }
+  { label: 'Thứ Hai', value: 2, w1Date: '02/11', w2Date: '09/11' },
+  { label: 'Thứ Ba', value: 3, w1Date: '03/11', w2Date: '10/11' },
+  { label: 'Thứ Tư', value: 4, w1Date: '04/11', w2Date: '11/11' },
+  { label: 'Thứ Năm', value: 5, w1Date: '05/11', w2Date: '12/11' },
+  { label: 'Thứ Sáu', value: 6, w1Date: '06/11', w2Date: '13/11' },
+  { label: 'Thứ Bảy', value: 7, w1Date: '07/11', w2Date: '14/11' },
+  { label: 'Chủ Nhật', value: 8, w1Date: '08/11', w2Date: '15/11' }
 ];
 
 const SLOTS = [
@@ -25,13 +25,22 @@ const SLOTS = [
   { shift: 6, time: '20:30 – 22:50' }
 ];
 
+const ATTENDANCE_BADGE = {
+  PRESENT: { color: 'success', text: 'Có mặt', icon: <CheckCircleOutlined /> },
+  LATE: { color: 'warning', text: 'Đi muộn', icon: <ClockCircleOutlined /> },
+  ABSENT_EXCUSED: { color: 'purple', text: 'Nghỉ có phép', icon: <ExclamationCircleOutlined /> },
+  ABSENT_UNEXCUSED: { color: 'error', text: 'Vắng mặt', icon: <CloseCircleOutlined /> }
+};
+
 const SchedulePage = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+  const isStudent = user?.role === 'STUDENT';
 
   const [schedules, setSchedules] = useState([]);
   const [loading, setLoading] = useState(false);
   const [classes, setClasses] = useState([]);
+  const [selectedWeek, setSelectedWeek] = useState('BOTH'); // 'WEEK1', 'WEEK2', 'BOTH'
 
   // Modal Xếp Lịch
   const [modalOpen, setModalOpen] = useState(false);
@@ -54,7 +63,7 @@ const SchedulePage = () => {
 
   const fetchClasses = async () => {
     try {
-      const res = await apiClient.get('/classes');
+      const res = await apiClient.get('/classes', { params: { status: 'ONGOING' } });
       if (res.success) {
         setClasses(res.data);
       }
@@ -86,11 +95,29 @@ const SchedulePage = () => {
         fetchSchedules();
       }
     } catch (err) {
-      // Bắt lỗi xung đột trùng phòng hoặc trùng GV theo Conflict Detection
       message.error(err.response?.data?.message || 'Lỗi khi xếp lịch học');
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const renderSessionBadge = (session, weekLabel) => {
+    if (!isStudent || !session) return null;
+    const statusInfo = session.status ? ATTENDANCE_BADGE[session.status] : null;
+    const shortDate = session.date ? session.date.slice(8, 10) + '/' + session.date.slice(5, 7) : '';
+    const isFutureDate = session.date && session.date > '2026-11-09';
+
+    return (
+      <div style={{ marginTop: 4, fontSize: 11 }}>
+        <Tag
+          color={statusInfo ? statusInfo.color : 'default'}
+          icon={statusInfo ? statusInfo.icon : <ClockCircleOutlined />}
+          style={{ fontSize: 10, padding: '0 5px', margin: 0 }}
+        >
+          {weekLabel} ({shortDate}): {statusInfo ? statusInfo.text : isFutureDate ? 'Chưa học' : 'Chưa điểm danh'}
+        </Tag>
+      </div>
+    );
   };
 
   // Chuẩn bị dữ liệu hiển thị dạng Ma trận (Slot 1-6 x 7 ngày)
@@ -106,7 +133,6 @@ const SchedulePage = () => {
     };
 
     DAYS.forEach(day => {
-      // Tìm lịch học khớp với Slot và Thứ
       const items = schedules.filter(s => s.shift === slot.shift && s.dayOfWeek === day.value);
       row[day.value] = items;
     });
@@ -118,18 +144,27 @@ const SchedulePage = () => {
     {
       title: 'Ca học (Slot)',
       dataIndex: 'slotInfo',
-      width: 130,
+      width: 125,
       fixed: 'left',
       align: 'center'
     },
     ...DAYS.map(day => ({
-      title: day.label,
+      title: (
+        <div>
+          <div>{day.label}</div>
+          <div style={{ fontSize: 11, fontWeight: 400, color: '#8c8c8c' }}>
+            {selectedWeek === 'WEEK1' && `Ngày ${day.w1Date}/2026`}
+            {selectedWeek === 'WEEK2' && `Ngày ${day.w2Date}/2026`}
+            {selectedWeek === 'BOTH' && `T1: ${day.w1Date} • T2: ${day.w2Date}`}
+          </div>
+        </div>
+      ),
       dataIndex: day.value,
       align: 'center',
       render: (items) => {
         if (!items || items.length === 0) return <span style={{ color: '#d9d9d9' }}>-</span>;
         return (
-          <Space direction="vertical" style={{ width: '100%' }} size={4}>
+          <Space direction="vertical" style={{ width: '100%' }} size={6}>
             {items.map(item => (
               <div
                 key={item.id}
@@ -144,7 +179,7 @@ const SchedulePage = () => {
                 <div style={{ fontWeight: 700, color: '#D46B08', fontSize: 13 }}>
                   {item.classCode}
                 </div>
-                <div style={{ fontSize: 12, fontWeight: 500, color: '#262626' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#262626' }}>
                   {item.courseCode} - {item.courseName}
                 </div>
                 <div style={{ fontSize: 11, color: '#595959', marginTop: 2 }}>
@@ -153,6 +188,10 @@ const SchedulePage = () => {
                 <div style={{ fontSize: 11, color: '#8c8c8c' }}>
                   GV: {item.teacherName}
                 </div>
+                {(selectedWeek === 'WEEK1' || selectedWeek === 'BOTH') &&
+                  renderSessionBadge(item.week1Session, 'Tuần 1')}
+                {(selectedWeek === 'WEEK2' || selectedWeek === 'BOTH') &&
+                  renderSessionBadge(item.week2Session, 'Tuần 2')}
               </div>
             ))}
           </Space>
@@ -161,26 +200,51 @@ const SchedulePage = () => {
     }))
   ];
 
+  const uniqueClassesCount = new Set(schedules.map(s => s.classId)).size;
+
   return (
     <div>
+      <Alert
+        message="Thời khóa biểu Học kỳ SP26 (Kỳ học chuẩn 2 tuần: 02/11/2026 – 15/11/2026)"
+        description={
+          isStudent
+            ? `Bạn đang theo học ${uniqueClassesCount} môn trong học kỳ SP26 (${schedules.length} buổi/tuần • Tổng ${schedules.length * 2} buổi trong 2 tuần). Trạng thái điểm danh từng buổi được đồng bộ trực tiếp với Báo cáo chuyên cần.`
+            : 'Lịch học cố định theo tuần trong kỳ học 2 tuần (Tuần 1: 02/11 - 08/11/2026 & Tuần 2: 09/11 - 15/11/2026).'
+        }
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+      />
+
       <Card
         title={
-          <Space>
+          <Space wrap>
             <CalendarOutlined style={{ color: '#F26F21' }} />
-            <span>Thời khóa biểu tuần (Chuẩn 6 Slot FAP FPT)</span>
+            <span>Thời khóa biểu Kỳ học 2 Tuần (Chuẩn 6 Slot FAP FPT)</span>
           </Space>
         }
         extra={
-          isAdmin && (
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              style={{ backgroundColor: '#F26F21', borderColor: '#F26F21' }}
-              onClick={() => setModalOpen(true)}
+          <Space wrap>
+            <Radio.Group
+              value={selectedWeek}
+              onChange={(e) => setSelectedWeek(e.target.value)}
+              buttonStyle="solid"
             >
-              Xếp Lịch Học Mới
-            </Button>
-          )
+              <Radio.Button value="BOTH">Cả kỳ (2 Tuần)</Radio.Button>
+              <Radio.Button value="WEEK1">Tuần 1 (02/11 – 08/11)</Radio.Button>
+              <Radio.Button value="WEEK2">Tuần 2 (09/11 – 15/11)</Radio.Button>
+            </Radio.Group>
+            {isAdmin && (
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                style={{ backgroundColor: '#F26F21', borderColor: '#F26F21' }}
+                onClick={() => setModalOpen(true)}
+              >
+                Xếp Lịch Học Mới
+              </Button>
+            )}
+          </Space>
         }
       >
         <Table
@@ -190,7 +254,7 @@ const SchedulePage = () => {
           dataSource={matrixData}
           loading={loading}
           pagination={false}
-          scroll={{ x: 1000 }}
+          scroll={{ x: 1100 }}
         />
       </Card>
 

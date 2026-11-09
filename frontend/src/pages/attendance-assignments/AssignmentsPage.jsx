@@ -41,10 +41,10 @@ const AssignmentsPage = () => {
 
   const fetchClasses = async () => {
     try {
-      const res = await apiClient.get('/classes');
+      const res = await apiClient.get('/classes', { params: { status: 'ONGOING' } });
       if (res.success && res.data.length > 0) {
         setClasses(res.data);
-        setSelectedClassId(res.data[0].id);
+        setSelectedClassId(isStudent ? 'ALL' : res.data[0].id);
       }
     } catch (err) {
       console.error('Error fetching classes:', err);
@@ -55,9 +55,34 @@ const AssignmentsPage = () => {
     if (!classId) return;
     try {
       setLoading(true);
-      const res = await apiClient.get(`/classes/${classId}/assignments`);
-      if (res.success) {
-        setAssignments(res.data);
+      if (classId === 'ALL' && classes.length > 0) {
+        const results = await Promise.all(
+          classes.map(async (cls) => {
+            const res = await apiClient.get(`/classes/${cls.id}/assignments`);
+            return (res.data || []).map(a => ({
+              ...a,
+              classId: cls.id,
+              classCode: cls.classCode,
+              courseCode: cls.course?.courseCode,
+              courseName: cls.course?.name
+            }));
+          })
+        );
+        setAssignments(results.flat());
+      } else if (classId !== 'ALL') {
+        const cls = classes.find(c => c.id === classId);
+        const res = await apiClient.get(`/classes/${classId}/assignments`);
+        if (res.success) {
+          setAssignments(
+            res.data.map(a => ({
+              ...a,
+              classId: cls?.id || classId,
+              classCode: cls?.classCode,
+              courseCode: cls?.course?.courseCode,
+              courseName: cls?.course?.name
+            }))
+          );
+        }
       }
     } catch (err) {
       message.error('Lỗi khi tải danh sách bài tập');
@@ -68,13 +93,13 @@ const AssignmentsPage = () => {
 
   useEffect(() => {
     fetchClasses();
-  }, []);
+  }, [isStudent]);
 
   useEffect(() => {
-    if (selectedClassId) {
+    if (selectedClassId && classes.length > 0) {
       fetchAssignments(selectedClassId);
     }
-  }, [selectedClassId]);
+  }, [selectedClassId, classes]);
 
   // Tạo bài tập mới
   const handleCreateAssignment = async (values) => {
@@ -180,6 +205,18 @@ const AssignmentsPage = () => {
 
   const columns = [
     {
+      title: 'Lớp / Môn học',
+      width: 200,
+      render: (_, r) => (
+        <div>
+          <Tag color="orange" style={{ fontWeight: 600 }}>{r.classCode}</Tag>
+          <div style={{ fontSize: 12, fontWeight: 500, marginTop: 2 }}>
+            {r.courseCode} - {r.courseName}
+          </div>
+        </div>
+      )
+    },
+    {
       title: 'Tiêu đề bài tập',
       dataIndex: 'title',
       render: (t, r) => (
@@ -236,15 +273,23 @@ const AssignmentsPage = () => {
     ...(isStudent
       ? [
           {
-            title: 'Trạng thái nộp',
+            title: 'Trạng thái nộp & Điểm',
             render: (_, r) => {
               if (r.mySubmission) {
+                const isLateSub = r.mySubmission.status === 'LATE_SUBMITTED';
                 return (
                   <div>
-                    <Tag color="success">Đã nộp bài</Tag>
-                    {r.mySubmission.score !== null && (
+                    <Tag color={isLateSub ? 'warning' : 'success'}>
+                      {isLateSub ? 'Đã nộp (Muộn)' : 'Đã nộp đúng hạn'}
+                    </Tag>
+                    {r.mySubmission.score !== null && r.mySubmission.score !== undefined && (
                       <div style={{ marginTop: 4 }}>
                         Điểm: <Text strong style={{ color: '#52c41a' }}>{r.mySubmission.score}/10</Text>
+                      </div>
+                    )}
+                    {r.mySubmission.teacherFeedback && (
+                      <div style={{ fontSize: 11, color: '#595959', marginTop: 2 }}>
+                        Nhận xét: <i>{r.mySubmission.teacherFeedback}</i>
                       </div>
                     )}
                   </div>
@@ -293,13 +338,16 @@ const AssignmentsPage = () => {
         <Space style={{ marginBottom: 20 }} wrap>
           <Text strong>Chọn Lớp Học:</Text>
           <Select
-            style={{ width: 260 }}
+            style={{ width: 320 }}
             value={selectedClassId}
             onChange={setSelectedClassId}
-            options={classes.map(c => ({
-              label: `${c.classCode} - ${c.course.name}`,
-              value: c.id
-            }))}
+            options={[
+              ...(isStudent ? [{ label: '📚 Tất cả các môn đang học kỳ này (SP26)', value: 'ALL' }] : []),
+              ...classes.map(c => ({
+                label: `${c.classCode} - ${c.course.name}`,
+                value: c.id
+              }))
+            ]}
           />
         </Space>
 

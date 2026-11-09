@@ -35,10 +35,15 @@ const AttendancePage = () => {
 
   const fetchClasses = async () => {
     try {
-      const res = await apiClient.get('/classes');
+      const res = await apiClient.get('/classes', { params: { status: 'ONGOING' } });
       if (res.success && res.data.length > 0) {
         setClasses(res.data);
-        setSelectedClassId(res.data[0].id);
+        const firstClass = res.data[0];
+        setSelectedClassId(firstClass.id);
+        if (firstClass.schedules && firstClass.schedules.length > 0) {
+          const firstDay = firstClass.schedules[0].dayOfWeek;
+          setSessionDate(`2026-11-${String(2 + (firstDay - 2)).padStart(2, '0')}`);
+        }
       }
     } catch (err) {
       console.error('Error fetching classes:', err);
@@ -235,10 +240,28 @@ const AttendancePage = () => {
   ];
 
   if (isStudent) {
+    const DAY_LABELS = {
+      2: 'Thứ 2',
+      3: 'Thứ 3',
+      4: 'Thứ 4',
+      5: 'Thứ 5',
+      6: 'Thứ 6',
+      7: 'Thứ 7',
+      8: 'Chủ Nhật'
+    };
+
+    const STATUS_TAG = {
+      PRESENT: <Tag color="success">Có mặt</Tag>,
+      LATE: <Tag color="warning">Đi muộn</Tag>,
+      ABSENT_EXCUSED: <Tag color="purple">Nghỉ có phép</Tag>,
+      ABSENT_UNEXCUSED: <Tag color="error">Vắng không phép</Tag>,
+      UPCOMING: <Tag color="default">Chưa học (Chưa đến ngày)</Tag>
+    };
+
     return (
-      <Card title="Báo cáo Chuyên cần & Cảnh báo Vắng mặt (Quy chế 20% FAP)">
+      <Card title="Báo cáo Chuyên cần Kỳ học 2 Tuần & Cảnh báo Vắng mặt (Quy chế 20% FAP)">
         <Alert
-          message="Quy định Chuyên cần FAP: Sinh viên vắng từ 20% tổng số buổi của môn học sẽ bị KHÓA ĐIỀU KIỆN THI và nhận kết quả Không Đạt (NOT PASSED)."
+          message="Quy định Chuyên cần FAP (Kỳ học 2 tuần - 6 buổi/môn): Sinh viên vắng không phép từ 20% tổng số buổi (tương đương >= 2/6 buổi) sẽ bị CẤM THI (is_banned = true) và nhận kết quả Không Đạt (NOT PASSED). Nhấn vào dấu (+) từng môn để xem chi tiết lịch sử 6 buổi học trong 2 tuần."
           type="info"
           showIcon
           style={{ marginBottom: 20 }}
@@ -248,17 +271,75 @@ const AttendancePage = () => {
           dataSource={studentReport}
           loading={loading}
           pagination={false}
+          expandable={{
+            defaultExpandAllRows: true,
+            expandedRowRender: (record) => (
+              <Table
+                rowKey="sessionNo"
+                size="small"
+                pagination={false}
+                dataSource={record.sessions || []}
+                columns={[
+                  {
+                    title: 'Buổi học',
+                    dataIndex: 'sessionNo',
+                    width: 90,
+                    render: (n) => <Text strong>Buổi {n}</Text>
+                  },
+                  {
+                    title: 'Tuần',
+                    dataIndex: 'week',
+                    width: 90,
+                    render: (w) => <Tag color={w === 1 ? 'blue' : 'cyan'}>Tuần {w}</Tag>
+                  },
+                  {
+                    title: 'Ngày học',
+                    dataIndex: 'sessionDate',
+                    render: (d, s) => `${DAY_LABELS[s.dayOfWeek] || ''} - ${dayjs(d).format('DD/MM/YYYY')}`
+                  },
+                  {
+                    title: 'Ca học (Slot)',
+                    dataIndex: 'shift',
+                    render: (sh) => <Tag color="orange">Slot {sh}</Tag>
+                  },
+                  {
+                    title: 'Phòng',
+                    dataIndex: 'room',
+                    render: (rm) => <Tag color="geekblue">{rm}</Tag>
+                  },
+                  {
+                    title: 'Trạng thái điểm danh',
+                    dataIndex: 'status',
+                    render: (st) => STATUS_TAG[st] || <Tag>{st}</Tag>
+                  },
+                  {
+                    title: 'Ghi chú của GV / Hệ thống',
+                    dataIndex: 'note',
+                    render: (nt) => nt || <Text type="secondary">-</Text>
+                  }
+                ]}
+              />
+            )
+          }}
           columns={[
-            { title: 'Lớp', dataIndex: 'classCode', render: (c) => <Text strong>{c}</Text> },
-            { title: 'Môn học', dataIndex: 'courseName' },
-            { title: 'Tổng buổi', dataIndex: 'totalSessions', render: (s) => `${s} buổi` },
+            { title: 'Lớp', dataIndex: 'classCode', render: (c) => <Text strong style={{ color: '#F26F21' }}>{c}</Text> },
+            { title: 'Môn học', render: (_, r) => `${r.courseCode} - ${r.courseName}` },
+            { title: 'Giảng viên', dataIndex: 'teacherName' },
+            { title: 'Tiến độ học', render: (_, r) => <Tag color="blue">{r.recordedSessions}/{r.totalSessions} buổi</Tag> },
             { title: 'Có mặt', dataIndex: 'present', render: (p) => <Tag color="green">{p}</Tag> },
-            { title: 'Nghỉ có phép', dataIndex: 'absentExcused', render: (ae) => <Tag color="purple">{ae}</Tag> },
-            { title: 'Vắng không phép', dataIndex: 'absentUnexcused', render: (au) => <Tag color="red">{au}</Tag> },
+            { title: 'Đi muộn', dataIndex: 'late', render: (l) => <Tag color="orange">{l || 0}</Tag> },
+            { title: 'Có phép', dataIndex: 'absentExcused', render: (ae) => <Tag color="purple">{ae}</Tag> },
+            { title: 'Không phép', dataIndex: 'absentUnexcused', render: (au) => <Tag color="red">{au}</Tag> },
+            {
+              title: 'Điểm CC (10%)',
+              dataIndex: 'attendanceScore',
+              align: 'center',
+              render: (sc) => <Text strong style={{ color: '#1890ff' }}>{sc ?? 10}/10</Text>
+            },
             {
               title: 'Tỷ lệ vắng',
               render: (_, r) => (
-                <div style={{ width: 140 }}>
+                <div style={{ width: 130 }}>
                   <Progress
                     percent={r.absentRate}
                     strokeColor={r.isBanned ? '#ff4d4f' : r.absentRate > 10 ? '#fa8c16' : '#52c41a'}
@@ -269,19 +350,32 @@ const AttendancePage = () => {
               )
             },
             {
-              title: 'Tình trạng',
+              title: 'Tình trạng thi',
               render: (_, r) => (
                 r.isBanned
-                  ? <Tag color="error">CẤM THI</Tag>
+                  ? <Tag color="error" icon={<WarningOutlined />}>CẤM THI (&gt;=20%)</Tag>
                   : r.absentRate > 10
                   ? <Tag color="warning">Cảnh báo vắng</Tag>
-                  : <Tag color="success">An toàn</Tag>
+                  : <Tag color="success">Đủ ĐK thi</Tag>
               )
             }
           ]}
         />
       </Card>
     );
+  }
+
+  // Tính 6 ngày học trong 2 tuần của lớp đang chọn cho Giảng viên/Admin chọn nhanh
+  const currentClassObj = classes.find(c => c.id === selectedClassId);
+  const classSessionDates = [];
+  if (currentClassObj?.schedules?.length > 0) {
+    const days = [...new Set(currentClassObj.schedules.map(s => s.dayOfWeek))].sort((a, b) => a - b);
+    days.forEach(d => {
+      classSessionDates.push({ week: 1, date: `2026-11-${String(2 + (d - 2)).padStart(2, '0')}`, dayOfWeek: d });
+    });
+    days.forEach(d => {
+      classSessionDates.push({ week: 2, date: `2026-11-${String(9 + (d - 2)).padStart(2, '0')}`, dayOfWeek: d });
+    });
   }
 
   return (
@@ -303,11 +397,18 @@ const AttendancePage = () => {
         <Space style={{ marginBottom: 20 }} wrap>
           <Text strong>Chọn Lớp Học:</Text>
           <Select
-            style={{ width: 260 }}
+            style={{ width: 300 }}
             value={selectedClassId}
-            onChange={setSelectedClassId}
+            onChange={(val) => {
+              setSelectedClassId(val);
+              const cls = classes.find(c => c.id === val);
+              if (cls?.schedules?.length > 0) {
+                const firstDay = cls.schedules[0].dayOfWeek;
+                setSessionDate(`2026-11-${String(2 + (firstDay - 2)).padStart(2, '0')}`);
+              }
+            }}
             options={classes.map(c => ({
-              label: `${c.classCode} - ${c.course.name}`,
+              label: `${c.classCode} - ${c.course.name} (${c.semester})`,
               value: c.id
             }))}
           />
@@ -319,6 +420,25 @@ const AttendancePage = () => {
             allowClear={false}
           />
         </Space>
+
+        {classSessionDates.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <Space wrap size={[6, 6]}>
+              <Text type="secondary" style={{ fontSize: 12 }}>Chọn nhanh buổi học (Kỳ 2 tuần):</Text>
+              {classSessionDates.map((item, idx) => (
+                <Button
+                  key={item.date}
+                  size="small"
+                  type={sessionDate === item.date ? 'primary' : 'default'}
+                  style={sessionDate === item.date ? { backgroundColor: '#F26F21', borderColor: '#F26F21' } : {}}
+                  onClick={() => setSessionDate(item.date)}
+                >
+                  Buổi {idx + 1} - T{item.week} ({dayjs(item.date).format('DD/MM')})
+                </Button>
+              ))}
+            </Space>
+          </div>
+        )}
 
         <Tabs
           defaultActiveKey="takeAttendance"
