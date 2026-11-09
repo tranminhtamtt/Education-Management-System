@@ -72,7 +72,8 @@ async function getStudentAcademicHistory(studentId) {
   }
 
   const passedCodes = Array.from(passedCoursesMap.keys());
-  const currentTerm = calculateStudentTerm(totalPassedCredits);
+  const studyingCodes = Array.from(studyingCoursesMap.keys());
+  const currentTerm = calculateStudentTerm(totalPassedCredits, studyingCodes);
 
   return {
     studentId,
@@ -349,8 +350,9 @@ router.get('/curriculum/eligible-students/:classId', authenticateJWT, authorizeR
       const reasons = [];
       let isEligible = true;
 
-      // Danh sách môn sinh viên đã PASS
+      // Danh sách môn sinh viên đã PASS & đang STUDYING
       const passedCourseCodes = [];
+      const studyingCourseCodes = [];
       let totalPassedCredits = 0;
       let alreadyPassedThisCourse = false;
       let alreadyEnrolledThisCourseInSemester = false;
@@ -365,6 +367,8 @@ router.get('/curriculum/eligible-students/:classId', authenticateJWT, authorizeR
           if (enrCourseCode === courseCode) {
             alreadyPassedThisCourse = true;
           }
+        } else if (enr.class.status === 'ONGOING' || enr.class.status === 'UPCOMING') {
+          if (enrCourseCode) studyingCourseCodes.push(enrCourseCode);
         }
 
         // Kiểm tra đang học môn này ở lớp khác trong cùng kỳ
@@ -419,7 +423,7 @@ router.get('/curriculum/eligible-students/:classId', authenticateJWT, authorizeR
         enrollmentYear: student.studentProfile?.enrollmentYear || 2024,
         cohort: `K${(student.studentProfile?.enrollmentYear || 2024) - 2006}`,
         passedCredits: totalPassedCredits,
-        calculatedTerm: calculateStudentTerm(totalPassedCredits)
+        calculatedTerm: calculateStudentTerm(totalPassedCredits, studyingCourseCodes)
       };
 
       if (isEligible) {

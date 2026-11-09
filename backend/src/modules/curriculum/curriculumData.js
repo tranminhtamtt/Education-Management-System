@@ -147,7 +147,7 @@ const SE_CURRICULUM = [
     courseCode: 'SWP391',
     name: 'Software Development Project (CapStone MVP)',
     credits: 3,
-    prerequisites: ['CSD201', 'PRN231'], // Cần pass CSD201 và công nghệ web PRN231
+    prerequisites: ['CSD201', 'PRJ301'], // Cần pass CSD201 (Kỳ 3) và PRJ301 (Kỳ 4)
     description: 'Thực hiện dự án phần mềm theo nhóm Agile thực tế từ đặc tả yêu cầu, thiết kế kiến trúc đến triển khai MVP.'
   },
   {
@@ -226,20 +226,34 @@ const SE_CURRICULUM = [
 
 /**
  * Tính toán học kỳ hiện tại của sinh viên dựa trên số tín chỉ đã PASS
- * (Academic Standing / Term)
+ * và các môn đang theo học trong kỳ hiện tại (Academic Standing / Term)
  * @param {number} passedCredits - Tổng số tín chỉ đã pass
+ * @param {string[]} studyingCourseCodes - Danh sách mã môn đang học (nếu có)
  * @returns {number} Kỳ học ước tính (1 - 9)
  */
-function calculateStudentTerm(passedCredits = 0) {
-  if (passedCredits < 12) return 1;
-  if (passedCredits < 24) return 2;
-  if (passedCredits < 36) return 3;
-  if (passedCredits < 48) return 4;
-  if (passedCredits < 60) return 5;
-  if (passedCredits < 72) return 6;
-  if (passedCredits < 84) return 7;
-  if (passedCredits < 96) return 8;
-  return 9;
+function calculateStudentTerm(passedCredits = 0, studyingCourseCodes = []) {
+  let creditTerm = 1;
+  if (passedCredits >= 79) creditTerm = 9;
+  else if (passedCredits >= 73) creditTerm = 8;
+  else if (passedCredits >= 64) creditTerm = 7;
+  else if (passedCredits >= 54) creditTerm = 6;
+  else if (passedCredits >= 45) creditTerm = 5;
+  else if (passedCredits >= 36) creditTerm = 4;
+  else if (passedCredits >= 24) creditTerm = 3;
+  else if (passedCredits >= 12) creditTerm = 2;
+
+  if (Array.isArray(studyingCourseCodes) && studyingCourseCodes.length > 0) {
+    let maxStudyingTerm = 1;
+    for (const code of studyingCourseCodes) {
+      const found = SE_CURRICULUM.find(c => c.courseCode.toUpperCase() === String(code).toUpperCase());
+      if (found && found.term > maxStudyingTerm) {
+        maxStudyingTerm = found.term;
+      }
+    }
+    return Math.max(creditTerm, maxStudyingTerm);
+  }
+
+  return creditTerm;
 }
 
 /**

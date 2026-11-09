@@ -378,13 +378,14 @@ router.get('/analytics/student-overview', authenticateJWT, authorizeRoles('STUDE
       }
     });
 
-    const classIds = enrollments.map(e => e.classId);
+    const ongoingEnrollments = enrollments.filter(e => e.class.status === 'ONGOING');
+    const ongoingClassIds = ongoingEnrollments.map(e => e.classId);
 
-    // 2. Bài tập sắp đến hạn (trong 7 ngày tới)
+    // 2. Bài tập sắp đến hạn (trong các lớp đang học)
     const now = new Date();
     const upcomingDeadlines = await prisma.assignment.findMany({
       where: {
-        classId: { in: classIds },
+        classId: { in: ongoingClassIds },
         dueDate: { gte: now }
       },
       include: {
@@ -392,7 +393,7 @@ router.get('/analytics/student-overview', authenticateJWT, authorizeRoles('STUDE
         submissions: { where: { studentId } }
       },
       orderBy: { dueDate: 'asc' },
-      take: 5
+      take: 6
     });
 
     // 3. GPA tích lũy
@@ -404,12 +405,13 @@ router.get('/analytics/student-overview', authenticateJWT, authorizeRoles('STUDE
     return successResponse(
       res,
       {
-        enrolledClassesCount: enrollments.length,
+        enrolledClassesCount: ongoingEnrollments.length,
         gpa: parseFloat(gpa),
         passedCourses: completedGrades.filter(g => g.isPassed).length,
         upcomingDeadlines: upcomingDeadlines.map(a => ({
           id: a.id,
           title: a.title,
+          classCode: a.class.classCode,
           courseName: a.class.course.name,
           dueDate: a.dueDate,
           isSubmitted: a.submissions.length > 0

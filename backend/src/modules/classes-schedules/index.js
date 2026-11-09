@@ -24,6 +24,8 @@ const SLOT_HOURS = {
 router.get('/classes', authenticateJWT, async (req, res) => {
   try {
     const { semester, courseId, teacherId, status } = req.query;
+    const role = req.user.role;
+    const userId = req.user.id;
 
     const where = {
       ...(semester ? { semester } : {}),
@@ -32,16 +34,28 @@ router.get('/classes', authenticateJWT, async (req, res) => {
       ...(status ? { status } : {})
     };
 
+    if (role === 'STUDENT') {
+      where.enrollments = { some: { studentId: userId, status: 'ACTIVE' } };
+      if (!status) {
+        where.status = 'ONGOING';
+      }
+    } else if (role === 'TEACHER' && !teacherId) {
+      where.teacherId = userId;
+    }
+
     const classes = await prisma.class.findMany({
       where,
       include: {
         course: true,
         teacher: { select: { id: true, code: true, fullName: true, email: true } },
-        schedules: true,
+        schedules: { orderBy: [{ dayOfWeek: 'asc' }, { shift: 'asc' }] },
         _count: { select: { enrollments: true } }
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: [{ status: 'asc' }, { createdAt: 'desc' }]
     });
+
+    const statusOrder = { ONGOING: 1, UPCOMING: 2, COMPLETED: 3 };
+    classes.sort((a, b) => (statusOrder[a.status] || 9) - (statusOrder[b.status] || 9));
 
     return successResponse(
       res,
@@ -452,8 +466,8 @@ router.post('/classes/:id/schedules', authenticateJWT, authorizeRoles('ADMIN'), 
         classId,
         dayOfWeek: dayNum,
         shift: shiftNum,
-        startTime: timeSlot.start,
-        endTime: timeSlot.end,
+        startTime: new Date(`1970-01-01T${timeSlot.start}:00Z`),
+        endTime: new Date(`1970-01-01T${timeSlot.end}:00Z`),
         room: roomClean
       }
     });
@@ -477,7 +491,7 @@ router.delete('/classes/:id/schedules/:scheduleId', authenticateJWT, authorizeRo
   }
 });
 
-// UC5.4: Lấy thời khóa biểu tuần của người dùng (TEACHER / STUDENT / ADMIN)
+// UC5.4: Lấy thời khóa biểu tuần của người dùng (TEACHER / STUDENT / ADMIN) - Hỗ trợ kỳ học 2 tuần
 router.get('/schedules/my-schedule', authenticateJWT, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -485,7 +499,7 @@ router.get('/schedules/my-schedule', authenticateJWT, async (req, res) => {
     const { semester } = req.query;
 
     let classWhere = {
-      ...(semester ? { semester } : {})
+      ...(semester ? { semester } : { status: 'ONGOING' })
     };
 
     if (role === 'TEACHER') {
@@ -506,7 +520,8 @@ router.get('/schedules/my-schedule', authenticateJWT, async (req, res) => {
         class: {
           include: {
             course: true,
-            teacher: { select: { fullName: true, code: true } }
+            teacher: { select: { fullName: true, code: true } },
+            attendances: role === 'STUDENT' ? { where: { studentId: userId } } : true
           }
         }
       },
@@ -515,20 +530,45 @@ router.get('/schedules/my-schedule', authenticateJWT, async (req, res) => {
 
     return successResponse(
       res,
-      schedules.map(s => ({
-        id: s.id,
-        classId: s.classId,
-        classCode: s.class.classCode,
-        courseCode: s.class.course.courseCode,
-        courseName: s.class.course.name,
-        teacherName: s.class.teacher?.fullName || 'Chưa phân công',
-        dayOfWeek: s.dayOfWeek,
-        shift: s.shift,
-        startTime: s.startTime,
-        endTime: s.endTime,
-        room: s.room,
-        semester: s.class.semester
-      })),
+      schedules.map(s => {
+        const slotTime = SLOT_HOURS[s.shift] || { start: '07:30', end: '09:50' };
+        const w1Date = `2026-11-${String(2 + (s.dayOfWeek - 2)).padStart(2, '0')}`;
+        const w2Date = `2026-11-${String(9 + (s.dayOfWeek - 2)).padStart(2, '0')}`;
+
+        const attendances = s.class.attendances || [];
+        const findAttByDate = (dateStr) =>
+          attendances.find(a => a.sessionDate && new Date(a.sessionDate).toISOString().split('T')[0] === dateStr);
+
+        const attW1 = role === 'STUDENT' ? findAttByDate(w1Date) : null;
+        const attW2 = role === 'STUDENT' ? findAttByDate(w2Date) : null;
+
+        return {
+          id: s.id,
+          classId: s.classId,
+          classCode: s.class.classCode,
+          courseCode: s.class.course.courseCode,
+          courseName: s.class.course.name,
+          teacherName: s.class.teacher?.fullName || 'Chưa phân công',
+          dayOfWeek: s.dayOfWeek,
+          shift: s.shift,
+          startTime: slotTime.start,
+          endTime: slotTime.end,
+          room: s.room,
+          semester: s.class.semester,
+          week1Session: {
+            week: 1,
+            date: w1Date,
+            status: attW1 ? attW1.status : null,
+            note: attW1 ? attW1.note : null
+          },
+          week2Session: {
+            week: 2,
+            date: w2Date,
+            status: attW2 ? attW2.status : null,
+            note: attW2 ? attW2.note : null
+          }
+        };
+      }),
       'Lấy thời khóa biểu thành công'
     );
   } catch (error) {
