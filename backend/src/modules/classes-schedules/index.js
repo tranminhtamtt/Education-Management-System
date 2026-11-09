@@ -282,7 +282,7 @@ router.post('/classes/:id/schedules', authenticateJWT, authorizeRoles('ADMIN'), 
     if (roomConflict) {
       return errorResponse(
         res,
-        `[Xung đột lịch] Phòng ${roomClean} đã có lớp ${classById.get(roomConflict.classId).classCode} sử dụng vào Thứ ${dayNum}, Slot ${shiftNum} (Học kỳ ${currentClass.semester}).`,
+        `[Xung đột lịch] Lỗi trùng phòng ${roomClean}! Phòng này đã được lớp ${classById.get(roomConflict.classId).classCode} sử dụng vào Thứ ${dayNum}, Slot ${shiftNum} (Học kỳ ${currentClass.semester}).`,
         409
       );
     }
@@ -300,7 +300,7 @@ router.post('/classes/:id/schedules', authenticateJWT, authorizeRoles('ADMIN'), 
       if (teacherConflict) {
         return errorResponse(
           res,
-          `[Xung đột lịch] Giảng viên ${currentClass.teacher?.fullName || ''} đang có lịch dạy lớp ${classById.get(teacherConflict.classId).classCode} vào Thứ ${dayNum}, Slot ${shiftNum}.`,
+          `[Xung đột lịch] Lỗi trùng giảng viên ${currentClass.teacher?.fullName || ''} (Mã: ${currentClass.teacher?.code || ''})! Giảng viên đang có lịch dạy lớp ${classById.get(teacherConflict.classId).classCode} vào Thứ ${dayNum}, Slot ${shiftNum}.`,
           409
         );
       }

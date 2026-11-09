@@ -29,7 +29,8 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   ThunderboltOutlined,
-  ReloadOutlined
+  ReloadOutlined,
+  BookOutlined
 } from '@ant-design/icons';
 import apiClient from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
@@ -746,6 +747,87 @@ const ClassesPage = () => {
                                 ]}
                               />
                             )
+                          }
+                        ]}
+                      />
+                    </div>
+                  )
+                },
+                {
+                  key: 'grades_readonly',
+                  label: (
+                    <span>
+                      <BookOutlined style={{ color: '#1890ff' }} /> Bảng điểm lớp (Chỉ đọc)
+                    </span>
+                  ),
+                  children: (
+                    <div>
+                      <Alert
+                        message="Bảng điểm lớp học phần (Chế độ xem chỉ đọc dành cho Giáo vụ - UC8.5*)"
+                        description="Điểm số thành phần do Giảng viên phụ trách chấm và công bố. Giáo vụ theo dõi chuyên cần, giữa kỳ, thi kết thúc học phần và tỷ lệ qua môn."
+                        type="info"
+                        showIcon
+                        style={{ marginBottom: 16 }}
+                      />
+                      <Table
+                        size="small"
+                        rowKey="id"
+                        dataSource={selectedClass.enrollments}
+                        pagination={false}
+                        columns={[
+                          {
+                            title: 'Mã SV',
+                            dataIndex: ['student', 'code'],
+                            width: 130,
+                            render: (c) => <Text strong style={{ color: '#F26F21' }}>{c}</Text>
+                          },
+                          {
+                            title: 'Họ và Tên',
+                            dataIndex: ['student', 'fullName'],
+                            render: (n) => <Text strong>{n}</Text>
+                          },
+                          {
+                            title: 'Chuyên cần (10%)',
+                            width: 140,
+                            align: 'center',
+                            render: (_, r) => r.grade?.attendanceScore !== null && r.grade?.attendanceScore !== undefined
+                              ? <Text>{r.grade.attendanceScore}</Text>
+                              : <Text type="secondary">-</Text>
+                          },
+                          {
+                            title: 'Giữa kỳ (30%)',
+                            width: 130,
+                            align: 'center',
+                            render: (_, r) => r.grade?.midtermScore !== null && r.grade?.midtermScore !== undefined
+                              ? <Text>{r.grade.midtermScore}</Text>
+                              : <Text type="secondary">-</Text>
+                          },
+                          {
+                            title: 'Cuối kỳ (60%)',
+                            width: 130,
+                            align: 'center',
+                            render: (_, r) => r.grade?.finalScore !== null && r.grade?.finalScore !== undefined
+                              ? <Text>{r.grade.finalScore}</Text>
+                              : <Text type="secondary">-</Text>
+                          },
+                          {
+                            title: 'Tổng kết',
+                            width: 110,
+                            align: 'center',
+                            render: (_, r) => r.grade?.totalScore !== null && r.grade?.totalScore !== undefined
+                              ? <Text strong style={{ color: '#1890ff', fontSize: 15 }}>{r.grade.totalScore}</Text>
+                              : <Text type="secondary">-</Text>
+                          },
+                          {
+                            title: 'Kết quả',
+                            width: 140,
+                            align: 'center',
+                            render: (_, r) => {
+                              if (r.grade?.isBanned) return <Tag color="error">CẤM THI</Tag>;
+                              if (r.grade?.isPassed) return <Tag color="success">QUA MÔN</Tag>;
+                              if (r.grade?.totalScore !== null && r.grade?.totalScore !== undefined) return <Tag color="warning">TRƯỢT MÔN</Tag>;
+                              return <Tag color="default">Đang học</Tag>;
+                            }
                           }
                         ]}
                       />

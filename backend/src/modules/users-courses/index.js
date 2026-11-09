@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
+const xlsx = require('xlsx');
+const fs = require('fs');
+const upload = require('../../config/upload');
 const { login, getMe } = require('./auth.controller');
 const authenticateJWT = require('../../middlewares/auth.middleware');
 const authorizeRoles = require('../../middlewares/role.middleware');
@@ -136,6 +139,212 @@ router.post('/students', authenticateJWT, authorizeRoles('ADMIN'), async (req, r
     return errorResponse(res, 'Lỗi khi tạo mới học viên', 500);
   }
 });
+
+
+// ==========================================
+// UC1.3: IMPORT / EXPORT EXCEL HỌC VIÊN
+// ==========================================
+
+// Tải file Excel mẫu để nhập học viên
+const generateStudentTemplate = (req, res) => {
+  try {
+    const templateData = [
+      {
+        'Họ và tên': 'Nguyễn Văn An',
+        'Email': 'annv@fpt.edu.vn',
+        'Số điện thoại': '0901234567',
+        'Giới tính (Nam/Nữ)': 'Nam',
+        'Ngày sinh (YYYY-MM-DD)': '2004-05-15',
+        'Khóa tuyển sinh': 2026,
+        'Địa chỉ': 'Hà Nội'
+      },
+      {
+        'Họ và tên': 'Trần Thị Bình',
+        'Email': 'binhtt@fpt.edu.vn',
+        'Số điện thoại': '0901234568',
+        'Giới tính (Nam/Nữ)': 'Nữ',
+        'Ngày sinh (YYYY-MM-DD)': '2004-08-20',
+        'Khóa tuyển sinh': 2026,
+        'Địa chỉ': 'Đà Nẵng'
+      }
+    ];
+
+    const worksheet = xlsx.utils.json_to_sheet(templateData);
+    const workbook = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(workbook, worksheet, 'Mau_Hoc_Vien');
+
+    const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Disposition', 'attachment; filename="Mau_Import_Hoc_Vien.xlsx"');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    return res.send(buffer);
+  } catch (error) {
+    console.error('Error generating template:', error);
+    return errorResponse(res, 'Lỗi khi tạo file mẫu Excel', 500);
+  }
+};
+
+router.get('/students/template-excel', authenticateJWT, authorizeRoles('ADMIN'), generateStudentTemplate);
+router.get('/students/import/template', authenticateJWT, authorizeRoles('ADMIN'), generateStudentTemplate);
+
+// Xuất danh sách học viên ra file Excel
+router.get('/students/export-excel', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
+  try {
+    const students = await User.find({ role: 'STUDENT' }).sort({ code: 1 }).lean();
+    const studentIds = students.map(s => s.id);
+    const enrollments = await Enrollment.find({ studentId: { $in: studentIds } }).select('studentId').lean();
+    const countMap = {};
+    for (const e of enrollments) {
+      countMap[e.studentId] = (countMap[e.studentId] || 0) + 1;
+    }
+
+    const exportData = students.map((s, index) => ({
+      'STT': index + 1,
+      'Mã học viên': s.code,
+      'Họ và tên': s.fullName,
+      'Email': s.email,
+      'Số điện thoại': s.phone || '',
+      'Giới tính': s.studentProfile?.gender === 'FEMALE' ? 'Nữ' : (s.studentProfile?.gender === 'MALE' ? 'Nam' : 'Khác'),
+      'Ngày sinh': s.studentProfile?.dob ? new Date(s.studentProfile.dob).toISOString().split('T')[0] : '',
+      'Khóa tuyển sinh': s.studentProfile?.enrollmentYear || '',
+      'Địa chỉ': s.studentProfile?.address || '',
+      'Số lớp đã học': countMap[s.id] || 0,
+      'Trạng thái': s.status === 'ACTIVE' ? 'Đang học' : (s.status === 'INACTIVE' ? 'Tạm ngưng' : 'Đình chỉ')
+    }));
+
+    const worksheet = xlsx.utils.json_to_sheet(exportData);
+    const workbook = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(workbook, worksheet, 'Danh_Sach_Hoc_Vien');
+
+    const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Disposition', 'attachment; filename="Danh_sach_hoc_vien_EMS.xlsx"');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    return res.send(buffer);
+  } catch (error) {
+    console.error('Error exporting students:', error);
+    return errorResponse(res, 'Lỗi xuất file Excel học viên', 500);
+  }
+});
+
+// Import học viên hàng loạt từ file Excel
+const handleStudentImport = async (req, res) => {
+  if (!req.file) {
+    return errorResponse(res, 'Vui lòng tải lên file Excel (.xlsx, .xls)', 400);
+  }
+
+  const filePath = req.file.path;
+  try {
+    const workbook = xlsx.readFile(filePath);
+    if (fs.existsSync(filePath)) {
+      try { fs.unlinkSync(filePath); } catch (e) {}
+    }
+
+    const firstSheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[firstSheetName];
+    const rows = xlsx.utils.sheet_to_json(worksheet);
+
+    if (!rows || rows.length === 0) {
+      return errorResponse(res, 'File Excel không có dữ liệu', 400);
+    }
+
+    let createdCount = 0;
+    let skippedCount = 0;
+    const errors = [];
+    const defaultPasswordHash = await bcrypt.hash('123456', 10);
+    let currentStudentCount = await User.countDocuments({ role: 'STUDENT' });
+
+    const existingUsers = await User.find({}, 'code email').lean();
+    const existingEmails = new Set(existingUsers.map(u => (u.email || '').toLowerCase()));
+    const existingCodes = new Set(existingUsers.map(u => (u.code || '').toLowerCase()));
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const fullName = (row['Họ và tên'] || row['Họ và Tên'] || row['Ho va ten'] || row['fullName'] || row['Name'] || '').toString().trim();
+      const email = (row['Email'] || row['email'] || '').toString().trim().toLowerCase();
+      const phone = (row['Số điện thoại'] || row['Điện thoại'] || row['So dien thoai'] || row['phone'] || '').toString().trim();
+      const genderRaw = (row['Giới tính (Nam/Nữ)'] || row['Giới tính'] || row['gender'] || '').toString().trim().toLowerCase();
+      const dobRaw = row['Ngày sinh (YYYY-MM-DD)'] || row['Ngày sinh'] || row['dob'];
+      const enrollmentYearRaw = row['Khóa tuyển sinh'] || row['Năm nhập học'] || row['Khóa'] || row['enrollmentYear'];
+      const address = (row['Địa chỉ'] || row['address'] || '').toString().trim();
+      let code = (row['Mã SV'] || row['Mã học viên'] || row['code'] || '').toString().trim();
+
+      if (!fullName || !email) {
+        errors.push(`Dòng ${i + 2}: Thiếu Họ tên hoặc Email`);
+        continue;
+      }
+
+      if (existingEmails.has(email)) {
+        skippedCount++;
+        continue;
+      }
+
+      const year = enrollmentYearRaw ? parseInt(enrollmentYearRaw) : new Date().getFullYear();
+      if (!code) {
+        currentStudentCount++;
+        code = `STU${year}${String(currentStudentCount).padStart(3, '0')}`;
+      }
+
+      if (existingCodes.has(code.toLowerCase())) {
+        currentStudentCount++;
+        code = `STU${year}${String(currentStudentCount).padStart(3, '0')}`;
+      }
+
+      let gender = 'MALE';
+      if (genderRaw.includes('nữ') || genderRaw.includes('nu') || genderRaw.includes('female')) gender = 'FEMALE';
+      else if (genderRaw.includes('khác') || genderRaw.includes('khac') || genderRaw.includes('other')) gender = 'OTHER';
+
+      let dob = null;
+      if (dobRaw) {
+        const parsedDate = new Date(dobRaw);
+        if (!isNaN(parsedDate.getTime())) {
+          dob = parsedDate;
+        }
+      }
+
+      try {
+        await User.create({
+          code,
+          fullName,
+          email,
+          phone: phone || null,
+          passwordHash: defaultPasswordHash,
+          role: 'STUDENT',
+          status: 'ACTIVE',
+          studentProfile: {
+            gender,
+            dob,
+            address: address || null,
+            enrollmentYear: year
+          }
+        });
+        existingEmails.add(email);
+        existingCodes.add(code.toLowerCase());
+        createdCount++;
+      } catch (err) {
+        errors.push(`Dòng ${i + 2}: ${err.message}`);
+      }
+    }
+
+    return successResponse(
+      res,
+      {
+        totalRows: rows.length,
+        createdCount,
+        skippedCount,
+        errors
+      },
+      `Import Excel hoàn tất: Đã tạo ${createdCount} học viên mới, bỏ qua ${skippedCount} bản ghi trùng.`
+    );
+  } catch (error) {
+    console.error('Error importing students from Excel:', error);
+    if (filePath && fs.existsSync(filePath)) {
+      try { fs.unlinkSync(filePath); } catch (e) {}
+    }
+    return errorResponse(res, `Lỗi khi xử lý file Excel: ${error.message}`, 500);
+  }
+};
+
+router.post('/students/import-excel', authenticateJWT, authorizeRoles('ADMIN'), upload.single('file'), handleStudentImport);
+router.post('/students/import', authenticateJWT, authorizeRoles('ADMIN'), upload.single('file'), handleStudentImport);
 
 // UC1.2: Cập nhật học viên
 router.put('/students/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
