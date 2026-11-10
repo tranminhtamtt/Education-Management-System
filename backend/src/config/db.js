@@ -24,23 +24,26 @@ async function connectDB(uri = process.env.MONGODB_URI) {
   const models = require('../models');
   await Promise.all(Object.values(models).filter(m => m.modelName).map(m => m.createCollection().then(() => m.syncIndexes())));
 
-  if (process.env._USING_IN_MEMORY_MONGO === '1' && (await models.User.countDocuments()) === 0) {
+  if (process.env.NODE_ENV === 'development' && !(await models.User.exists({ code: 'HE170001' }))) {
     const bcrypt = require('bcryptjs');
-    const { buildSeed } = require('../../scripts/seed');
-    const passwordHash = await bcrypt.hash(process.env.SEED_PASSWORD || 'Ems@2026', 10);
-    const seed = buildSeed({ passwordHash, fullTwoWeekSchedule: true });
+    const { buildLegacyTiDBSeed } = require('../../scripts/seed');
+    for (const m of Object.values(models).filter(m => m && m.modelName)) await m.deleteMany({});
+    const passwordHash = await bcrypt.hash('123456', 10);
+    const seed = buildLegacyTiDBSeed({ passwordHash });
     const COLLECTION_MODELS = {
       users: models.User, courses: models.Course, classes: models.Class, schedules: models.Schedule, enrollments: models.Enrollment,
       grades: models.Grade, tuition_invoices: models.TuitionInvoice, tuition_payments: models.TuitionPayment, notifications: models.Notification,
-      attendances: models.Attendance, assignments: models.Assignment, submissions: models.Submission
+      attendances: models.Attendance, assignments: models.Assignment, submissions: models.Submission, student_requests: models.StudentRequest
     };
-    for (const [collection, rows] of Object.entries({ ...seed.data, ...(seed.extraData || {}) })) {
-      if (rows.length) await COLLECTION_MODELS[collection].insertMany(rows, { ordered: true });
+    for (const [collection, rows] of Object.entries(seed.data)) {
+      if (rows.length && COLLECTION_MODELS[collection]) {
+        await COLLECTION_MODELS[collection].insertMany(rows, { ordered: true });
+      }
     }
     for (const [name, seq] of Object.entries(seed.counters)) {
       await models.Counter.updateOne({ _id: name }, { $set: { seq } }, { upsert: true });
     }
-    console.log('✅ Đã tự động khởi tạo dữ liệu mẫu 9 học kỳ (mật khẩu: Ems@2026)');
+    console.log('✅ Đã chuyển toàn bộ dữ liệu gốc từ TiDB sang MongoDB Atlas (mật khẩu: 123456)');
   }
   return mongoose.connection;
 }
