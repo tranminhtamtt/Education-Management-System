@@ -255,13 +255,14 @@ const AttendancePage = () => {
       LATE: <Tag color="warning">Đi muộn</Tag>,
       ABSENT_EXCUSED: <Tag color="purple">Nghỉ có phép</Tag>,
       ABSENT_UNEXCUSED: <Tag color="error">Vắng không phép</Tag>,
-      UPCOMING: <Tag color="default">Chưa học (Chưa đến ngày)</Tag>
+      UPCOMING: <Tag color="default">Chưa đến ngày học</Tag>,
+      NOT_RECORDED: <Tag color="default">Chưa điểm danh</Tag>
     };
 
     return (
-      <Card title="Báo cáo Chuyên cần Kỳ học 2 Tuần & Cảnh báo Vắng mặt (Quy chế 20% FAP)">
+      <Card title="Báo cáo chuyên cần cá nhân">
         <Alert
-          message="Quy định Chuyên cần FAP (Kỳ học 2 tuần - 6 buổi/môn): Sinh viên vắng không phép từ 20% tổng số buổi (tương đương >= 2/6 buổi) sẽ bị CẤM THI (is_banned = true) và nhận kết quả Không Đạt (NOT PASSED). Nhấn vào dấu (+) từng môn để xem chi tiết lịch sử 6 buổi học trong 2 tuần."
+          message="Tỷ lệ vắng được tính theo tổng số buổi của từng khóa học. Vắng không phép từ 20% sẽ bị cấm thi. Nhấn (+) để xem lịch sử điểm danh và lịch học sắp tới."
           type="info"
           showIcon
           style={{ marginBottom: 20 }}
@@ -271,6 +272,7 @@ const AttendancePage = () => {
           dataSource={studentReport}
           loading={loading}
           pagination={false}
+          scroll={{ x: 1100 }}
           expandable={{
             defaultExpandAllRows: true,
             expandedRowRender: (record) => (
@@ -290,7 +292,7 @@ const AttendancePage = () => {
                     title: 'Tuần',
                     dataIndex: 'week',
                     width: 90,
-                    render: (w) => <Tag color={w === 1 ? 'blue' : 'cyan'}>Tuần {w}</Tag>
+                    render: (w) => w ? <Tag color={w === 1 ? 'blue' : 'cyan'}>Tuần {w}</Tag> : 'Lịch sử'
                   },
                   {
                     title: 'Ngày học',
@@ -300,7 +302,7 @@ const AttendancePage = () => {
                   {
                     title: 'Ca học (Slot)',
                     dataIndex: 'shift',
-                    render: (sh) => <Tag color="orange">Slot {sh}</Tag>
+                    render: (sh) => sh ? <Tag color="orange">Slot {sh}</Tag> : '—'
                   },
                   {
                     title: 'Phòng',

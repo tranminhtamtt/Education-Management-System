@@ -11,7 +11,7 @@ const crypto = require('crypto');
 const { withTransaction, lockDoc } = require('../../config/db');
 const {
   TuitionInvoice, TuitionPayment, PaymentOrder, PaymentTransaction, PaymentDiscrepancy,
-  RefundRequest, PaymentAuditLog, Notification
+  RefundRequest, PaymentAuditLog, Notification, Enrollment
 } = require('../../models');
 const { generateVietQRData } = require('../../utils/vietqrGenerator');
 
@@ -74,6 +74,9 @@ async function applyPayment(session, transactionId, invoiceId, actorId = null) {
     await TuitionInvoice.updateOne({ id: invoiceId }, {
       $set: { paidAmount, status, paidAt: status === 'PAID' ? transaction.occurredAt : null }
     }, { session });
+    if (status === 'PAID') {
+      await Enrollment.updateOne({ id: inv.enrollmentId, studentId: inv.studentId, status: 'PENDING_PAYMENT' }, { $set: { status: 'ACTIVE' } }, { session });
+    }
     await TuitionPayment.create([{
       invoiceId,
       transactionId: transaction.id,

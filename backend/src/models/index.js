@@ -76,6 +76,7 @@ const StudentProfileSchema = new Schema({
   dob: { type: Date, default: null },
   gender: { type: String, enum: ['MALE', 'FEMALE', 'OTHER'], default: 'MALE' },
   address: { type: String, default: null },
+  targetGoal: { type: String, default: null, maxlength: 500 },
   enrollmentYear: { type: Number, default: 2026 }
 }, { _id: false });
 
@@ -105,6 +106,11 @@ const User = define('User', 'users', {
 // 2. courses
 // ---------------------------------------------------------------------------
 const Course = define('Course', 'courses', {
+  category: { type: String, enum: ['FPT_SUBJECT', 'CERTIFICATE'], default: 'FPT_SUBJECT' },
+  deliveryMode: { type: String, enum: ['RECORDED', 'LIVE_ONLINE'], default: 'LIVE_ONLINE' },
+  level: { type: String, enum: ['BEGINNER', 'INTERMEDIATE', 'ADVANCED'], default: 'BEGINNER' },
+  instructorId: { type: Number, default: null },
+  thumbnailUrl: { type: String, default: null },
   courseCode: { type: String, required: true, unique: true, maxlength: 50 },
   name: { type: String, required: true, maxlength: 150 },
   credits: { type: Number, default: 3 },
@@ -116,12 +122,15 @@ const Course = define('Course', 'courses', {
   ...ts
 }, {}, s => {
   s.virtual('classes', many('Class', 'courseId'));
+  s.virtual('instructor', ref('User', 'instructorId'));
+  s.virtual('lessons', many('CourseLesson', 'courseId', { options: { sort: { orderIndex: 1 } } }));
 });
 
 // ---------------------------------------------------------------------------
 // 3. classes
 // ---------------------------------------------------------------------------
 const Class = define('Class', 'classes', {
+  meetUrl: { type: String, default: null },
   classCode: { type: String, required: true, unique: true, maxlength: 50 },
   courseId: { type: Number, required: true, index: true },
   teacherId: { type: Number, default: null, index: true },
@@ -143,7 +152,9 @@ const Enrollment = define('Enrollment', 'enrollments', {
   classId: { type: Number, required: true },
   studentId: { type: Number, required: true, index: true },
   enrolledAt: { type: Date, default: Date.now },
-  status: { type: String, enum: ['ACTIVE', 'DROPPED'], default: 'ACTIVE' }
+  status: { type: String, enum: ['PENDING_PAYMENT', 'ACTIVE', 'DROPPED'], default: 'ACTIVE' },
+  progressPercent: { type: Number, default: 0, min: 0, max: 100 },
+  completedLessonsCount: { type: Number, default: 0, min: 0 }
 }, {}, s => {
   s.index({ classId: 1, studentId: 1 }, { unique: true });
   s.virtual('class', ref('Class', 'classId'));
@@ -195,6 +206,7 @@ const Assignment = define('Assignment', 'assignments', {
 });
 
 const Submission = define('Submission', 'submissions', {
+  content: { type: String, default: null, maxlength: 10000 },
   assignmentId: { type: Number, required: true },
   studentId: { type: Number, required: true },
   fileUrl: { type: String, required: true },
@@ -367,7 +379,48 @@ const StudentRequest = define('StudentRequest', 'student_requests', {
   s.virtual('class', ref('Class', 'classId'));
 });
 
+const CourseLesson = define('CourseLesson', 'course_lessons', {
+  courseId: { type: Number, required: true, index: true },
+  sectionTitle: { type: String, default: 'Nội dung khóa học' },
+  orderIndex: { type: Number, required: true, min: 1 },
+  title: { type: String, required: true, maxlength: 200 },
+  videoUrl: { type: String, default: null },
+  materialUrl: { type: String, default: null },
+  durationMinutes: { type: Number, default: 0, min: 0 },
+  isPreview: { type: Boolean, default: false }
+}, {}, s => s.index({ courseId: 1, orderIndex: 1 }, { unique: true }));
+
+const LessonProgress = define('LessonProgress', 'lesson_progress', {
+  enrollmentId: { type: Number, required: true, index: true },
+  lessonId: { type: Number, required: true },
+  studentId: { type: Number, required: true, index: true },
+  courseId: { type: Number, required: true },
+  isCompleted: { type: Boolean, default: false },
+  completedAt: { type: Date, default: null },
+  lastWatchedSecond: { type: Number, default: 0, min: 0 }
+}, {}, s => s.index({ enrollmentId: 1, lessonId: 1 }, { unique: true }));
+
+const CourseQuestion = define('CourseQuestion', 'course_questions', {
+  studentId: { type: Number, required: true, index: true },
+  classId: { type: Number, required: true, index: true },
+  lessonId: { type: Number, default: null },
+  questionTitle: { type: String, required: true, maxlength: 200 },
+  questionContent: { type: String, required: true, maxlength: 10000 },
+  attachmentUrl: { type: String, default: null },
+  status: { type: String, enum: ['PENDING', 'ANSWERED', 'RESOLVED'], default: 'PENDING' },
+  teacherAnswer: { type: String, default: null, maxlength: 10000 },
+  answeredById: { type: Number, default: null },
+  answeredAt: { type: Date, default: null },
+  ...ts
+}, {}, s => {
+  s.virtual('class', ref('Class', 'classId'));
+  s.virtual('student', ref('User', 'studentId'));
+});
+
 module.exports = {
+  CourseLesson,
+  LessonProgress,
+  CourseQuestion,
   Counter,
   User,
   Course,

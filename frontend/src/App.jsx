@@ -32,6 +32,16 @@ import PaymentOperationsPage from './pages/grades-tuition/PaymentOperationsPage'
 // Cụm 5: Tương tác, Đơn từ & Báo cáo
 import RequestsPage from './pages/notifications-analytics/RequestsPage';
 import NotificationsPage from './pages/notifications-analytics/NotificationsPage';
+import { CatalogPage, MyLearningPage, CoursePlayerPage, QuestionsPage, StudentDashboard } from './pages/student/StudentPortal';
+
+const RoleRoute = ({ allowed, children }) => {
+  const { user } = useAuth();
+  return allowed.includes(user?.role) ? children : <Navigate to="/dashboard" replace />;
+};
+const DashboardRoute = () => {
+  const { user } = useAuth();
+  return user?.role === 'STUDENT' ? <StudentDashboard /> : <DashboardPage />;
+};
 
 const TuitionReportRoute = () => {
   const { user } = useAuth();
@@ -63,16 +73,20 @@ const App = () => {
 
             <Route path="/" element={<MainLayout />}>
               <Route index element={<Navigate to="/dashboard" replace />} />
-              <Route path="dashboard" element={<DashboardPage />} />
+              <Route path="dashboard" element={<DashboardRoute />} />
+              <Route path="catalog" element={<RoleRoute allowed={['STUDENT']}><CatalogPage /></RoleRoute>} />
+              <Route path="my-courses" element={<RoleRoute allowed={['STUDENT']}><MyLearningPage /></RoleRoute>} />
+              <Route path="my-courses/:id" element={<RoleRoute allowed={['STUDENT']}><CoursePlayerPage /></RoleRoute>} />
+              <Route path="questions" element={<RoleRoute allowed={['STUDENT', 'TEACHER', 'ADMIN']}><QuestionsPage /></RoleRoute>} />
 
               {/* Cụm 1 */}
-              <Route path="students" element={<StudentsPage />} />
-              <Route path="teachers" element={<TeachersPage />} />
-              <Route path="courses" element={<CoursesPage />} />
+              <Route path="students" element={<RoleRoute allowed={['ADMIN']}><StudentsPage /></RoleRoute>} />
+              <Route path="teachers" element={<RoleRoute allowed={['ADMIN']}><TeachersPage /></RoleRoute>} />
+              <Route path="courses" element={<RoleRoute allowed={['ADMIN', 'TEACHER']}><CoursesPage /></RoleRoute>} />
               <Route path="curriculum" element={<CurriculumPage />} />
 
               {/* Cụm 2 */}
-              <Route path="classes" element={<ClassesPage />} />
+              <Route path="classes" element={<RoleRoute allowed={['ADMIN', 'TEACHER']}><ClassesPage /></RoleRoute>} />
               <Route path="schedule" element={<SchedulePage />} />
 
               {/* Cụm 3 */}

@@ -39,6 +39,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Đăng ký 5 Cụm API Endpoints chuẩn hóa (/api/v1)
+app.use('/api/v1', require('./modules/student'));
 app.use('/api/v1', usersCoursesRouter);
 app.use('/api/v1', require('./modules/accountant'));
 app.use('/api/v1', classesSchedulesRouter);

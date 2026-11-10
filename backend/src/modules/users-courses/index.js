@@ -611,11 +611,16 @@ router.post('/courses', authenticateJWT, authorizeRoles('ADMIN'), async (req, re
     }
 
     const course = await Course.create({
+      category: req.body.category || 'FPT_SUBJECT',
+      deliveryMode: req.body.deliveryMode || 'LIVE_ONLINE',
+      level: req.body.level || 'BEGINNER',
+      instructorId: req.body.instructorId ? Number(req.body.instructorId) : null,
+      thumbnailUrl: req.body.thumbnailUrl || null,
       courseCode: courseCode.toUpperCase().trim(),
       name: name.trim(),
       credits: parseInt(credits),
       totalSessions: parseInt(totalSessions) || 30,
-      baseTuitionFee: parseFloat(baseTuitionFee) || 5000000.0,
+      baseTuitionFee: baseTuitionFee === undefined ? 5000000 : Number(baseTuitionFee),
       description: description || null,
       syllabusUrl: syllabusUrl || null,
       status: status || 'ACTIVE'
@@ -633,6 +638,9 @@ router.put('/courses/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req,
   try {
     const id = parseInt(req.params.id);
     const { name, credits, totalSessions, baseTuitionFee, description, syllabusUrl, status } = req.body;
+    const portalFields = {};
+    for (const key of ['category', 'deliveryMode', 'level', 'thumbnailUrl']) if (req.body[key] !== undefined) portalFields[key] = req.body[key];
+    if (req.body.instructorId !== undefined) portalFields.instructorId = req.body.instructorId ? Number(req.body.instructorId) : null;
 
     const updated = await Course.findOneAndUpdate(
       { id },
@@ -641,6 +649,7 @@ router.put('/courses/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req,
           ...(name ? { name: name.trim() } : {}),
           ...(credits ? { credits: parseInt(credits) } : {}),
           ...(totalSessions ? { totalSessions: parseInt(totalSessions) } : {}),
+          ...portalFields,
           ...(baseTuitionFee !== undefined ? { baseTuitionFee: parseFloat(baseTuitionFee) } : {}),
           ...(description !== undefined ? { description } : {}),
           ...(syllabusUrl !== undefined ? { syllabusUrl } : {}),

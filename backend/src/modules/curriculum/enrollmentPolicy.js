@@ -28,7 +28,7 @@ async function validateEnrollment(classId, studentId, { session, force = false }
   if (c.status === 'COMPLETED') throw invalid('Lớp đã kết thúc, không nhận ghi danh');
   if (!student || student.role !== 'STUDENT' || student.status !== 'ACTIVE') throw invalid('Sinh viên không hợp lệ hoặc không còn hoạt động');
 
-  const activeCount = await Enrollment.countDocuments({ classId, status: 'ACTIVE' }).session(session || null);
+  const activeCount = await Enrollment.countDocuments({ classId, status: { $in: ['ACTIVE', 'PENDING_PAYMENT'] } }).session(session || null);
   if (activeCount >= c.maxStudents) throw invalid(`Lớp đã đạt sĩ số tối đa (${c.maxStudents} sinh viên). Không thể thêm học viên.`);
   if (await Enrollment.exists({ classId, studentId }).session(session || null)) throw invalid('Học viên này đã có trong danh sách lớp học');
 

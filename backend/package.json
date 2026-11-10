@@ -8,7 +8,8 @@
     "start": "node src/app.js",
     "dev": "nodemon src/app.js",
     "seed": "node scripts/seed.js",
-    "seed:reset": "node scripts/seed.js --reset"
+    "seed:reset": "node scripts/seed.js --reset",
+    "migrate:student": "node scripts/migrate-student.js"
   },
   "keywords": [
     "ems",

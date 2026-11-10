@@ -8,6 +8,7 @@ const upload = require('../../config/upload');
 const { syncAttendanceAndGrades } = require('../../utils/gradeHelper');
 const { plain } = require('../../utils/query');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
+const { studyWeek, vietnamToday } = require('../../utils/studyWeek');
 
 const byStudentCode = (a, b) => String(a.student?.code || '').localeCompare(String(b.student?.code || ''));
 const teacherOwnsClass = async (classId, user) => {
@@ -209,14 +210,15 @@ router.get('/classes/:id/attendance-summary', authenticateJWT, authorizeRoles('A
 });
 
 // Báo cáo chuyên cần cá nhân của học viên (Kỳ học 2 tuần)
-router.get('/attendances/my-report', authenticateJWT, async (req, res) => {
+router.get('/attendances/my-report', authenticateJWT, authorizeRoles('STUDENT'), async (req, res) => {
   try {
     const studentId = req.user.id;
+    const sessionDate = studyWeek(req.query.weekStart);
     const enrollments = (await Enrollment.find({ studentId, status: 'ACTIVE' })
       .populate([
         'grade',
         { path: 'class', populate: ['course', { path: 'teacher', select: 'fullName' }, 'schedules'] }
-      ])).map(plain).filter(e => e.class && e.class.status === 'ONGOING');
+      ])).map(plain).filter(e => e.class && e.class.course?.deliveryMode !== 'RECORDED');
     const allRecords = (await Attendance.find({ studentId, classId: { $in: enrollments.map(e => e.classId) } })
       .sort({ sessionDate: 1 })).map(plain);
 
@@ -234,16 +236,22 @@ router.get('/attendances/my-report', authenticateJWT, async (req, res) => {
       const plannedSessions = [];
       // Tuần 1
       schedules.forEach(s => {
-        const dateStr = `2026-11-${String(2 + (s.dayOfWeek - 2)).padStart(2, '0')}`;
+        const dateStr = sessionDate(s.dayOfWeek);
         plannedSessions.push({ week: 1, dateStr, dayOfWeek: s.dayOfWeek, shift: s.shift, room: s.room });
       });
       // Tuần 2
       schedules.forEach(s => {
-        const dateStr = `2026-11-${String(9 + (s.dayOfWeek - 2)).padStart(2, '0')}`;
+        const dateStr = sessionDate(s.dayOfWeek, 1);
         plannedSessions.push({ week: 2, dateStr, dayOfWeek: s.dayOfWeek, shift: s.shift, room: s.room });
       });
 
-      const totalSessions = plannedSessions.length || e.class.course?.totalSessions || 6;
+      // Giữ toàn bộ lịch sử đã điểm danh, kể cả ngoài hai tuần đang xem.
+      for (const record of records) {
+        const dateStr = new Date(record.sessionDate).toISOString().slice(0, 10);
+        if (!plannedSessions.some(s => s.dateStr === dateStr)) plannedSessions.push({ dateStr, week: null, dayOfWeek: new Date(record.sessionDate).getUTCDay() === 0 ? 8 : new Date(record.sessionDate).getUTCDay() + 1 });
+      }
+      plannedSessions.sort((a, b) => a.dateStr.localeCompare(b.dateStr) || (a.shift || 0) - (b.shift || 0));
+      const totalSessions = e.class.course?.totalSessions || plannedSessions.length || 1;
       const present = records.filter(r => r.status === 'PRESENT').length;
       const absentExcused = records.filter(r => r.status === 'ABSENT_EXCUSED').length;
       const absentUnexcused = records.filter(r => r.status === 'ABSENT_UNEXCUSED').length;
@@ -260,8 +268,8 @@ router.get('/attendances/my-report', authenticateJWT, async (req, res) => {
           dayOfWeek: ps.dayOfWeek,
           shift: ps.shift,
           room: ps.room,
-          status: rec ? rec.status : 'UPCOMING',
-          note: rec ? (rec.note || '') : 'Chưa đến buổi học (Chưa điểm danh)'
+          status: rec ? rec.status : ps.dateStr > vietnamToday() ? 'UPCOMING' : 'NOT_RECORDED',
+          note: rec ? (rec.note || '') : ps.dateStr > vietnamToday() ? 'Chưa đến buổi học' : 'Chưa điểm danh'
         };
       });
 
@@ -288,7 +296,7 @@ router.get('/attendances/my-report', authenticateJWT, async (req, res) => {
     return successResponse(res, report, 'Lấy báo cáo chuyên cần thành công');
   } catch (error) {
     console.error('Error getting my-report:', error);
-    return errorResponse(res, 'Lỗi lấy báo cáo chuyên cần', 500);
+    return errorResponse(res, error.status ? error.message : 'Lỗi lấy báo cáo chuyên cần', error.status || 500);
   }
 });
 
@@ -408,7 +416,13 @@ router.get('/assignments/:id', authenticateJWT, async (req, res) => {
 });
 
 // UC7.2: Học viên nộp bài trực tuyến (Upload file)
-router.post('/assignments/:id/submissions', authenticateJWT, authorizeRoles('STUDENT'), upload.single('file'), async (req, res) => {
+router.post(['/assignments/:id/submissions', '/assignments/:id/submit'], authenticateJWT, authorizeRoles('STUDENT'), async (req, res, next) => {
+  try {
+    const assignment = await Assignment.findOne({ id: Number(req.params.id) });
+    if (!assignment || !await canAccessClass(assignment.classId, req.user)) return errorResponse(res, 'Không có quyền nộp bài tập này', 403);
+    next();
+  } catch (error) { next(error); }
+}, upload.single('file'), async (req, res) => {
   try {
     const assignmentId = parseInt(req.params.id);
     const studentId = req.user.id;
@@ -422,11 +436,17 @@ router.post('/assignments/:id/submissions', authenticateJWT, authorizeRoles('STU
       return errorResponse(res, 'Bạn không có quyền nộp bài cho lớp này', 403);
     }
 
-    if (!req.file) {
-      return errorResponse(res, 'Vui lòng chọn file bài làm để nộp', 400);
+    let link = null;
+    if (req.body.link) {
+      try {
+        const url = new URL(req.body.link);
+        if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error();
+        link = url.href;
+      } catch { return errorResponse(res, 'Link bài làm phải là URL http/https hợp lệ', 400); }
     }
-
-    const fileUrl = `/uploads/${req.file.filename}`;
+    if (!req.file && !link) return errorResponse(res, 'Vui lòng đính kèm file hoặc link bài làm', 400);
+    if (req.body.content && (typeof req.body.content !== 'string' || req.body.content.length > 10000)) return errorResponse(res, 'Nội dung quá dài', 400);
+    const fileUrl = req.file ? `/uploads/${req.file.filename}` : link;
     const now = new Date();
     const isLate = now > new Date(assignment.dueDate);
     const submissionStatus = isLate ? 'LATE_SUBMITTED' : 'SUBMITTED';
@@ -437,9 +457,12 @@ router.post('/assignments/:id/submissions', authenticateJWT, authorizeRoles('STU
       submission.fileUrl = fileUrl;
       submission.submittedAt = now;
       submission.status = submissionStatus;
+      submission.content = req.body.content || null;
+      submission.score = null;
+      submission.teacherFeedback = null;
       await submission.save();
     } else {
-      submission = await Submission.create({ assignmentId, studentId, fileUrl, submittedAt: now, status: submissionStatus });
+      submission = await Submission.create({ assignmentId, studentId, fileUrl, content: req.body.content || null, submittedAt: now, status: submissionStatus });
     }
 
     return successResponse(
