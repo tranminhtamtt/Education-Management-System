@@ -4,9 +4,6 @@ import {
   Card,
   Button,
   Space,
-  Modal,
-  Form,
-  InputNumber,
   Input,
   Select,
   Switch,
@@ -19,13 +16,10 @@ import {
   Tooltip,
   Tag,
   Progress,
-  Checkbox,
-  Descriptions
 } from 'antd';
 import {
   QrcodeOutlined,
   DollarCircleOutlined,
-  BellOutlined,
   ReloadOutlined,
   WarningOutlined,
   CheckCircleOutlined,
@@ -36,7 +30,7 @@ import dayjs from 'dayjs';
 import apiClient from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { VietQRModal, ReceiptModal, PaymentHistory } from '../../components/tuition/TuitionModals';
-import { formatVnd, InvoiceStatusTag, STATUS_OPTIONS, METHOD_LABELS } from '../../components/tuition/tuitionHelpers';
+import { formatVnd, InvoiceStatusTag, STATUS_OPTIONS } from '../../components/tuition/tuitionHelpers';
 
 const { Text } = Typography;
 
@@ -56,16 +50,10 @@ const TuitionPage = () => {
 
   // Bộ lọc (Kế toán / Admin)
   const [filters, setFilters] = useState({ search: '', status: [], classId: undefined, overdue: false });
-  const [selectedRowKeys, setSelectedRowKeys] = useState([]);
 
   // Modals
   const [qrInvoiceId, setQrInvoiceId] = useState(null);
   const [receiptPaymentId, setReceiptPaymentId] = useState(null);
-
-  const [remindModalOpen, setRemindModalOpen] = useState(false);
-  const [remindTargetIds, setRemindTargetIds] = useState([]); // [] = tất cả HV còn nợ
-  const [remindForm] = Form.useForm();
-  const [reminding, setReminding] = useState(false);
 
   const fetchInvoices = useCallback(async (silent = false) => {
     try {
@@ -81,7 +69,6 @@ const TuitionPage = () => {
       if (res.success) {
         setInvoices(res.data.invoices);
         setSummary(res.data.summary);
-        setSelectedRowKeys((keys) => keys.filter((k) => res.data.invoices.some((i) => i.id === k)));
       }
     } catch (err) {
       if (!silent) message.error(err.response?.data?.message || 'Lỗi khi tải danh sách học phí');
@@ -103,33 +90,6 @@ const TuitionPage = () => {
       .then((res) => res.success && setClasses(res.data))
       .catch(() => {});
   }, [isFinanceView]);
-
-  // ---------- UC10.2 Trigger 3: Nhắc nợ ----------
-  const openRemindModal = (ids) => {
-    setRemindTargetIds(ids);
-    remindForm.setFieldsValue({ onlyOverdue: false, note: '' });
-    setRemindModalOpen(true);
-  };
-
-  const handleSendReminders = async (values) => {
-    try {
-      setReminding(true);
-      const res = await apiClient.post('/tuition-invoices/reminders', {
-        invoiceIds: remindTargetIds,
-        onlyOverdue: values.onlyOverdue,
-        note: values.note
-      });
-      if (res.success) {
-        message.success(res.message);
-        setRemindModalOpen(false);
-        setSelectedRowKeys([]);
-      }
-    } catch (err) {
-      message.error(err.response?.data?.message || 'Lỗi gửi thông báo nhắc nợ');
-    } finally {
-      setReminding(false);
-    }
-  };
 
   // ---------- Bảng ----------
   const columns = [
@@ -158,7 +118,7 @@ const TuitionPage = () => {
         <div>
           <Text strong>{r.courseName}</Text>
           <div style={{ fontSize: 12, color: '#8c8c8c' }}>
-            {r.classCode} ({r.courseCode}) • {r.semester}
+            {r.classCode} ({r.courseCode}){!isAccountant && <> • {r.semester}</>}
           </div>
         </div>
       )
@@ -224,11 +184,6 @@ const TuitionPage = () => {
               Thanh toán QR
             </Button>
           )}
-          {isAccountant && r.status !== 'PAID' && (
-            <Tooltip title="Gửi thông báo nhắc đóng học phí (TUITION)">
-              <Button size="small" icon={<BellOutlined />} onClick={() => openRemindModal([r.id])} />
-            </Tooltip>
-          )}
         </Space>
       )
     }
@@ -238,7 +193,7 @@ const TuitionPage = () => {
 
   return (
     <div>
-      {isAccountant && <Alert style={{ marginBottom: 16 }} showIcon type="info" message="Hệ thống tự ghi nhận khi nhận xác nhận tiền vào. Kế toán theo dõi công nợ, xem phiếu thu, nhắc nợ và xử lý giao dịch sai lệch. Dữ liệu làm mới mỗi 15 giây." />}
+      {isAccountant && <Alert style={{ marginBottom: 16 }} showIcon type="info" message="Hệ thống tự ghi nhận khi nhận xác nhận tiền vào. Kế toán xem hóa đơn, phiếu thu và theo dõi giao dịch sai lệch. Dữ liệu làm mới mỗi 15 giây." />}
       {/* ===== Thẻ tổng hợp công nợ ===== */}
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={24} sm={12} lg={6}>
@@ -307,32 +262,13 @@ const TuitionPage = () => {
       <Card
         title={
           isAccountant
-            ? 'Quản lý công nợ học phí'
+            ? 'Hóa đơn mua khóa học'
             : isStudent
             ? 'Công nợ Học phí Cá nhân'
             : 'Danh sách Hóa đơn Học phí (Chỉ xem)'
         }
         extra={
           <Space wrap>
-            {isAccountant && (
-              <>
-                <Button
-                  icon={<BellOutlined />}
-                  disabled={selectedRowKeys.length === 0}
-                  onClick={() => openRemindModal(selectedRowKeys)}
-                >
-                  Nhắc nợ đã chọn ({selectedRowKeys.length})
-                </Button>
-                <Button
-                  type="primary"
-                  icon={<BellOutlined />}
-                  style={{ backgroundColor: '#F26F21', borderColor: '#F26F21' }}
-                  onClick={() => openRemindModal([])}
-                >
-                  Nhắc tất cả HV còn nợ
-                </Button>
-              </>
-            )}
             <Button icon={<ReloadOutlined />} onClick={() => fetchInvoices()} />
           </Space>
         }
@@ -380,9 +316,9 @@ const TuitionPage = () => {
               />
               <Text>Chỉ quá hạn</Text>
             </Col>
-            <Col xs={24} md={6}>
+            {!isAccountant && <Col xs={24} md={6}>
               <Input.Search allowClear placeholder="Học kỳ (SP26, SU26, FA26...)" onSearch={v => setFilters(f => ({ ...f, semester: v.trim().toUpperCase() }))} />
-            </Col>
+            </Col>}
           </Row>
         )}
 
@@ -393,15 +329,6 @@ const TuitionPage = () => {
           loading={loading}
           scroll={{ x: 1100 }}
           pagination={{ pageSize: 10, showTotal: (t) => `${t} hóa đơn` }}
-          rowSelection={
-            isAccountant
-              ? {
-                  selectedRowKeys,
-                  onChange: setSelectedRowKeys,
-                  getCheckboxProps: (r) => ({ disabled: r.status === 'PAID' })
-                }
-              : undefined
-          }
           rowClassName={(r) => (r.isOverdue ? 'tuition-row-overdue' : '')}
           expandable={{
             expandedRowRender: (r) => <PaymentHistory invoice={r} onOpenReceipt={setReceiptPaymentId} />,
@@ -416,48 +343,6 @@ const TuitionPage = () => {
       {/* ===== Modal Phiếu thu (DF35) ===== */}
       <ReceiptModal open={!!receiptPaymentId} paymentId={receiptPaymentId} onClose={() => setReceiptPaymentId(null)} />
 
-      {/* ===== Modal Nhắc nợ (UC10.2 - Trigger 3) ===== */}
-      <Modal
-        title="Gửi thông báo nhắc đóng học phí (TUITION)"
-        open={remindModalOpen}
-        onCancel={() => setRemindModalOpen(false)}
-        footer={null}
-        destroyOnClose
-      >
-        <Alert
-          style={{ marginBottom: 16 }}
-          type="info"
-          showIcon
-          message={
-            remindTargetIds.length > 0
-              ? `Gửi nhắc cho ${remindTargetIds.length} hóa đơn đã chọn.`
-              : 'Gửi nhắc cho TẤT CẢ hóa đơn chưa hoàn thành (UNPAID / PARTIAL).'
-          }
-          description="Mỗi học viên sẽ nhận một thông báo trên quả chuông, kèm số tiền còn nợ, hạn đóng và hướng dẫn mở QR tại mục học phí."
-        />
-        <Form form={remindForm} layout="vertical" onFinish={handleSendReminders}>
-          <Form.Item name="onlyOverdue" valuePropName="checked">
-            <Checkbox>Chỉ gửi cho hóa đơn đã quá hạn</Checkbox>
-          </Form.Item>
-          <Form.Item name="note" label="Lời nhắn thêm (tùy chọn)">
-            <Input.TextArea rows={3} maxLength={300} placeholder="VD: Hạn chót đóng học phí kỳ 2026A là 30/10/2026." />
-          </Form.Item>
-          <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
-            <Space>
-              <Button onClick={() => setRemindModalOpen(false)}>Hủy</Button>
-              <Button
-                type="primary"
-                htmlType="submit"
-                loading={reminding}
-                icon={<BellOutlined />}
-                style={{ backgroundColor: '#F26F21', borderColor: '#F26F21' }}
-              >
-                Gửi thông báo
-              </Button>
-            </Space>
-          </Form.Item>
-        </Form>
-      </Modal>
     </div>
   );
 };

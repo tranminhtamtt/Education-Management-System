@@ -1,18 +1,18 @@
 /**
  * API Kế toán + thanh toán SePay (Người 3 - ACCOUNTANT).
- * UC9.2 giao dịch, UC9.3 đối soát, UC9.4 sai lệch, UC9.5 hoàn tiền, UC9.7 tổng hợp,
+ * UC9.2 giao dịch, UC9.3 đối soát, UC9.4 theo dõi sai lệch, UC9.7 tổng hợp,
  * UC-PAY.1 Payment Order/VietQR, UC-PAY.2 webhook SePay.
  */
 const router = require('express').Router();
 const auth = require('../../middlewares/auth.middleware');
 const roles = require('../../middlewares/role.middleware');
-const { withTransaction, lockDoc } = require('../../config/db');
 const {
   User, TuitionInvoice, PaymentOrder, PaymentTransaction, PaymentDiscrepancy, RefundRequest, PaymentAuditLog
 } = require('../../models');
 const { like, plain } = require('../../utils/query');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
 const s = require('./payment.service');
+const { withTransaction } = require('../../config/db');
 
 const run = fn => async (req, res) => {
   try {
@@ -63,6 +63,31 @@ router.get('/payment-orders/:id', auth, roles('STUDENT', 'ACCOUNTANT'), run(asyn
 // ---------------------------------------------------------------------------
 router.use('/accountant', auth, roles('ACCOUNTANT'));
 
+// Administrative closure only: never change the transaction or invoice.
+router.patch('/accountant/discrepancies/:id', run(async req => {
+  const discrepancyId = id(req.params.id);
+  const body = req.body || {};
+  if (Object.keys(body).some(key => !['status', 'note'].includes(key)) || body.status !== 'RESOLVED') {
+    throw s.fail('Chỉ được đóng hồ sơ OPEN sang RESOLVED kèm ghi chú');
+  }
+  if (typeof body.note !== 'string' || !body.note.trim() || body.note.length > 4000) {
+    throw s.fail('Ghi chú xử lý bắt buộc, tối đa 4000 ký tự');
+  }
+  return withTransaction(async session => {
+    const existing = await PaymentDiscrepancy.findOne({ id: discrepancyId }).session(session);
+    if (!existing) throw s.fail('Không tìm thấy hồ sơ sai lệch', 404);
+    const resolved = await PaymentDiscrepancy.findOneAndUpdate(
+      { id: discrepancyId, status: 'OPEN' },
+      { $set: { status: 'RESOLVED', note: body.note.trim() } },
+      { new: true, session }
+    );
+    if (!resolved) throw s.fail('Hồ sơ đã được xử lý', 409);
+    await s.audit(session, req.user.id, 'RESOLVE_DISCREPANCY', existing.transactionId,
+      { discrepancyId, previousNote: existing.note || null, note: resolved.note });
+    return plain(resolved);
+  });
+}));
+
 function pageParams(query) {
   const page = Math.max(1, Math.floor(Number(query.page) || 1));
   const take = Math.min(100, Math.max(1, Math.floor(Number(query.pageSize) || 20)));
@@ -102,7 +127,7 @@ const TRANSACTION_POPULATE = [
   'discrepancy'
 ];
 
-// UC9.2 / UC9.4 / UC9.5: danh sách có phân trang
+// Paginated transactions, discrepancies and historical refunds (read-only).
 router.get('/accountant/:resource(transactions|discrepancies|refunds|audit-logs)', run(async req => {
   const { page, take, skip } = pageParams(req.query);
   const resource = req.params.resource;
@@ -143,67 +168,9 @@ router.get('/accountant/:resource(transactions|discrepancies|refunds|audit-logs)
 router.get('/accountant/transactions/:id', run(async req => {
   const t = await PaymentTransaction.findOne({ id: id(req.params.id) }).populate([...TRANSACTION_POPULATE, 'refunds']);
   if (!t) throw s.fail('Không tìm thấy giao dịch', 404);
-  const logs = await PaymentAuditLog.find({ entityId: t.id, action: { $in: ['APPLY_PAYMENT', 'RECOVER_BANK_PAYMENT', 'UNMATCHED_BANK_PAYMENT', 'RECONCILE'] } }).sort({ id: 1 });
+  const logs = await PaymentAuditLog.find({ entityId: t.id, action: { $in: ['APPLY_PAYMENT', 'RECOVER_BANK_PAYMENT', 'UNMATCHED_BANK_PAYMENT', 'RECONCILE', 'RESOLVE_DISCREPANCY'] } }).sort({ id: 1 });
   return { ...plain(t), auditLogs: logs.map(plain) };
 }));
-
-// UC9.4: Kiểm tra / ghi chú / ghép giao dịch chưa phân bổ vào hóa đơn / đóng sai lệch
-router.patch('/accountant/discrepancies/:id', run(req => withTransaction(async session => {
-  const d = await PaymentDiscrepancy.findOne({ id: id(req.params.id) }).session(session);
-  if (!d) throw s.fail('Không tìm thấy sai lệch', 404);
-  if (typeof req.body.note !== 'string' || !req.body.note.trim() || req.body.note.length > 4000) throw s.fail('Cần ghi chú xử lý (tối đa 4000 ký tự)');
-  if (req.body.status && !['OPEN', 'RESOLVED'].includes(req.body.status)) throw s.fail('Trạng thái sai lệch không hợp lệ');
-
-  if (req.body.invoiceId) {
-    await s.applyPayment(session, d.transactionId, id(req.body.invoiceId), req.user.id);
-  }
-  if (req.body.status === 'RESOLVED') {
-    const t = await lockDoc(PaymentTransaction, { id: d.transactionId }, session);
-    const refunded = (await RefundRequest.find({ transactionId: t.id, status: 'COMPLETED' }).session(session)).reduce((n, r) => n + Number(r.amount), 0);
-    if (Number(t.appliedAmount) + refunded !== Number(t.amount)) throw s.fail('Còn tiền chưa phân bổ hoặc chưa hoàn; không thể đóng sai lệch');
-    if (d.reason === 'UNDERPAYMENT') {
-      const inv = t.invoiceId ? await TuitionInvoice.findOne({ id: t.invoiceId }).session(session) : null;
-      if (inv?.status !== 'PAID') throw s.fail('Hóa đơn vẫn chưa thanh toán đủ');
-    }
-  }
-  await s.audit(session, req.user.id, 'REVIEW_DISCREPANCY', d.id, { note: req.body.note.trim(), status: req.body.status || null, invoiceId: req.body.invoiceId || null });
-  const current = await PaymentDiscrepancy.findOne({ id: d.id }).session(session);
-  current.note = req.body.note.trim();
-  if (req.body.status) current.status = req.body.status;
-  await current.save({ session });
-  return plain(current);
-})));
-
-// UC9.5: Tạo yêu cầu hoàn tiền (chỉ phần tiền ngân hàng chưa phân bổ vào học phí)
-router.post('/accountant/refunds', run(req => withTransaction(async session => {
-  const transactionId = id(req.body.transactionId);
-  const t = await lockDoc(PaymentTransaction, { id: transactionId }, session);
-  if (!t) throw s.fail('Không tìm thấy giao dịch', 404);
-  const amount = s.money(req.body.amount);
-  if (typeof req.body.reason !== 'string' || !req.body.reason.trim() || req.body.reason.length > 255) throw s.fail('Cần lý do hoàn tiền (tối đa 255 ký tự)');
-  const reserved = (await RefundRequest.find({ transactionId, status: { $ne: 'REJECTED' } }).session(session)).reduce((n, r) => n + Number(r.amount), 0);
-  // Chỉ tiền chưa phân bổ mới tự động đủ điều kiện. Hoàn do hủy khóa học cần quy định riêng của nhà trường.
-  if (amount > Number(t.amount) - Number(t.appliedAmount) - reserved) throw s.fail('Vượt số tiền đủ điều kiện hoàn');
-  const [r] = await RefundRequest.create([{ transactionId, amount, reason: req.body.reason.trim(), requestedById: req.user.id }], { session });
-  await s.audit(session, req.user.id, 'REQUEST_REFUND', r.id, { transactionId, amount });
-  return plain(r);
-})));
-
-// UC9.5: PENDING → APPROVED/REJECTED; APPROVED → COMPLETED (+ mã chuyển khoản hoàn thủ công)
-router.patch('/accountant/refunds/:id', run(req => withTransaction(async session => {
-  const found = await RefundRequest.findOne({ id: id(req.params.id) }).session(session);
-  if (!found) throw s.fail('Không tìm thấy yêu cầu', 404);
-  await lockDoc(PaymentTransaction, { id: found.transactionId }, session);
-  const r = await lockDoc(RefundRequest, { id: found.id }, session);
-  const status = req.body.status;
-  if (!((r.status === 'PENDING' && ['APPROVED', 'REJECTED'].includes(status)) || (r.status === 'APPROVED' && status === 'COMPLETED'))) throw s.fail('Trạng thái chuyển tiếp không hợp lệ');
-  if (status === 'COMPLETED' && (typeof req.body.reference !== 'string' || !req.body.reference.trim() || req.body.reference.length > 150)) throw s.fail('Cần mã chuyển khoản hoàn tiền (tối đa 150 ký tự)');
-  const update = { status, ...(status === 'COMPLETED' ? { reference: req.body.reference.trim(), completedAt: new Date() } : {}) };
-  const result = await RefundRequest.findOneAndUpdate({ id: r.id, status: r.status }, { $set: update }, { new: true, session });
-  if (!result) throw s.fail('Yêu cầu vừa thay đổi; vui lòng tải lại', 409);
-  await s.audit(session, req.user.id, 'REFUND_' + status, r.id, { reference: update.reference || null });
-  return plain(result);
-})));
 
 // ---------------------------------------------------------------------------
 // UC9.3: Đối soát với dữ liệu độc lập từ SePay API v1 (không cộng tiền)
@@ -220,8 +187,13 @@ async function sepayGet(path) {
     throw s.fail('Không kết nối được API SePay', 502);
   }
   if (!response.ok) throw s.fail('SePay chưa trả dữ liệu hợp lệ; không lưu kết quả đối soát', 502);
-  const data = await response.json();
-  if (Number(data.status) !== 200) throw s.fail('Dữ liệu SePay không hợp lệ', 502);
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw s.fail('SePay trả về dữ liệu không đọc được', 502);
+  }
+  if (!data || Number(data.status) !== 200) throw s.fail('Dữ liệu SePay không hợp lệ', 502);
   return data;
 }
 
@@ -256,11 +228,15 @@ router.post('/accountant/reconcile-range', run(async req => {
   const from = String(req.body.from || ''), to = String(req.body.to || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw s.fail('Khoảng ngày không hợp lệ (YYYY-MM-DD)');
   const days = (new Date(to) - new Date(from)) / 86400000;
-  if (days > 31) throw s.fail('Chỉ đối soát tối đa 31 ngày mỗi lần');
+  if (!Number.isFinite(days) || [from, to].some(date => new Date(date).toISOString().slice(0, 10) !== date)) throw s.fail('Ngày không hợp lệ');
+  if (days >= 31) throw s.fail('Chỉ đối soát tối đa 31 ngày mỗi lần');
+  if (!process.env.VIETQR_ACCOUNT_NO || !process.env.SEPAY_BANK_NAME) throw s.fail('Chưa cấu hình tài khoản nhận', 503);
   const limit = 5000;
   const params = new URLSearchParams({ account_number: process.env.VIETQR_ACCOUNT_NO || '', transaction_date_min: `${from} 00:00:00`, transaction_date_max: `${to} 23:59:59`, limit: String(limit) });
   const data = await sepayGet(`transactions/list?${params}`);
-  const bankRows = (data.transactions || []).filter(b => ownAccount(b) && Number(b.amount_in) > 0);
+  if (!Array.isArray(data.transactions)) throw s.fail('SePay thiếu danh sách giao dịch hợp lệ', 502);
+  const truncated = data.transactions.length >= limit;
+  const bankRows = data.transactions.filter(b => ownAccount(b) && Number(b.amount_in) > 0);
   const start = new Date(`${from}T00:00:00+07:00`), end = new Date(`${to}T23:59:59.999+07:00`);
   const locals = await PaymentTransaction.find({ $or: [{ providerId: { $in: bankRows.map(b => String(b.id)) } }, { occurredAt: { $gte: start, $lte: end } }] });
   const localByProvider = new Map(locals.map(l => [l.providerId, l]));
@@ -269,7 +245,7 @@ router.post('/accountant/reconcile-range', run(async req => {
     return { providerId: String(b.id), status: compare(local, b), localId: local?.id || null, localStatus: local?.status || null, amount: Number(b.amount_in), reference: b.reference_number || null, transactionDate: b.transaction_date, content: b.transaction_content };
   });
   const bankIds = new Set(bankRows.map(b => String(b.id)));
-  const missingAtBank = locals.filter(l => l.occurredAt >= start && l.occurredAt <= end && !bankIds.has(l.providerId))
+  const missingAtBank = (truncated ? [] : locals.filter(l => l.occurredAt >= start && l.occurredAt <= end && !bankIds.has(l.providerId)))
     .map(l => ({ providerId: l.providerId, status: 'DISCREPANCY', note: 'Có trong EMS nhưng không có trong dữ liệu SePay của khoảng ngày', localId: l.id, localStatus: l.status, amount: l.amount, reference: l.reference }));
   const all = [...rows, ...missingAtBank];
   const summary = {
@@ -278,7 +254,7 @@ router.post('/accountant/reconcile-range', run(async req => {
     matched: all.filter(r => r.status === 'MATCHED').length,
     unmatched: all.filter(r => r.status === 'UNMATCHED').length,
     discrepancy: all.filter(r => r.status === 'DISCREPANCY').length,
-    truncated: (data.transactions || []).length >= limit
+    truncated
   };
   await PaymentAuditLog.create({ actorId: req.user.id, action: 'RECONCILE_RANGE', entityId: 0, details: { ...summary, rows: all.map(r => ({ providerId: r.providerId, status: r.status })) } });
   return { summary, rows: all };

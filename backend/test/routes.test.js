@@ -82,7 +82,7 @@ test('enrollment via API creates grade + UNPAID invoice; curriculum rules enforc
   assert.equal(overview.body.data.terms[0].studentCount, 2);
 });
 
-test('student pays via SePay webhook end-to-end; student sees only own orders/invoices; reminders skip PAID', async () => {
+test('student pays via SePay webhook end-to-end; student sees only own orders/invoices; retired reminders return 410', async () => {
   await seedBasic();
   await call('/classes/1/enrollments', ['ADMIN', 2], 'POST', { studentId: 10 });
   const invoiceId = (await M.TuitionInvoice.findOne({ studentId: 10 })).id;
@@ -97,6 +97,10 @@ test('student pays via SePay webhook end-to-end; student sees only own orders/in
 
   const status = await call(`/payment-orders/${order.body.data.id}`, ['STUDENT', 10]);
   assert.equal(status.body.data.invoiceStatus, 'PAID');
+  const invoiceDetail = await call('/tuition-invoices/' + invoiceId, ['STUDENT', 10]);
+  assert.equal(invoiceDetail.status, 200);
+  const receipt = await M.TuitionPayment.findOne({ invoiceId });
+  assert.equal((await call('/tuition-payments/' + receipt.id + '/receipt', ['STUDENT', 10])).status, 200);
   const mine = await call('/tuition-invoices', ['STUDENT', 11]);
   assert.equal(mine.body.data.invoices.length, 0);
 
@@ -106,28 +110,25 @@ test('student pays via SePay webhook end-to-end; student sees only own orders/in
   const detail = await call(`/accountant/transactions/${tx.body.data.items[0].id}`, 'ACCOUNTANT');
   assert.equal(detail.body.data.payload.referenceCode, 'FT555');
 
-  assert.equal((await call('/tuition-invoices/reminders', 'ACCOUNTANT', 'POST', {})).status, 400); // chỉ còn hóa đơn PAID
+  assert.equal((await call('/tuition-invoices/reminders', 'ACCOUNTANT', 'POST', {})).status, 410); // retired MVP action
   const summary = await call('/accountant/summary?year=2026', 'ACCOUNTANT');
   assert.equal(summary.body.data.collected, 1000);
   assert.equal(summary.body.data.outstanding, 0);
   assert.equal(summary.body.data.bankReceived, 1000);
 });
 
-test('refund lifecycle: cannot exceed unallocated amount, cannot complete twice, everything audited', async () => {
+test('retired writes are inaccessible while historical refunds remain readable', async () => {
   await seedBasic();
   await M.PaymentTransaction.create({ id: 7, providerId: '7', amount: 1500, appliedAmount: 1000, status: 'DISCREPANCY', payload: {}, occurredAt: new Date() });
-  const r = (path, method, body) => call('/accountant/refunds' + path, 'ACCOUNTANT', method, body);
-  assert.equal((await r('', 'POST', { transactionId: 7, amount: 501, reason: 'Excess' })).status, 400);
-  assert.equal((await r('', 'POST', { transactionId: 7, amount: 500, reason: 'Excess' })).status, 200);
-  assert.equal((await r('', 'POST', { transactionId: 7, amount: 1, reason: 'Duplicate' })).status, 400);
-  const id = (await M.RefundRequest.findOne()).id;
-  assert.equal((await r(`/${id}`, 'PATCH', { status: 'COMPLETED', reference: 'test' })).status, 400);
-  assert.equal((await r(`/${id}`, 'PATCH', { status: 'APPROVED' })).status, 200);
-  assert.equal((await r(`/${id}`, 'PATCH', { status: 'COMPLETED' })).status, 400);
-  assert.equal((await r(`/${id}`, 'PATCH', { status: 'COMPLETED', reference: 'TEST-REFUND-1' })).status, 200);
-  assert.equal((await r(`/${id}`, 'PATCH', { status: 'COMPLETED', reference: 'TEST-REFUND-1' })).status, 400);
-  assert.equal((await M.RefundRequest.findOne()).status, 'COMPLETED');
-  assert.equal(await M.PaymentAuditLog.countDocuments({ action: { $in: ['REQUEST_REFUND', 'REFUND_APPROVED', 'REFUND_COMPLETED'] } }), 3);
+  await M.RefundRequest.create({ transactionId: 7, amount: 500, reason: 'Historical', status: 'COMPLETED', reference: 'OLD' });
+  for (const [path, method] of [['/accountant/refunds', 'POST'], ['/accountant/refunds/1', 'PATCH']]) {
+    assert.equal((await call(path, 'ACCOUNTANT', method, { status: 'COMPLETED', invoiceId: 1 })).status, 404);
+    assert.equal((await call(path, 'STUDENT', method, {})).status, 403);
+    assert.equal((await call(path, null, method, {})).status, 401);
+  }
+  assert.equal((await call('/accountant/refunds', 'ACCOUNTANT')).body.data.total, 1);
+  assert.equal((await call('/accountant/transactions/7', 'ACCOUNTANT')).body.data.refunds[0].reference, 'OLD');
+  assert.equal(await M.RefundRequest.countDocuments(), 1);
 });
 
 test('reconciliation compares independent SePay evidence and never changes debt; recovery reuses verified bank data', async () => {
@@ -222,4 +223,100 @@ test('UC1.3: export-excel and template routes respond with spreadsheet', async (
   const resTpl = await fetch(base + '/students/import/template', { headers: { Authorization: token('ADMIN', 2) } });
   assert.equal(resTpl.status, 200);
   assert.ok(resTpl.headers.get('content-type').includes('spreadsheetml'));
+});
+
+test('range recovery pays once and incomplete or failed SePay responses are explicit', async () => {
+  await seedBasic();
+  await call('/classes/1/enrollments', ['ADMIN', 2], 'POST', { studentId: 10 });
+  const invoice = await M.TuitionInvoice.findOne({ studentId: 10 });
+  const order = (await call('/payment-orders', ['STUDENT', 10], 'POST', { invoiceId: invoice.id })).body.data;
+  const bank = { id: '800', account_number: 'TEST123', bank_brand_name: 'TestBank', amount_in: '1000', amount_out: '0', reference_number: 'REF800', transaction_date: '2026-11-02 10:00:00', transaction_content: order.code, code: order.code };
+  const nativeFetch = global.fetch;
+  process.env.SEPAY_API_TOKEN = 'test-token';
+  let mode = 'normal';
+  global.fetch = async (url, options) => {
+    if (!String(url).startsWith('https://my.sepay.vn/userapi/')) return nativeFetch(url, options);
+    if (mode === 'network') throw new Error('offline');
+    if (mode === 'http') return { ok: false };
+    if (mode === 'json') return { ok: true, json: async () => { throw new Error('invalid JSON'); } };
+    if (mode === 'shape') return { ok: true, json: async () => ({ status: 200 }) };
+    if (String(url).includes('/details/')) return { ok: true, json: async () => ({ status: 200, transaction: bank }) };
+    const transactions = mode === 'limited'
+      ? Array.from({ length: 5000 }, (_, i) => ({ ...bank, id: String(900 + i), account_number: 'OTHER' }))
+      : [{ ...bank, amount_in: mode === 'mismatch' ? '999' : '1000' }];
+    return { ok: true, json: async () => ({ status: 200, transactions }) };
+  };
+  const range = () => call('/accountant/reconcile-range', 'ACCOUNTANT', 'POST', { from: '2026-11-01', to: '2026-11-03' });
+  try {
+    for (const path of ['/accountant/reconcile', '/accountant/reconcile-range', '/accountant/recover-payment']) {
+      for (const role of ['STUDENT', 'TEACHER', 'ADMIN']) assert.equal((await call(path, role, 'POST', {})).status, 403);
+      assert.equal((await call(path, null, 'POST', {})).status, 401);
+    }
+    const missing = await range();
+    assert.equal(missing.body.data.rows[0].status, 'UNMATCHED');
+    assert.equal(missing.body.data.rows[0].content, order.code);
+    assert.equal((await M.TuitionInvoice.findOne({ id: invoice.id })).paidAmount, 0);
+    for (let i = 0; i < 2; i++) {
+      assert.equal((await call('/accountant/recover-payment', 'ACCOUNTANT', 'POST', { providerId: 800 })).status, 200);
+    }
+    assert.equal((await M.TuitionInvoice.findOne({ id: invoice.id })).paidAmount, 1000);
+    assert.equal(await M.TuitionPayment.countDocuments({ invoiceId: invoice.id }), 1);
+    assert.equal((await range()).body.data.rows[0].status, 'MATCHED');
+    mode = 'mismatch';
+    assert.equal((await range()).body.data.rows[0].status, 'DISCREPANCY');
+    mode = 'limited';
+    const limited = await range();
+    assert.equal(limited.body.data.summary.truncated, true);
+    assert.equal(limited.body.data.rows.length, 0);
+    for (mode of ['network', 'http', 'json', 'shape']) {
+      const failed = await range();
+      assert.equal(failed.status, 502);
+      assert.ok(failed.body.message);
+    }
+    assert.equal((await call('/accountant/reconcile-range', 'ACCOUNTANT', 'POST', { from: '2026-02-30', to: '2026-03-02' })).status, 400);
+  } finally {
+    global.fetch = nativeFetch;
+    delete process.env.SEPAY_API_TOKEN;
+  }
+});
+
+test('manual discrepancy closure requires note and preserves all financial records and history', async () => {
+  await seedBasic();
+  await call('/classes/1/enrollments', ['ADMIN', 2], 'POST', { studentId: 10 });
+  const invoice = await M.TuitionInvoice.findOne({ studentId: 10 });
+  const order = (await call('/payment-orders', ['STUDENT', 10], 'POST', { invoiceId: invoice.id })).body.data;
+  const hook = { id: 990, transferAmount: 1500, transferType: 'in', accountNumber: 'TEST123', gateway: 'TestBank', transactionDate: '2026-11-04 09:00:00', referenceCode: 'FT990', content: order.code };
+  assert.equal((await call('/payments/sepay/webhook', null, 'POST', hook, { Authorization: 'Apikey test-webhook-key' })).status, 200);
+  const tx = await M.PaymentTransaction.findOne({ providerId: '990' }).lean();
+  const disc = await M.PaymentDiscrepancy.findOne({ transactionId: tx.id });
+  assert.equal(disc.status, 'OPEN');
+  assert.equal(disc.reason, 'OVERPAYMENT_OR_DUPLICATE');
+  const beforeInvoice = await M.TuitionInvoice.findOne({ id: invoice.id }).lean();
+  const beforeReceipts = await M.TuitionPayment.find().lean();
+  const path = '/accountant/discrepancies/' + disc.id;
+  const body = { status: 'RESOLVED', note: '  Trung tâm đã xác minh và xử lý ngoài EMS  ' };
+  for (const role of ['STUDENT', 'TEACHER', 'ADMIN']) assert.equal((await call(path, role, 'PATCH', body)).status, 403);
+  assert.equal((await call(path, null, 'PATCH', body)).status, 401);
+  for (const invalid of [{ status: 'RESOLVED' }, { ...body, note: '   ' }, { ...body, note: 123 }, { ...body, note: 'x'.repeat(4001) }, { ...body, status: 'OPEN' }, { ...body, invoiceId: invoice.id }, { ...body, amount: 1 }]) {
+    assert.equal((await call(path, 'ACCOUNTANT', 'PATCH', invalid)).status, 400);
+  }
+  assert.equal((await call('/accountant/discrepancies/999999', 'ACCOUNTANT', 'PATCH', body)).status, 404);
+  const results = await Promise.all([call(path, 'ACCOUNTANT', 'PATCH', body), call(path, 'ACCOUNTANT', 'PATCH', body)]);
+  assert.deepEqual(results.map(r => r.status).sort(), [200, 409]);
+  assert.equal((await call('/accountant/discrepancies?status=OPEN', 'ACCOUNTANT')).body.data.total, 0);
+  const history = (await call('/accountant/discrepancies?status=RESOLVED', 'ACCOUNTANT')).body.data;
+  assert.equal(history.total, 1);
+  assert.equal(history.items[0].note, body.note.trim());
+  const detail = (await call('/accountant/transactions/' + tx.id, 'ACCOUNTANT')).body.data;
+  assert.equal(detail.discrepancy.note, body.note.trim());
+  const logs = detail.auditLogs.filter(l => l.action === 'RESOLVE_DISCREPANCY');
+  assert.equal(logs.length, 1);
+  assert.equal(logs[0].actorId, 1);
+  assert.ok(logs[0].createdAt);
+  assert.equal(logs[0].details.note, body.note.trim());
+  assert.deepEqual(await M.PaymentTransaction.findOne({ id: tx.id }).lean(), tx);
+  assert.deepEqual(await M.TuitionInvoice.findOne({ id: invoice.id }).lean(), beforeInvoice);
+  assert.deepEqual(await M.TuitionPayment.find().lean(), beforeReceipts);
+  assert.equal(await M.RefundRequest.countDocuments(), 0);
+  assert.equal(await M.PaymentDiscrepancy.countDocuments(), 1);
 });

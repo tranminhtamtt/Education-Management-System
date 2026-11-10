@@ -14,8 +14,7 @@ const express = require('express');
 const router = express.Router();
 const authenticateJWT = require('../../middlewares/auth.middleware');
 const authorizeRoles = require('../../middlewares/role.middleware');
-const { withTransaction } = require('../../config/db');
-const { TuitionInvoice, TuitionPayment, Notification } = require('../../models');
+const { TuitionInvoice, TuitionPayment } = require('../../models');
 const { plain } = require('../../utils/query');
 const { numberToVietnameseWords } = require('../../utils/numberToWords');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
@@ -235,66 +234,9 @@ router.get('/tuition-invoices/:id/vietqr', authenticateJWT, async (req, res) => 
 // ==========================================
 // UC9.6 / UC10.2 Trigger 3: Gửi nhắc nợ học phí (không gửi cho hóa đơn PAID)
 // ==========================================
-router.post('/tuition-invoices/reminders', authenticateJWT, authorizeRoles('ACCOUNTANT'), async (req, res) => {
-  try {
-    const { invoiceIds, onlyOverdue, note } = req.body || {};
-    if (note !== undefined && (typeof note !== 'string' || note.length > 500)) return errorResponse(res, 'Ghi chú tối đa 500 ký tự', 400);
-
-    const where = { status: { $ne: 'PAID' } };
-    if (Array.isArray(invoiceIds) && invoiceIds.length > 0) {
-      where.id = { $in: invoiceIds.map((x) => parseInt(x)).filter(Number.isFinite) };
-    }
-    if (onlyOverdue) {
-      where.dueDate = { $lt: startOfToday() };
-    }
-
-    const result = await withTransaction(async session => {
-      // Ghi lockVersion để giao dịch thanh toán đồng thời (chuyển PAID) xung đột và được retry,
-      // đảm bảo không nhắc nợ cho hóa đơn vừa được thanh toán đủ.
-      await TuitionInvoice.updateMany(where, { $inc: { lockVersion: 1 } }, { session });
-      const invoices = (await TuitionInvoice.find(where).session(session).populate([
-        { path: 'student', select: 'id code fullName' },
-        { path: 'enrollment', populate: { path: 'class', populate: 'course' } }
-      ])).map(plain);
-
-      if (invoices.length === 0) {
-        throw Object.assign(new Error('Không có hóa đơn nào còn nợ phù hợp để gửi nhắc'), { status: 400 });
-      }
-
-      const today = startOfToday();
-      const extra = note ? ` Ghi chú: ${String(note).trim()}` : '';
-
-      await Notification.insertMany(invoices.map((inv) => {
-        const remaining = Number(inv.amount) - Number(inv.paidAmount);
-        const course = inv.enrollment?.class?.course || {};
-        const due = new Date(inv.dueDate);
-        const dueText = due.toLocaleDateString('vi-VN');
-        const overdueText = due < today ? ` (ĐÃ QUÁ HẠN từ ${dueText})` : ` trước ngày ${dueText}`;
-        return {
-          userId: inv.studentId,
-          title: `Nhắc đóng học phí môn ${course.courseCode}`,
-          message:
-            `Học viên ${inv.student?.fullName} (${inv.student?.code}) còn nợ ${formatVnd(remaining)} học phí ` +
-            `môn ${course.name} - lớp ${inv.enrollment?.class?.classCode}. Vui lòng hoàn tất${overdueText}. ` +
-            `Vui lòng mở mục "Học phí & VietQR" và dùng nguyên nội dung chuyển khoản của mã QR mới được tạo.${extra}`,
-          type: 'TUITION'
-        };
-      }), { session });
-
-      const uniqueStudents = new Set(invoices.map((i) => i.studentId)).size;
-      return { invoiceCount: invoices.length, studentCount: uniqueStudents };
-    });
-    return successResponse(
-      res,
-      result,
-      `Đã gửi ${result.invoiceCount} thông báo nhắc học phí tới ${result.studentCount} học viên`,
-      201
-    );
-  } catch (error) {
-    if (!error.status) console.error('Error sending tuition reminders:', error);
-    return errorResponse(res, error.status ? error.message : 'Lỗi gửi thông báo nhắc học phí', error.status || 500);
-  }
-});
+router.post('/tuition-invoices/reminders', authenticateJWT, authorizeRoles('ACCOUNTANT'), (req, res) =>
+  errorResponse(res, 'Chức năng nhắc học phí đã ngừng trong MVP', 410)
+);
 
 // ==========================================
 // UC9.7 / UC11.1b*: Thống kê doanh thu học phí theo tháng (DF12b)

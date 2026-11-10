@@ -106,6 +106,5 @@ test('core write flows still work and teachers cannot edit course grades', async
   assert.equal((await call(`/requests/${req.body.data.id}/review`, 'ADMIN', 'PATCH', { status: 'APPROVED' })).status, 200);
   assert.equal((await call('/courses', 'ADMIN', 'POST', { courseCode: 'new101', name: 'New', credits: 3 })).status, 201);
   const reminders = await call('/tuition-invoices/reminders', 'ACCOUNTANT', 'POST', { onlyOverdue: true });
-  assert.equal(reminders.status, 201, reminders.body.message);
-  assert.equal(reminders.body.data.studentCount, 9); // SV đầu tiên của mỗi khóa có hóa đơn quá hạn
+  assert.equal(reminders.status, 410, reminders.body.message);
 });

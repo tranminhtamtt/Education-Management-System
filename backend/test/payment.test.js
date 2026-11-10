@@ -164,3 +164,31 @@ test('new orders have distinct QR codes and the next order uses only remaining d
   assert.equal((await invoice()).status, 'PAID');
   assert.equal(await M.TuitionPayment.countDocuments(), 2);
 });
+
+test('supplement resolves only covered underpayment and preserves bank evidence', async () => {
+  await fixture(500000);
+  const body = webhook(1001, 400000);
+  await s.receiveWebhook(body);
+  const first = await M.PaymentTransaction.findOne({ providerId: '1001' }).lean();
+  assert.equal((await M.PaymentDiscrepancy.findOne({ transactionId: first.id })).status, 'OPEN');
+  await s.receiveWebhook(webhook(1002, 100000, 'UNKNOWN'));
+  await s.receiveWebhook(webhook(1003, 150000));
+  assert.equal((await invoice()).paidAmount, 500000);
+  assert.equal((await invoice()).status, 'PAID');
+  assert.equal((await M.PaymentDiscrepancy.findOne({ transactionId: first.id })).status, 'RESOLVED');
+  assert.equal(await M.PaymentDiscrepancy.countDocuments({ status: 'OPEN' }), 2);
+  const after = await M.PaymentTransaction.findOne({ id: first.id }).lean();
+  assert.equal(after.amount, first.amount);
+  assert.deepEqual(after.payload, first.payload);
+});
+
+test('same code 400000 plus 100000 records exactly two payments', async () => {
+  await fixture(500000);
+  await s.receiveWebhook(webhook(2001, 400000));
+  await s.receiveWebhook(webhook(2002, 100000));
+  await s.receiveWebhook(webhook(2002, 100000));
+  assert.equal((await invoice()).paidAmount, 500000);
+  assert.equal(await M.PaymentTransaction.countDocuments(), 2);
+  assert.equal(await M.TuitionPayment.countDocuments(), 2);
+  assert.equal(await M.PaymentDiscrepancy.countDocuments({ status: 'OPEN' }), 0);
+});

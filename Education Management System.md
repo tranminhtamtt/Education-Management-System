@@ -5,7 +5,7 @@
 > **Định hướng mô hình (Business Model — Hướng 1: In-house Training Center):**  
 > Hệ thống quản lý vận hành và kinh doanh khóa học trực tuyến dành cho **Trung tâm Đào tạo có sẵn đội ngũ Giảng viên cơ hữu & thỉnh giảng**. Trung tâm làm chủ toàn bộ danh mục khóa học, chất lượng giảng dạy, lịch mở lớp và dòng tiền học phí.  
 > **Hai hình thức khóa học cốt lõi (Dual Delivery Modes):**  
-> 1. **`RECORDED` (Khóa học Video quay sẵn — Self-paced VOD):** Học viên mua khóa học, kích hoạt tức thì sau khi thanh toán VietQR/SePay, học qua hệ thống video bài giảng theo chương mục, tải tài liệu, làm bài tập và theo dõi thanh tiến độ hoàn thành (`0% → 100%`).  
+> 1. **`RECORDED` (Khóa học Video quay sẵn — Self-paced VOD):** Sau khi EMS xác nhận đủ học phí qua VietQR/SePay, học viên được truy cập video bài giảng theo chương mục, tải tài liệu, làm bài tập và theo dõi tiến độ hoàn thành (`0% → 100%`).
 > 2. **`LIVE_ONLINE` (Khóa học có Giảng viên dạy trực tuyến — Live Interactive Cohort):** Học theo lớp/đợt mở lớp (`Class`) với Giảng viên phụ trách theo Thời khóa biểu định kỳ (qua Zoom / Google Meet), có điểm danh buổi học, giao & chấm bài tập, và **Kênh Hỏi đáp / Trao đổi trực tuyến (`Q&A / Discussion`)** trực tiếp với Giảng viên.  
 > **Hai nhóm danh mục đào tạo trọng tâm (`Course Categories`):**  
 > - **`FPT_SUBJECT` (Các môn chuyên ngành Đại học FPT):** `PRF192` (Lập trình C), `PRO192` (Java OOP), `CSD201` (Cấu trúc dữ liệu & Giải thuật), `DBI202` (Cơ sở dữ liệu SQL), `PRJ301` (Java Web), `SWP391` (Dự án phần mềm), `PRN231` (.NET API)...  
@@ -15,7 +15,7 @@
 > - **Backend:** Express.js + Mongoose ODM (Node.js)  
 > - **Frontend:** React + Vite + Ant Design (v5)  
 > - **Database:** MongoDB Atlas (Replica Set — hỗ trợ Multi-document Transaction)  
-> - **Cổng thanh toán:** VietQR động + SePay Webhook tự động gạch nợ & đối soát  
+> - **Thanh toán qua VietQR động:** SePay Webhook tự động ghi nhận tiền vào. Kế toán đối soát theo SePay ID hoặc khoảng ngày với SePay User API.
 > - **DevOps / Môi trường:** Docker & Docker Compose  
 
 ---
@@ -41,14 +41,14 @@ Thay vì xây dựng một hệ thống quản lý đại học 9 học kỳ n�
 * **Trung tâm chủ động 100% nguồn lực:**
   * Đội ngũ Giảng viên (`TEACHER`) là nhân sự cơ hữu hoặc giảng viên thỉnh giảng đã được Trung tâm tuyển chọn và cấp tài khoản trực tiếp trên hệ thống.
   * Quản trị viên / Giáo vụ (`ADMIN` / `ACADEMIC STAFF`) trực tiếp thiết kế danh mục khóa học, biên soạn chương trình, định giá học phí, mở lớp và phân công giảng viên phụ trách.
-  * Dòng tiền mua khóa học chảy trực tiếp về **tài khoản ngân hàng của Trung tâm** thông qua **VietQR động & SePay Webhook**, giúp Kế toán (`ACCOUNTANT`) đối soát minh bạch, tức thời mà không phát sinh bài toán chia doanh thu phức tạp như mô hình chợ cộng đồng (Marketplace).
+  * Học viên chuyển học phí trực tiếp vào **tài khoản ngân hàng của Trung tâm** qua VietQR. EMS ghi nhận tiền vào qua SePay Webhook. Kế toán (`ACCOUNTANT`) tra cứu hóa đơn, đối soát theo SePay ID hoặc khoảng ngày và theo dõi doanh thu cơ bản. Trung tâm hỗ trợ giao dịch sai lệch, xác minh và chuyển trả tiền ngoài EMS.
 
 ### 2. So sánh 2 Hình thức Khóa học trên Hệ thống (`RECORDED` vs. `LIVE_ONLINE`)
 
 | Tiêu chí | Dạng 1: Khóa học Quay sẵn (`RECORDED`) | Dạng 2: Khóa học Giảng viên dạy Online (`LIVE_ONLINE`) |
 | :--- | :--- | :--- |
 | **Cách thức tổ chức** | Học mọi lúc mọi nơi qua hệ thống bài giảng Video & Tài liệu đính kèm được biên soạn sẵn (`course_lessons`). | Học theo lớp (`classes`) có lịch học cố định hàng tuần (Thứ/Slot) cùng Giảng viên qua nền tảng trực tuyến (`meetUrl` - Zoom / Google Meet). |
-| **Luồng Mua & Kích hoạt** | Học viên chọn khóa học → Tạo đơn & Hóa đơn → Quét VietQR (SePay) → **Kích hoạt quyền học ngay lập tức (`ACTIVE`)**. | Học viên chọn khóa học & chọn Lớp đang tuyển sinh (`UPCOMING` / `ONGOING`, còn chỗ `< maxStudents`) → Quét VietQR → Ghi danh vào lớp. |
+| **Luồng Mua & Kích hoạt** | Học viên chọn khóa học → Tạo đăng ký và hóa đơn → Thanh toán qua VietQR → EMS xác nhận đủ học phí và kích hoạt quyền học (`ACTIVE`). | Học viên chọn lớp đang tuyển sinh (`UPCOMING` / `ONGOING`, còn chỗ) → Thanh toán qua VietQR → EMS xác nhận đủ học phí và kích hoạt quyền học của lớp đã chọn. |
 | **Theo dõi Tiến độ (`Progress`)** | Dựa trên số bài giảng video đã hoàn thành (`completedLessons / totalLessons × 100%`) kết hợp điểm bài tập tự luyện. | Dựa trên số buổi tham gia học trực tuyến (`Attendance`) + bài tập được giảng viên chấm (`Submissions`) + điểm tổng kết khóa (`Grades`). |
 | **Tương tác Giảng viên - Học viên** | Đặt câu hỏi dưới từng bài học (`course_questions`), giảng viên phụ trách khóa học vào phản hồi giải đáp. | Hỏi đáp trực tiếp trong buổi học Live qua đường link phòng học trực tuyến **và** trao đổi tại bảng Thảo luận & Hỏi đáp (`Q&A`) của lớp. |
 | **Ví dụ Khóa học tiêu biểu** | - *Master PRF192 - Lập trình C nền tảng (20 Video)*<br>- *PRO192 Java OOP thực chiến (24 Video)*<br>- *IELTS Foundation 5.0 - Ngữ pháp & Từ vựng* | - *Luyện thi CCNA 200-301 Live Lab cùng Chuyên gia*<br>- *IELTS Intensive 6.5+ (Lớp tối 2-4-6 chấm Writing/Speaking 1-1)*<br>- *Kèm đồ án PRJ301 / SWP391 Live Mentoring* |
@@ -87,10 +87,10 @@ graph TD
     A2 --> A2_3[Biên soạn Chương mục Video Bài giảng & Mở lớp Live]
     A2 --> A2_4[Xếp lịch dạy Online theo Slot & Chống trùng Giảng viên]
 
-    A3 --> A3_1[Quản lý Đơn mua Khóa học & Công nợ Học phí]
-    A3 --> A3_2[Thanh toán Tự động VietQR + SePay Webhook kích hoạt khóa học]
-    A3 --> A3_3[Đối soát SePay API, Xử lý sai lệch & Hoàn tiền]
-    A3 --> A3_4[Nhắc thanh toán đơn chờ & Báo cáo Doanh thu Khóa học]
+    A3 --> A3_1[Tra cứu hóa đơn, phiếu thu và lịch sử giao dịch]
+    A3 --> A3_2[Đối soát theo SePay ID hoặc khoảng ngày và khôi phục giao dịch bị nhỡ webhook]
+    A3 --> A3_3[Theo dõi và đóng hồ sơ sai lệch]
+    A3 --> A3_4[Xem báo cáo doanh thu cơ bản]
 
     A4 --> A4_1[Teacher Dashboard & Xem Lịch dạy Online hàng tuần]
     A4_1 --> A4_2[Quản lý Bài giảng, Tài liệu, Link phòng học Meet/Zoom]
@@ -98,7 +98,7 @@ graph TD
     A4 --> A4_4[Giải đáp thắc mắc Học viên trên Kênh Hỏi đáp Q&A]
 
     A5 --> A5_1[Cửa hàng Khóa học: Tìm kiếm & Mua khóa FPT / CCNA / IELTS]
-    A5 --> A5_2[Thanh toán VietQR tức thì & Quản lý Khóa học của tôi]
+    A5 --> A5_2[Thanh toán VietQR & Quản lý Khóa học của tôi]
     A5 --> A5_3[Học Video quay sẵn, Xem lịch Live & Theo dõi Tiến độ %]
     A5 --> A5_4[Nộp bài tập, Xem điểm & Hỏi đáp trực tuyến với Giảng viên]
 ```
@@ -120,12 +120,10 @@ graph TD
   * Xếp lịch học hàng tuần theo Thứ (Thứ 2 → Chủ nhật) và Ca học (`Slot 1..6`), tự động chạy **Thuật toán Kiểm tra Xung đột Lịch** (chặn trùng lịch dạy của Giảng viên hoặc trùng phòng học ảo/offline trong cùng đợt).
 
 ### 3. ACCOUNTANT (Kế toán tài chính — Phụ trách: Người 3)
-* Quản lý **Đơn đăng ký / Hóa đơn mua khóa học (`tuition_invoices`)**: Tra cứu theo học viên, khóa học, loại khóa học (`RECORDED` / `LIVE_ONLINE`), trạng thái thanh toán (`UNPAID`, `PARTIAL`, `PAID`), quá hạn thanh toán (`UC9.1`).
-* Vận hành luồng **Thanh toán tự động qua VietQR & SePay Webhook (`UC-PAY.1`, `UC-PAY.2`)**:
-  * Khi học viên chọn mua khóa học (hoặc giáo vụ ghi danh), hệ thống khởi tạo `Enrollment` + `TuitionInvoice` (`UNPAID`).
-  * Học viên bấm thanh toán → Sinh `PaymentOrder` kèm mã QR ngân hàng động (`EMS...`).
-  * Khi tiền vào tài khoản ngân hàng của Trung tâm, SePay bắn Webhook → Backend xác thực chữ ký API Key, tự động chuyển hóa đơn sang `PAID`, xuất biên lai điện tử `SEPAY-<id>` và **tự động mở khóa quyền học (`Enrollment.status = 'ACTIVE'`)** cho học viên!
-* Theo dõi lịch sử giao dịch ngân hàng chỉ đọc (`UC9.2`), đối soát độc lập với SePay User API theo giao dịch hoặc khoảng ngày (`UC9.3`), xử lý các giao dịch sai lệch/chuyển thừa/sai nội dung (`UC9.4`), phê duyệt & hoàn tất yêu cầu hoàn tiền (`UC9.5`), gửi thông báo nhắc thanh toán (`UC9.6`) và xem Báo cáo Doanh thu Trung tâm theo tháng/năm/khóa học (`UC9.7`).
+* Tra cứu **hóa đơn mua khóa học** theo học viên, khóa học và trạng thái `UNPAID`, `PARTIAL`, `PAID`. Xem số phải thu, số đã ghi nhận vào hóa đơn, số còn thiếu và phiếu thu (`UC9.1`).
+* Xem lịch sử giao dịch ngân hàng (`UC9.2`), đối soát theo SePay ID hoặc khoảng ngày và khôi phục giao dịch bị nhỡ webhook từ SePay User API (`UC9.3`).
+* Theo dõi, ghi chú và đóng hồ sơ sai lệch đã xử lý (`UC9.4`) và xem báo cáo doanh thu học phí cơ bản (`UC9.7`). Khi cần hỗ trợ, Trung tâm xác minh và chuyển trả tiền ngoài EMS.
+* Backend sinh lệnh VietQR theo số còn thiếu, xác thực giao dịch, cộng dồn tiền vào hóa đơn, phát hành phiếu thu và kích hoạt Enrollment khi thu đủ (`UC-PAY.1`, `UC-PAY.2`). Kế toán không trực tiếp sửa số đã thu hoặc cấp quyền học từ màn hình thanh toán.
 
 ### 4. TEACHER (Giảng viên Trung tâm — Phụ trách: Người 4)
 * Xem **Teacher Dashboard (`UC12.2`)**: Thống kê số khóa học `RECORDED` và số lớp `LIVE_ONLINE` đang phụ trách, tổng số học viên đang theo học, số bài tập chờ chấm, số câu hỏi Q&A mới từ học viên và lịch dạy trong tuần.
@@ -142,7 +140,7 @@ graph TD
   * Duyệt danh sách khóa học theo 2 nhóm: **Môn chuyên ngành FPT (`PRF192`, `PRO192`, `CSD201`, `PRJ301`...)** và **Luyện thi Chứng chỉ (`CCNA`, `IELTS`, `TOEIC`, `AWS`...)**.
   * Lọc theo hình thức học: **Khóa học Quay sẵn (`RECORDED`)** hoặc **Khóa học Giảng viên dạy Online (`LIVE_ONLINE`)**.
   * Xem trang chi tiết khóa học: Thông tin giảng viên, đề cương các bài học, lịch học dự kiến (nếu là khóa Live) và mức học phí.
-  * Bấm **"Mua khóa học / Đăng ký ngay"** → Quét mã **VietQR** thanh toán → Hệ thống tự động mở khóa học trong mục **"Khóa học của tôi"**.
+  * Bấm **"Mua khóa học / Đăng ký ngay"** và thanh toán qua **VietQR**. Hệ thống tự động mở khóa học trong mục **"Khóa học của tôi"** sau khi xác nhận đủ học phí.
 * **Không gian Học tập & Theo dõi Tiến độ (`My Learning & Progress Tracking` - `UC6.3`..`UC8.4`):**
   * **Với khóa `RECORDED`:** Xem danh sách video bài giảng theo thứ tự, tải slide/source code, bấm **"Đánh dấu đã hoàn thành bài học"** → Hệ thống tự động cập nhật **Thanh tiến độ hoàn thành khóa học (`progressPercent: 0% → 100%`)**.
   * **Với khóa `LIVE_ONLINE`:** Xem Thời khóa biểu học trực tuyến hàng tuần, bấm nút **"Vào phòng học Online (Zoom/Meet)"**, xem lịch sử điểm danh chuyên cần của mình.
@@ -211,25 +209,41 @@ graph TD
 
 ### PHÂN HỆ 3: QUẢN LÝ HÓA ĐƠN MUA KHÓA HỌC, THANH TOÁN SEPAY/VIETQR & ĐỐI SOÁT (Actor: ACCOUNTANT — Phụ trách: Người 3)
 
-#### Module 6. Course Purchase Billing & Automated SePay Reconciliation (Thanh toán Khóa học & Kế toán)
-* **UC9.1 - Quản lý Hóa đơn Mua Khóa học & Công nợ (`Tuition Invoices`):**
-  * Mọi lượt đăng ký mua khóa học (`RECORDED` hoặc `LIVE_ONLINE`) của học viên đều tự động sinh 1 hóa đơn trong `tuition_invoices` (`UNPAID` → `PARTIAL` → `PAID`).
-  * Kế toán tra cứu theo mã/tên học viên, tên khóa học, hình thức khóa học, trạng thái thanh toán; xem chi tiết phiếu thu và giao dịch ngân hàng. Kế toán không chỉnh sửa tay số tiền đã thu (`paidAmount`).
-* **UC-PAY.1 - Khởi tạo Lệnh Thanh toán Khóa học & Sinh mã VietQR động:**
-  * Khi học viên bấm **"Mua khóa học / Thanh toán ngay"**, hệ thống tạo `PaymentOrder` với mã giao dịch duy nhất (`EMS` + 24 ký tự hex) và trả về ảnh mã QR ngân hàng động (`VietQR`) chứa đúng số tiền học phí của khóa học và nội dung chuyển khoản.
-* **UC-PAY.2 - Xác nhận Thanh toán Tự động qua SePay Webhook & Mở khóa Khóa học:**
-  * Khi học viên chuyển khoản thành công, SePay gửi Webhook (`POST /api/v1/payments/sepay/webhook`) kèm `Authorization: Apikey <SEPAY_WEBHOOK_API_KEY>`.
-  * Trong 1 Multi-document Transaction của MongoDB Atlas:
-    1. Kiểm tra chống trùng lặp (`providerId` unique) và lưu giao dịch gốc vào `payment_transactions`.
-    2. Khớp mã lệnh `EMS...`, cập nhật hóa đơn `tuition_invoices` sang `PAID` (hoặc `PARTIAL` nếu chuyển thiếu).
-    3. Sinh phiếu thu điện tử `SEPAY-<providerId>` trong `tuition_payments`.
-    4. **Kích hoạt quyền vào học (`Enrollment.status = 'ACTIVE'`)** và gửi thông báo xác nhận mua khóa học thành công tới học viên.
-* **UC9.2, UC9.3 & UC9.4 - Lịch sử Giao dịch, Đối soát SePay API & Xử lý Sai lệch:**
-  * Kế toán xem toàn bộ lịch sử giao dịch ngân hàng, chạy đối soát độc lập với SePay User API theo từng giao dịch hoặc theo khoảng ngày (`≤ 31 ngày`), và xử lý các trường hợp chuyển sai nội dung / chuyển thừa (`payment_discrepancies`) kèm ghi vết kiểm toán (`payment_audit_logs`).
-* **UC9.5, UC9.6 & UC9.7 - Hoàn tiền, Nhắc thanh toán & Báo cáo Doanh thu Trung tâm:**
-  * Quản lý quy trình hoàn tiền (`PENDING → APPROVED/REJECTED → COMPLETED`) cho các khoản chuyển dư.
-  * Gửi thông báo nhắc thanh toán (`TUITION`) cho các đơn đăng ký khóa học chưa hoàn tất học phí.
-  * Xem Dashboard & Báo cáo Doanh thu Trung tâm theo tháng/năm, so sánh doanh thu giữa nhóm khóa học **Môn FPT (`FPT_SUBJECT`)** và **Chứng chỉ Quốc tế (`CERTIFICATE`)**, cũng như giữa khóa **Quay sẵn (`RECORDED`)** và **Dạy trực tiếp (`LIVE_ONLINE`)**.
+#### Module 6. Course Purchase Billing & SePay Reconciliation (Thanh toán Khóa học & Kế toán)
+
+* **UC9.1 - Quản lý hóa đơn mua khóa học (`TuitionInvoice`)**
+  * Mỗi lượt đăng ký mua khóa học (`RECORDED` hoặc `LIVE_ONLINE`) sinh một hóa đơn `UNPAID`. Hóa đơn có thể chuyển sang `PARTIAL` khi nhận một phần hoặc sang `PAID` khi thu đủ.
+  * Kế toán tra cứu theo học viên, khóa học và trạng thái thanh toán. Chi tiết hóa đơn hiển thị số phải thu, số đã ghi nhận, số còn thiếu và các phiếu thu. `paidAmount` do backend cập nhật từ giao dịch đã xác minh.
+* **UC-PAY.1 - Tạo lệnh thanh toán và sinh VietQR động**
+  * Mỗi lần tạo QR, backend sinh một `PaymentOrder` với mã duy nhất gồm `EMS` và 24 ký tự hex in hoa (`A–F`, `0–9`), ví dụ `EMS0123456789ABCDEF01234567`.
+  * VietQR chứa tài khoản ngân hàng của Trung tâm, số tiền còn thiếu và nội dung chuyển khoản là mã của lệnh. Một hóa đơn có thể có nhiều lệnh. Học viên có thể tạo QR mới cho phần còn thiếu sau khi một khoản chuyển thiếu đã được ghi nhận.
+* **UC-PAY.2 - Ghi nhận tiền qua SePay Webhook và kích hoạt quyền học**
+  * Backend nhận `POST /api/v1/payments/sepay/webhook`, xác thực `Authorization: Apikey <SEPAY_WEBHOOK_API_KEY>`, kiểm tra tài khoản nhận, loại giao dịch tiền vào, số tiền và mã thanh toán.
+  * Backend lưu giao dịch ngân hàng gốc và chống xử lý trùng theo SePay transaction ID (`providerId`). Các giao dịch hợp lệ có ID khác nhau có thể cộng dồn vào cùng hóa đơn, kể cả khi dùng lại cùng mã `PaymentOrder` hợp lệ.
+  * Với mỗi khoản được phân bổ, backend cộng tối đa số còn thiếu vào `paidAmount` và phát hành một phiếu thu `SEPAY-<providerId>` cho phần đã phân bổ. Khi thu đủ, backend chuyển hóa đơn sang `PAID`, kích hoạt Enrollment (`ACTIVE`) trong cùng transaction và gửi thông báo xác nhận mua khóa học. Hóa đơn `UNPAID` hoặc `PARTIAL` chưa cấp quyền học.
+  * **Chưa hoàn tất tích hợp quyền học:** Phần kích hoạt Enrollment sau thanh toán là yêu cầu mục tiêu; code hiện vẫn tạo ACTIVE khi ghi danh và payment service chưa cập nhật Enrollment. Cần bàn giao thành viên phụ trách Enrollment/quyền học, không coi luồng này đã được triển khai.
+* **UC9.2 - Lịch sử giao dịch ngân hàng**
+  * Kế toán xem danh sách và chi tiết giao dịch ở chế độ chỉ đọc. Tra cứu theo SePay transaction ID, mã tham chiếu ngân hàng, thời gian và trạng thái. Hiển thị riêng số tiền ngân hàng thực nhận và số tiền đã phân bổ vào hóa đơn.
+* **UC9.3 - Payment Reconciliation & Recovery**
+  * Kế toán yêu cầu đối soát theo SePay transaction ID hoặc khoảng ngày (tối đa 31 ngày, tính cả ngày đầu và cuối). Backend đọc dữ liệu độc lập từ SePay User API, đối chiếu với bản ghi EMS và lưu vết kiểm toán. Thao tác đối soát không làm thay đổi hóa đơn.
+  * Khi chọn khoảng ngày, EMS lấy danh sách giao dịch trực tiếp từ SePay User API và so sánh với MongoDB theo `providerId`. Bảng kết quả hiển thị cả giao dịch chưa tồn tại trong EMS với số tiền, thời gian, mã giao dịch, nội dung chuyển khoản và trạng thái `MATCHED`, `UNMATCHED` hoặc `DISCREPANCY`. Kế toán bấm **Ghi nhận** trên dòng `UNMATCHED` để khôi phục và tải lại kết quả.
+  * Lỗi SePay được hiển thị rõ. Khi đạt giới hạn 5.000 giao dịch, EMS cảnh báo dữ liệu có thể chưa đầy đủ và yêu cầu thu hẹp khoảng ngày, đồng thời bỏ qua kết luận giao dịch chỉ có ở EMS mà thiếu ở ngân hàng.
+  * Nếu SePay có giao dịch tiền vào thuộc tài khoản Trung tâm mà EMS chưa ghi nhận, Kế toán có thể yêu cầu khôi phục. Backend tải lại giao dịch từ SePay và dùng chung logic xác minh, chống trùng, phân bổ và cập nhật hóa đơn của `UC-PAY.2`.
+  * Trạng thái đối soát ngân hàng tách biệt với trạng thái phân bổ trong EMS: MATCHED khi số tiền/tham chiếu khớp không có nghĩa hóa đơn đã PAID hoặc hồ sơ sai lệch đã RESOLVED.
+* **UC9.4 - Theo dõi sai lệch và trạng thái xử lý (Discrepancy Monitoring & Resolution Status)**
+  * Backend tự động phát hiện và lưu sai lệch. Kế toán xem danh sách `OPEN` (mặc định), lọc `RESOLVED`, xem chi tiết và ghi chú. Sau khi Trung tâm xác nhận hoàn tất xử lý ngoài EMS, chỉ Accountant được chuyển `OPEN` → `RESOLVED` với ghi chú bắt buộc (tối đa 4.000 ký tự). Không mở lại hoặc ghi đè hồ sơ đã đóng; lưu người xử lý, thời gian và ghi chú trước/sau trong audit log hiện có.
+  * `UNDERPAYMENT` — Ghi nhận khoản thực nhận vào hóa đơn. Nếu tổng đã nhận còn thiếu, hóa đơn là `PARTIAL` và Enrollment chưa được kích hoạt. Khi nhận khoản bổ sung có mã hợp lệ, backend cộng dồn. Khi hóa đơn `PAID`, backend tự đánh dấu `RESOLVED` cho sai lệch thiếu tiền đã có đủ căn cứ, tức giao dịch thiếu thuộc đúng hóa đơn và toàn bộ tiền của giao dịch đó đã được phân bổ.
+  * `OVERPAYMENT_OR_DUPLICATE` — Khi có khoản chuyển thừa hoặc một lần chuyển riêng nộp trùng, chỉ phân bổ tối đa phần học phí còn thiếu. Khoản dư được theo dõi qua sai lệch và xác định bằng `amount - appliedAmount`. Giữ nguyên số tiền giao dịch gốc.
+  * `UNKNOWN_PAYMENT_CODE` — Khi thiếu mã, mã sai hoặc không xác định được một lệnh duy nhất, lưu giao dịch `UNMATCHED` và không gán vào hóa đơn.
+  * `OPEN` là hồ sơ cần kiểm tra/hỗ trợ; `RESOLVED` là hồ sơ đã được Trung tâm xác nhận xử lý ngoài EMS hoặc được hệ thống khắc phục theo quy tắc hợp lệ. Đóng hồ sơ chỉ cập nhật `status`, `note` và audit log; không tạo RefundRequest, chuyển tiền, xóa lịch sử, sửa amount/appliedAmount/payload/trạng thái giao dịch gốc hoặc paidAmount của hóa đơn. Đây không phải bằng chứng ngân hàng đã hoàn tiền. Không tự đóng sai lệch chuyển thừa hoặc sai mã chỉ vì hóa đơn đã PAID.
+* **UC9.5 - Hoàn tiền (`Out of Scope`)**
+  * Việc xác minh và chuyển trả tiền thực hiện ngoài EMS. MVP không có yêu cầu hoàn tiền của học viên, tạo hồ sơ hoàn tiền, duyệt hoặc từ chối, đánh dấu hoàn tất, xác minh tài khoản nhận hoàn hay API chuyển trả tiền.
+* **UC9.6 - Nhắc thanh toán (`Out of Scope`)**
+  * Nhắc thu thủ công, nhắc nợ hàng loạt, công nợ theo học kỳ và quản lý trả góp nằm ngoài MVP. `PARTIAL` chỉ phản ánh số tiền thực nhận còn thiếu so với hóa đơn.
+* **UC9.7 - Báo cáo doanh thu học phí cơ bản**
+  * Xem tổng học phí đã thu từ các khoản đã phân bổ, số hóa đơn đã thanh toán (`PAID`) và số hóa đơn chưa thanh toán đủ (`UNPAID`, `PARTIAL`). Xem số tiền đã thu theo khoảng thời gian dựa trên ngày ghi nhận trên phiếu thu. Khoản dư hoặc tiền chưa khớp không tính vào học phí đã thu.
+
+Ghép thủ công giao dịch sai mã, báo cáo kế toán tài chính chuyên sâu, kế toán tổng hợp, tiền lương và quản lý chi phí nằm ngoài phạm vi Accountant MVP.
 
 ```mermaid
 sequenceDiagram
@@ -238,15 +252,32 @@ sequenceDiagram
     participant B as Ứng dụng Ngân hàng
     participant P as Cổng SePay
     participant D as MongoDB Atlas
-    S->>E: Chọn mua Khóa học (RECORDED hoặc Lớp LIVE_ONLINE)
-    E->>D: Tạo Enrollment + TuitionInvoice (UNPAID) + PaymentOrder (Mã EMS...)
-    E-->>S: Hiển thị Mã VietQR động theo đúng học phí khóa học
-    S->>B: Quét mã QR & Xác nhận chuyển khoản
-    B->>P: Ghi nhận biến động số dư (transferType = in)
-    P->>E: Gửi Webhook POST /api/v1/payments/sepay/webhook (Apikey)
-    E->>D: Transaction: Lưu giao dịch + Xuất phiếu thu + Đổi Invoice -> PAID + Mở khóa học
-    S->>E: Polling trạng thái đơn hàng (mỗi 5s)
-    E-->>S: Xác nhận PAID -> Mở ngay trang "Vào học ngay"
+    S->>E: Chọn mua khóa RECORDED hoặc lớp LIVE_ONLINE
+    E->>D: Tạo Enrollment chờ thanh toán và hóa đơn UNPAID
+    S->>E: Yêu cầu mã VietQR
+    E->>D: Tạo PaymentOrder với mã duy nhất
+    E-->>S: Hiển thị VietQR theo số tiền còn thiếu
+    S->>B: Quét mã và xác nhận chuyển khoản
+    B->>P: Ghi nhận giao dịch tiền vào
+    P->>E: Gửi webhook kèm Apikey
+    E->>E: Xác thực, kiểm tra giao dịch và SePay transaction ID
+    alt Đã ghi nhận cùng giao dịch
+        E-->>P: Xác nhận đã nhận, giữ nguyên hóa đơn
+    else Sai mã hoặc không xác định được lệnh
+        E->>D: Lưu giao dịch UNMATCHED và sai lệch
+    else Khớp lệnh thanh toán
+        E->>D: Lưu giao dịch, phân bổ tiền và tạo phiếu thu cho phần phân bổ
+        opt Có khoản dư
+            E->>D: Lưu sai lệch và theo dõi số tiền chưa phân bổ
+        end
+        alt Hóa đơn chưa đủ
+            E->>D: Cập nhật PARTIAL, lưu sai lệch thiếu tiền
+        else Hóa đơn vừa đủ hoặc đã đủ
+            E->>D: Khi hóa đơn chuyển PAID, kích hoạt Enrollment và cập nhật sai lệch thiếu tiền đủ căn cứ
+        end
+    end
+    S->>E: Kiểm tra trạng thái đơn và hóa đơn
+    E-->>S: Trả trạng thái, mở quyền học khi hóa đơn PAID
 ```
 
 ---
@@ -284,8 +315,9 @@ sequenceDiagram
     * **Theo Hình thức học:** *Khóa học Quay sẵn (`RECORDED`)* hoặc *Lớp học Giảng viên dạy Online (`LIVE_ONLINE`)*.
   * Xem chi tiết khóa học: Đề cương từng chương/bài học, thông tin Giảng viên phụ trách, các lớp Live đang mở đăng ký (kèm lịch học & sĩ số còn trống) và mức học phí.
 * **UC4.3 - Mua Khóa học (`RECORDED` hoặc `LIVE_ONLINE`) & Thanh toán VietQR:**
-  * **Nếu chọn khóa `RECORDED`:** Học viên bấm **"Mua khóa học Video"** → Hệ thống tạo đăng ký vào khóa học + Hóa đơn học phí → Hiển thị ngay cửa sổ mã **VietQR** để thanh toán và mở khóa toàn bộ bài giảng.
+  * **Nếu chọn khóa `RECORDED`:** Học viên bấm **"Mua khóa học Video"** → Hệ thống tạo đăng ký và hóa đơn học phí → Hiển thị mã **VietQR** để thanh toán.
   * **Nếu chọn khóa `LIVE_ONLINE`:** Học viên chọn đợt lớp Live phù hợp lịch cá nhân (hệ thống tự động kiểm tra không trùng ca học với lớp Live khác mà học viên đang theo học) → Bấm **"Đăng ký lớp Live"** → Thanh toán qua **VietQR**.
+  * Với cả hai hình thức, hệ thống mở quyền học khi hóa đơn chuyển sang `PAID` theo `UC-PAY.2`.
 
 #### Module 10. My Learning Portal, Video Lesson Player & Progress Tracking (Không gian Học tập & Tiến độ)
 * **UC12.3 - Student Dashboard (Tổng quan Học tập Cá nhân):**
@@ -325,10 +357,29 @@ flowchart LR
         S2 --> S3["Quét mã VietQR thanh toán"]
     end
 
-    subgraph Payment["3. SePay & Kế toán"]
-        S3 --> P1["Webhook SePay tự động gạch nợ PAID"]
-        P1 --> P2["Kích hoạt khóa học & Xuất biên lai"]
+    subgraph Payment["3. Ghi nhận thanh toán tự động"]
+        S3 --> P1["EMS nhận giao dịch đã xác minh từ webhook hoặc khôi phục"]
+        P1 --> P3{"Khớp lệnh thanh toán?"}
+        P3 -->|Không| P4["Lưu UNMATCHED và sai lệch sai mã"]
+        P3 -->|Có| P5["Phân bổ tối đa số còn thiếu và phát hành phiếu thu cho phần phân bổ"]
+        P5 --> P6{"Hóa đơn đủ tiền?"}
+        P6 -->|Chưa| P7["Cập nhật PARTIAL và ghi nhận sai lệch thiếu tiền"]
+        P6 -->|Đủ| P2["Khi chuyển PAID, kích hoạt Enrollment"]
+        P5 -->|Có tiền dư| P8["Ghi nhận sai lệch và phần tiền chưa phân bổ"]
     end
+
+    subgraph Accountant["Kế toán"]
+        K1["Tra cứu giao dịch và sai lệch"]
+        K1 -->|Trung tâm xác nhận xử lý bên ngoài| K4["Ghi chú bắt buộc và đóng hồ sơ OPEN sang RESOLVED"]
+        K2["Đối soát theo SePay ID hoặc khoảng ngày"]
+        K2 -->|SePay có, EMS chưa có| K3["Yêu cầu khôi phục từ SePay User API"]
+    end
+
+    P7 -->|Học viên chuyển bổ sung| S3
+    P4 -.-> K1
+    P7 -.-> K1
+    P8 -.-> K1
+    K3 --> P1
 
     subgraph Learning["4. Học tập & Tương tác cùng Giảng viên"]
         P2 --> L1["Học Video & Đánh dấu Tiến độ % (RECORDED)"]
@@ -338,6 +389,20 @@ flowchart LR
     end
 ```
 
+**Ghi chú tích hợp hiện tại:** Code Enrollment hiện tạo ACTIVE trước thanh toán; payment service chưa kích hoạt quyền học khi PAID. Luồng kích hoạt sau thanh toán ở trên là yêu cầu tích hợp chưa hoàn tất, cần thành viên phụ trách Enrollment/quyền học xử lý, không thuộc bản sửa Accountant này.
+
+**PaymentOrder hiện tại:** Mỗi lần mở QR có thể tạo mã mới; mã cũ vẫn hợp lệ. Chống ghi nhận trùng dựa trên SePay providerId, không dựa trên số lệnh. QR cũ có thể dẫn đến chuyển thừa và được chặn phân bổ vượt công nợ. Mã hợp lệ của hóa đơn khác vẫn phân bổ theo hóa đơn chứa mã đó; EMS chưa xác minh danh tính người chuyển.
+
+### Hỗ trợ giao dịch sai lệch ngoài EMS
+
+1. EMS tự động phát hiện và ghi nhận sai lệch. Kế toán tra cứu giao dịch và sai lệch trên EMS.
+2. Khi cần hỗ trợ, học viên chủ động liên hệ Trung tâm qua Zalo, Messenger hoặc email và cung cấp bill cùng thông tin giao dịch.
+3. Trung tâm đối chiếu bill với dữ liệu SePay hoặc ngân hàng và xác minh người có quyền nhận tiền hoàn.
+4. Trung tâm xử lý yêu cầu hỗ trợ và chuyển trả tiền ngoài EMS khi cần.
+5. Accountant nhập kết quả xử lý và đóng hồ sơ theo `UC9.4`; hồ sơ rời danh sách OPEN nhưng còn trong lịch sử RESOLVED. Không thay đổi dữ liệu tài chính hoặc xác nhận chuyển hoàn qua ngân hàng.
+
+**Giới hạn MVP:** EMS không ghi nhận điều chỉnh tài chính cho tiền hoàn bên ngoài. Nếu hoàn khoản đã phân bổ, paidAmount, phiếu thu và báo cáo không tự giảm; Trung tâm phải đối chiếu ngoài EMS. `amount - appliedAmount` là phần chưa phân bổ của giao dịch gốc, không phải số tiền còn phải hoàn sau xử lý bên ngoài.
+
 ---
 
 ## PHẦN 5: YÊU CẦU PHI CHỨC NĂNG (NON-FUNCTIONAL REQUIREMENTS)
@@ -345,11 +410,12 @@ flowchart LR
 1. **Bảo mật & Phân quyền (Security & RBAC):**
    * Mật khẩu băm bằng `bcryptjs` (`saltRounds >= 10`), không bao giờ trả `passwordHash` qua API.
    * Phân quyền chặt chẽ qua `authenticateJWT` và `authorizeRoles`:
-     * Học viên chỉ xem/học được các khóa học mình đã đăng ký và chỉ thanh toán hóa đơn của chính mình.
+     * Học viên chỉ thanh toán hóa đơn của chính mình. Với khóa đã đăng ký, quyền truy cập nội dung học hoặc phòng học yêu cầu Enrollment đã được kích hoạt sau khi thu đủ học phí.
      * Giảng viên chỉ điểm danh, giao bài, chấm điểm và trả lời Q&A trên các khóa học/lớp học được Trung tâm phân công.
-     * Webhook thanh toán SePay xác thực chữ ký `Apikey` bằng thuật toán so sánh hằng thời gian (`timingSafeEqual`) và đảm bảo tính bất biến (`idempotency`).
+     * Backend xác thực `Apikey` của SePay Webhook bằng so sánh hằng thời gian (`timingSafeEqual`). Webhook gửi lại và thao tác khôi phục dùng chung cơ chế chống ghi trùng theo SePay transaction ID.
 2. **Toàn vẹn Dữ liệu Giao dịch (Transactional Integrity):**
-   * Sử dụng **MongoDB Multi-document Transactions** kết hợp cơ chế khóa lạc quan (`lockVersion`) cho toàn bộ các thao tác nhạy cảm: Đăng ký mua khóa học, Xử lý Webhook thanh toán SePay, Xử lý sai lệch/hoàn tiền và Hủy đăng ký.
+   * Dùng **MongoDB Multi-document Transactions** và `lockVersion` cho đăng ký mua khóa học, ghi nhận tiền từ webhook hoặc khôi phục và hủy đăng ký. Lưu giao dịch, cập nhật phân bổ, hóa đơn, phiếu thu, sai lệch và kích hoạt Enrollment tương ứng trong cùng transaction ghi nhận thanh toán.
+   * Giữ số tiền ngân hàng, tham chiếu và payload gốc để truy vết. Kế toán chỉ đọc dữ liệu giao dịch và số tiền đã ghi nhận trên hóa đơn.
 3. **Trải nghiệm Giao diện (UI/UX):**
    * Sử dụng thống nhất bộ thư viện **Ant Design v5** (Card, Tag, Progress, Tabs, Table, Modal, Badge) tối ưu cho cả màn hình Cửa hàng khóa học (Course Catalog), Trình phát bài giảng (Course Player) và Bảng quản trị.
 
@@ -378,7 +444,10 @@ erDiagram
     enrollments ||--|| tuition_invoices : bills
     tuition_invoices ||--o{ tuition_payments : receipts
     tuition_invoices ||--o{ payment_orders : qr_orders
+    tuition_invoices |o--o{ payment_transactions : allocations
     payment_orders |o--o{ payment_transactions : matches
+    payment_transactions |o--o| tuition_payments : receipt
+    payment_transactions ||--o| payment_discrepancies : flags
 ```
 
 ### Bảng Đặc tả Chi tiết các Collections trong MongoDB Atlas
@@ -389,21 +458,21 @@ erDiagram
 | **D4** | **`courses`** | `id`, `courseCode` | `instructorId` → `users` | `name`, `category` (`FPT_SUBJECT`, `CERTIFICATE`), `deliveryMode` (`RECORDED`, `LIVE_ONLINE`), `level` (`BEGINNER`, `INTERMEDIATE`, `ADVANCED`), `credits`, `totalSessions`, `baseTuitionFee` (VND), `thumbnailUrl`, `syllabusUrl`, `description`, `status` (`ACTIVE`, `INACTIVE`) | **Người 2** |
 | **D4b** | **`course_lessons`** | `id`, (`courseId`, `orderIndex`) | `courseId` → `courses` | `sectionTitle` (Tên chương), `orderIndex` (Thứ tự bài), `title` (Tên bài giảng), `videoUrl` (Link video bài giảng), `materialUrl` (Slide/Code), `durationMinutes`, `isPreview` (`Boolean`) | **Người 2** & **Người 4** |
 | **D5** | **`classes`** | `id`, `classCode` | `courseId` → `courses`, `teacherId` → `users` | `semester` / đợt mở lớp (`SP26`, `SU26`, `FA26`), `maxStudents`, `meetUrl` (Link Zoom / Google Meet cho lớp `LIVE_ONLINE`), `status` (`UPCOMING`, `ONGOING`, `COMPLETED`) | **Người 2** |
-| **D6** | **`enrollments`** | `id`, (`classId`, `studentId`) | `classId` → `classes`, `studentId` → `users` | `enrolledAt`, `progressPercent` (`0..100`), `completedLessonsCount`, `status` (`ACTIVE`, `DROPPED`) | **Người 2** & **Người 5** (Mua khóa học) |
+| **D6** | **`enrollments`** | `id`, (`classId`, `studentId`) | `classId` → `classes`, `studentId` → `users` | `enrolledAt`, `progressPercent` (`0..100`), `completedLessonsCount`, `status` (`ACTIVE`, `DROPPED` và trạng thái chờ thanh toán cho lượt mua mới). Backend chuyển sang `ACTIVE` khi hóa đơn thu đủ. | **Người 2** & **Người 5** (Mua khóa học) |
 | **D6b** | **`lesson_progress`** | `id`, (`enrollmentId`, `lessonId`) | `enrollmentId` → `enrollments`, `lessonId` → `course_lessons` | `studentId`, `courseId`, `isCompleted` (`Boolean`), `completedAt`, `lastWatchedSecond` | **Người 5** |
 | **D7** | **`schedules`** | `id` | `classId` → `classes` | `dayOfWeek` (`2..8`), `shift` (`Slot 1..6`), `startTime` (`HH:mm`), `endTime` (`HH:mm`), `room` (Phòng học / Kênh Online) | **Người 2** |
 | **D8** | **`attendances`** | `id`, (`classId`, `studentId`, `sessionDate`) | `classId` → `classes`, `studentId` → `users` | `sessionDate`, `status` (`PRESENT`, `ABSENT_EXCUSED`, `ABSENT_UNEXCUSED`, `LATE`), `note` | **Người 4** *(Người 5 xem)* |
 | **D9** | **`assignments`** | `id` | `classId` → `classes` | `title`, `description`, `fileUrl`, `dueDate`, `createdAt` | **Người 4** *(Người 5 xem)* |
 | **D10** | **`submissions`** | `id`, (`assignmentId`, `studentId`) | `assignmentId` → `assignments`, `studentId` → `users` | `fileUrl`, `content`, `submittedAt`, `status` (`SUBMITTED`, `LATE_SUBMITTED`), `score` (`0..10`), `teacherFeedback` | **Người 5** nộp & **Người 4** chấm |
 | **D11** | **`grades`** | `id`, `enrollmentId` | `enrollmentId` → `enrollments` | `attendanceScore`, `midtermScore`, `finalScore`, `totalScore`, `isPassed`, `isBanned` | **Người 4** nhập & **Người 5** xem |
-| **D12** | **`tuition_invoices`** | `id`, `enrollmentId` | `studentId` → `users`, `enrollmentId` → `enrollments` | `amount`, `paidAmount`, `dueDate`, `status` (`UNPAID`, `PARTIAL`, `PAID`), `paidAt`, `createdAt` | **Người 3** *(Người 5 thanh toán)* |
-| **D12b** | **`tuition_payments`** | `id`, `receiptNo` | `invoiceId` → `tuition_invoices`, `transactionId` → `payment_transactions` | `amount`, `method` (`CASH`, `BANK_TRANSFER`, `VIETQR`), `note`, `collectedById`, `paidAt` | **Người 3** |
+| **D12** | **`tuition_invoices`** | `id`, `enrollmentId` | `studentId` → `users`, `enrollmentId` → `enrollments` | `amount`, `paidAmount` (tổng tiền đã phân bổ), `status` (`UNPAID`, `PARTIAL`, `PAID`), `paidAt`, `createdAt`, `dueDate` (tương thích dữ liệu hiện có) | **Người 3** *(Người 5 thanh toán)* |
+| **D12b** | **`tuition_payments`** | `id`, `receiptNo` | `invoiceId` → `tuition_invoices`, `transactionId` → `payment_transactions` (có thể trống với phiếu thu lịch sử) | `amount` (số tiền đã phân bổ), `method` (`CASH`, `BANK_TRANSFER`, `VIETQR`), `note`, `collectedById`, `paidAt`. Biên lai SePay dùng `SEPAY-<providerId>`. | **Người 3** |
 | **D13** | **`notifications`** | `id` | `userId` → `users` (`null` = toàn hệ thống) | `title`, `message`, `type` (`ASSIGNMENT`, `GRADE`, `TUITION`, `QA`, `SYSTEM`), `isRead`, `createdAt` | **Người 1, 3, 4, 5** |
 | **D14** | **`course_questions`** *(hoặc `student_requests`)* | `id` | `studentId` → `users`, `classId` → `classes`, `lessonId` → `course_lessons` | `questionTitle`, `questionContent`, `attachmentUrl`, `status` (`PENDING`, `ANSWERED`, `RESOLVED`), `teacherAnswer`, `answeredById`, `answeredAt`, `createdAt` | **Người 5** hỏi & **Người 4 / Người 2** trả lời |
-| **D15** | **`payment_orders`** | `id`, `code` | `invoiceId` → `tuition_invoices` | `amount`, `createdById`, `createdAt` | **Người 3** & **Người 5** |
-| **D16** | **`payment_transactions`** | `id`, `providerId` | `orderId` → `payment_orders`, `invoiceId` → `tuition_invoices` | `reference`, `amount`, `appliedAmount`, `status` (`MATCHED`, `UNMATCHED`, `DISCREPANCY`), `payload`, `occurredAt` | **Người 3** (SePay Webhook) |
-| **D17** | **`payment_discrepancies`** | `id`, `transactionId` | `transactionId` → `payment_transactions` | `reason` (`UNDERPAYMENT`, `OVERPAYMENT_OR_DUPLICATE`, `UNKNOWN_PAYMENT_CODE`), `status` (`OPEN`, `RESOLVED`), `note` | **Người 3** |
-| **D18** | **`refund_requests`** | `id`, `reference` | `transactionId` → `payment_transactions` | `amount`, `reason`, `status` (`PENDING`, `APPROVED`, `REJECTED`, `COMPLETED`), `requestedById`, `completedAt` | **Người 3** |
+| **D15** | **`payment_orders`** | `id`, `code` (`EMS` + 24 ký tự hex in hoa) | `invoiceId` → `tuition_invoices` (một hóa đơn có thể có nhiều lệnh) | `amount` (số còn thiếu lúc tạo QR), `createdById`, `createdAt` | **Người 3** & **Người 5** |
+| **D16** | **`payment_transactions`** | `id`, `providerId` (SePay transaction ID) | `orderId` → `payment_orders`, `invoiceId` → `tuition_invoices` (có thể trống với giao dịch chưa khớp) | `reference`, `amount` (tiền ngân hàng thực nhận), `appliedAmount` (tiền đã phân bổ), `status` (`MATCHED`, `UNMATCHED`, `DISCREPANCY`), `payload`, `occurredAt` | **Người 3** (SePay Webhook và khôi phục) |
+| **D17** | **`payment_discrepancies`** | `id`, `transactionId` | `transactionId` → `payment_transactions` | `reason` (`UNDERPAYMENT`, `OVERPAYMENT_OR_DUPLICATE`, `UNKNOWN_PAYMENT_CODE`), `status` (`OPEN`, `RESOLVED`), `note`. `OPEN`: cần kiểm tra; `RESOLVED`: đã xử lý hồ sơ, không xác nhận hoàn tiền. `note` bắt buộc khi đóng thủ công; audit log giữ người xử lý và thời gian. Backend tự cập nhật sai lệch thiếu tiền đủ căn cứ theo `UC9.4`. | **Người 3** |
+| **D18** | **`refund_requests`** *(dữ liệu lịch sử, ngoài MVP)* | `id`, `reference` | `transactionId` → `payment_transactions` | `amount`, `reason`, `status` (`PENDING`, `APPROVED`, `REJECTED`, `COMPLETED`), `requestedById`, `completedAt`. Giữ dữ liệu khi còn phụ thuộc lịch sử. | Tương thích dữ liệu |
 | **D19** | **`payment_audit_logs`** | `id` | `actorId` → `users` | `action`, `entityId`, `details`, `createdAt` (Append-only) | **Người 3** |
 
 ---
@@ -432,25 +501,26 @@ Mọi API tuân thủ tiền tố `/api/v1` và trả về cấu trúc JSON đ�
 * `GET /api/v1/teachers` / `POST /api/v1/teachers` / `PUT /api/v1/teachers/:id` — Quản lý đội ngũ Giảng viên của Trung tâm (thêm giảng viên, cập nhật chuyên môn FPT / CCNA / IELTS).
 * `GET /api/v1/students` / `POST /api/v1/students` / `PUT /api/v1/students/:id` — Quản lý danh sách Học viên.
 * `POST /api/v1/students/import` / `GET /api/v1/students/export-excel` — Import/Export danh sách học viên bằng file Excel.
-* `GET /api/v1/students/:id/profile-360` — Xem hồ sơ 360° của học viên (các khóa đã mua, tiến độ, điểm số, công nợ).
+* `GET /api/v1/students/:id/profile-360` — Xem hồ sơ 360° của học viên (các khóa đã mua, tiến độ, điểm số, trạng thái và số tiền còn thiếu của hóa đơn theo lượt mua).
 * `GET /api/v1/courses` / `POST /api/v1/courses` / `PUT /api/v1/courses/:id` / `DELETE /api/v1/courses/:id` — Quản lý danh mục Khóa học (`category: FPT_SUBJECT | CERTIFICATE`, `deliveryMode: RECORDED | LIVE_ONLINE`, `baseTuitionFee`...).
 * `GET /api/v1/courses/:id/lessons` / `POST /api/v1/courses/:id/lessons` / `PUT /api/v1/lessons/:lessonId` / `DELETE /api/v1/lessons/:lessonId` — Quản lý chương trình bài giảng video & tài liệu của khóa học (`course_lessons`).
 * `GET /api/v1/classes` / `POST /api/v1/classes` / `PUT /api/v1/classes/:id` — Mở lớp học trực tuyến (`LIVE_ONLINE`) hoặc lớp tự học (`RECORDED`), gán Giảng viên và link phòng học `meetUrl`.
-* `POST /api/v1/classes/:id/enrollments` — Ghi danh học viên vào lớp (kiểm tra sĩ số & trùng lịch, tự sinh `Grade` và `TuitionInvoice`).
+* `POST /api/v1/classes/:id/enrollments` — Ghi danh học viên vào lớp (kiểm tra sĩ số & trùng lịch, tự sinh `Grade` và `TuitionInvoice`). Quyền học của lượt mua được cấp sau khi hóa đơn thu đủ theo `UC-PAY.2`.
 * `POST /api/v1/classes/:id/schedules` — Xếp lịch dạy định kỳ theo Thứ/Slot kèm thuật toán kiểm tra chống trùng lịch Giảng viên & phòng học.
 
 ### 3. Cụm API của ACCOUNTANT / Kế toán Trung tâm (Phụ trách: Người 3)
-* `GET /api/v1/tuition-invoices` — Tra cứu hóa đơn mua khóa học & công nợ theo học viên, khóa học, trạng thái `UNPAID / PARTIAL / PAID`.
+* `GET /api/v1/tuition-invoices` — Tra cứu hóa đơn theo học viên, khóa học và trạng thái `UNPAID / PARTIAL / PAID`.
 * `GET /api/v1/tuition-invoices/:id` — Xem chi tiết hóa đơn kèm danh sách phiếu thu, lệnh thanh toán VietQR và giao dịch SePay.
-* `POST /api/v1/payment-orders` & `GET /api/v1/payment-orders/:id` — Tạo lệnh thanh toán khóa học kèm mã VietQR động và kiểm tra trạng thái gạch nợ tự động.
-* `POST /api/v1/payments/sepay/webhook` — Nhận Webhook tự động từ SePay (`Authorization: Apikey <key>`), gạch nợ hóa đơn, xuất phiếu thu và kích hoạt khóa học.
-* `GET /api/v1/accountant/transactions` & `GET /api/v1/accountant/transactions/:id` — Lịch sử giao dịch ngân hàng chỉ đọc.
-* `POST /api/v1/accountant/reconcile` & `POST /api/v1/accountant/reconcile-range` — Đối soát độc lập với SePay User API.
-* `POST /api/v1/accountant/recover-payment` — Khôi phục giao dịch bị nhỡ webhook từ SePay API.
-* `GET /api/v1/accountant/discrepancies` & `PATCH /api/v1/accountant/discrepancies/:id` — Quản lý và xử lý giao dịch sai lệch.
-* `GET /api/v1/accountant/refunds` / `POST /api/v1/accountant/refunds` / `PATCH /api/v1/accountant/refunds/:id` — Quy trình hoàn tiền cho học viên chuyển thừa.
-* `POST /api/v1/tuition-invoices/reminders` — Gửi thông báo nhắc hoàn tất học phí khóa học.
-* `GET /api/v1/analytics/tuition-revenue` & `GET /api/v1/accountant/summary` — Báo cáo doanh thu bán khóa học theo tháng/năm và theo từng khóa học.
+* `GET /api/v1/tuition-payments/:id/receipt` — Xem phiếu thu theo lần phân bổ tiền vào hóa đơn.
+* `POST /api/v1/payment-orders` & `GET /api/v1/payment-orders/:id` — Tạo VietQR cho số còn thiếu và kiểm tra trạng thái thanh toán.
+* `POST /api/v1/payments/sepay/webhook` — Backend xác thực SePay (`Authorization: Apikey <key>`), lưu giao dịch, cộng tiền vào hóa đơn và kích hoạt Enrollment khi thu đủ.
+* `GET /api/v1/accountant/transactions` & `GET /api/v1/accountant/transactions/:id` — Tra cứu lịch sử và chi tiết giao dịch chỉ đọc, gồm tiền thực nhận và tiền đã phân bổ.
+* `POST /api/v1/accountant/reconcile` — Kế toán đối soát một giao dịch theo `providerId` với SePay User API.
+* `POST /api/v1/accountant/reconcile-range` — Kế toán chọn ngày bắt đầu và kết thúc để lấy giao dịch từ SePay, tìm giao dịch bị nhỡ webhook và hiển thị kết quả cùng cảnh báo dữ liệu chưa đầy đủ.
+* `POST /api/v1/accountant/recover-payment` — Kế toán yêu cầu khôi phục theo `providerId`. Backend lấy dữ liệu từ SePay và dùng chung logic ghi nhận webhook.
+* `GET /api/v1/accountant/discrepancies` — Tra cứu sai lệch, lọc OPEN/RESOLVED và lý do.
+* `PATCH /api/v1/accountant/discrepancies/:id` — Chỉ ACCOUNTANT; body `{ status: "RESOLVED", note: "Kết quả xử lý" }`, chỉ OPEN → RESOLVED. Ghi chú bắt buộc, tối đa 4.000 ký tự; từ chối trường khác, hồ sơ đã đóng trả 409. Không phụ thuộc RefundRequest; không thay đổi dữ liệu tài chính.
+* `GET /api/v1/analytics/tuition-revenue` & `GET /api/v1/accountant/summary` — Xem học phí đã thu theo khoảng thời gian và số hóa đơn đã hoặc chưa thanh toán đủ theo `UC9.7`.
 
 ### 4. Cụm API của TEACHER / Giảng viên Trung tâm (Phụ trách: Người 4)
 * `GET /api/v1/teacher/dashboard` — Dashboard Giảng viên: Danh sách khóa/lớp đang dạy, lịch dạy, số bài nộp mới và câu hỏi học viên.
@@ -497,8 +567,8 @@ Education-Management-System/
 │       ├── modules/
 │       │   ├── users-courses/          # Người 1 & Người 2: Auth, Users, Students, Teachers, Courses & Lessons
 │       │   ├── classes-schedules/      # Người 2 & Người 5: Classes, Enrollments, Mua khóa học, Schedules
-│       │   ├── accountant/             # Người 3: Payment Orders, SePay Webhook, Reconcile, Refunds
-│       │   ├── grades-tuition/         # Người 3 & Người 4: Tuition Invoices, Grades & Kết quả khóa học
+│       │   ├── accountant/             # Người 3: Payment Orders, SePay Webhook, lịch sử, sai lệch, đối soát theo SePay ID hoặc khoảng ngày & khôi phục
+│       │   ├── grades-tuition/         # Người 3 & Người 4: Hóa đơn, phiếu thu, báo cáo học phí cơ bản, Grades & Kết quả khóa học
 │       │   ├── attendance-assignments/ # Người 4 & Người 5: Attendances, Assignments, Submissions, Progress
 │       │   └── notifications-analytics/# Người 1, 4 & 5: Dashboards, Notifications, Hỏi đáp Q&A
 │       └── app.js
@@ -516,7 +586,7 @@ Education-Management-System/
             ├── users-courses/      # StudentsPage, TeachersPage, CoursesPage (Quản lý & Cửa hàng Khóa học)
             ├── classes-schedules/  # ClassesPage, SchedulePage (Lịch học Live & Link Meet/Zoom)
             ├── attendance-assignments/ # AttendancePage, AssignmentsPage
-            ├── grades-tuition/     # GradesPage, TuitionPage, PaymentOperationsPage
+            ├── grades-tuition/     # GradesPage, TuitionPage, PaymentOperationsPage, TuitionReportPage
             └── notifications-analytics/ # RequestsPage (Hỏi đáp Q&A & Hỗ trợ), NotificationsPage
 ```
 
@@ -528,6 +598,6 @@ Education-Management-System/
 | :--- | :--- | :--- | :--- |
 | **Người 1 (Team Leader)** | **SYSTEM ADMIN** | `users`, `notifications`, `counters` | - Quản trị hạ tầng Monorepo, kết nối MongoDB Atlas (`db.js`), JWT Auth & Middleware phân quyền.<br>- Đăng nhập, đăng ký tài khoản Học viên mới, Khóa/Mở khóa tài khoản người dùng.<br>- Phát thông báo toàn Trung tâm (`SYSTEM`) & Xây dựng **System Admin Dashboard** (4 KPI tổng, thống kê khóa học FPT vs. Chứng chỉ CCNA/IELTS). |
 | **Người 2** | **ACADEMIC STAFF (Quản lý Đào tạo Trung tâm)** | `users` (HV/GV), `courses`, `course_lessons`, `classes`, `schedules` | - Quản lý đội ngũ Giảng viên của Trung tâm (chuyên môn FPT, CCNA, IELTS) & danh sách Học viên (Import/Export Excel, Hồ sơ 360°).<br>- **Quản lý Khóa học (`RECORDED` & `LIVE_ONLINE`)** và biên soạn chương mục Bài giảng Video (`course_lessons`).<br>- Mở các lớp `LIVE_ONLINE` (gắn Giảng viên, `meetUrl`, sĩ số) và **Xếp lịch dạy kèm thuật toán chống trùng lịch Giảng viên/Phòng học**. |
-| **Người 3** | **ACCOUNTANT (Kế toán Tài chính)** | `tuition_invoices`, `tuition_payments`, `payment_orders`, `payment_transactions`, `payment_discrepancies`, `refund_requests`, `payment_audit_logs` | - Quản lý Hóa đơn mua khóa học (`UNPAID` / `PARTIAL` / `PAID`) và gửi nhắc thanh toán.<br>- **Tích hợp thanh toán tự động VietQR + SePay Webhook** (xác thực Apikey, gạch nợ tự động trong Transaction, xuất biên lai điện tử, kích hoạt khóa học).<br>- Đối soát giao dịch qua SePay User API, xử lý giao dịch sai lệch, duyệt hoàn tiền và Báo cáo Doanh thu Trung tâm. |
+| **Người 3** | **ACCOUNTANT (Kế toán Tài chính)** | `tuition_invoices`, `tuition_payments`, `payment_orders`, `payment_transactions`, `payment_discrepancies`, `payment_audit_logs` | - Tra cứu hóa đơn mua khóa học (`UNPAID` / `PARTIAL` / `PAID`) và phiếu thu.<br>- Tích hợp VietQR và SePay Webhook để backend xác thực, chống trùng, cộng dồn, phát hành phiếu thu và kích hoạt Enrollment khi thu đủ.<br>- Xây dựng lịch sử giao dịch, theo dõi và đóng hồ sơ sai lệch kèm ghi chú/audit log, đối soát theo SePay ID hoặc khoảng ngày với SePay User API, khôi phục webhook bị nhỡ và báo cáo doanh thu cơ bản. |
 | **Người 4** | **TEACHER (Giảng viên Trung tâm)** | `attendances`, `assignments`, `submissions`, `grades`, `course_questions` | - Xây dựng **Teacher Dashboard** và xem **Lịch dạy trực tuyến hàng tuần** (kèm link phòng học Zoom/Meet).<br>- Điểm danh học viên trong các buổi dạy `LIVE_ONLINE` và theo dõi thống kê chuyên cần.<br>- Giao bài tập thực hành / bài thi thử (FPT Lab, CCNA Lab, IELTS Writing), chấm điểm & nhận xét bài nộp của học viên.<br>- Nhập điểm đánh giá cuối khóa và **Trả lời câu hỏi của học viên trên kênh Hỏi đáp Trực tuyến (`Q&A`)**. |
 | **Người 5** | **STUDENT (Học viên)** | Truy vấn & tương tác trên `courses`, `course_lessons`, `enrollments`, `lesson_progress`, `schedules`, `submissions`, `course_questions` | - Xây dựng **Cửa hàng Khóa học (`Course Catalog`)**: Lọc khóa học Môn FPT / Chứng chỉ CCNA-IELTS, chọn mua khóa `RECORDED` hoặc lớp `LIVE_ONLINE` và quét mã **VietQR**. <br>- Xây dựng **Không gian Học tập (`My Learning`)**: Xem Video bài giảng, đánh dấu hoàn thành bài học để cập nhật **Thanh tiến độ (`0% - 100%`)**, xem Lịch học Live & vào phòng Zoom/Meet.<br>- Nộp bài tập trực tuyến, xem điểm/nhận xét của Giảng viên và **Đặt câu hỏi trao đổi trực tuyến (`Q&A`) với Giảng viên**. |

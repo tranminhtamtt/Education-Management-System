@@ -93,6 +93,18 @@ async function applyPayment(session, transactionId, invoiceId, actorId = null) {
 
   const txStatus = appliedAmount === Number(transaction.amount) ? 'MATCHED' : 'DISCREPANCY';
   await PaymentTransaction.updateOne({ id: transaction.id }, { $set: { invoiceId, appliedAmount, status: txStatus } }, { session });
+  if (Number(inv.paidAmount) + appliedAmount >= Number(inv.amount)) {
+    const covered = await PaymentTransaction.find({
+      invoiceId,
+      appliedAmount: { $gt: 0 },
+      $expr: { $eq: ['$appliedAmount', '$amount'] }
+    }).select('id').session(session);
+    await PaymentDiscrepancy.updateMany({
+      transactionId: { $in: covered.map(t => t.id) },
+      reason: 'UNDERPAYMENT',
+      status: 'OPEN'
+    }, { $set: { status: 'RESOLVED' } }, { session });
+  }
   if (txStatus === 'DISCREPANCY') {
     await upsertDiscrepancy(session, transaction.id, 'OVERPAYMENT_OR_DUPLICATE');
   } else {
