@@ -218,7 +218,9 @@ router.get('/attendances/my-report', authenticateJWT, authorizeRoles('STUDENT'),
       .populate([
         'grade',
         { path: 'class', populate: ['course', { path: 'teacher', select: 'fullName' }, 'schedules'] }
-      ])).map(plain).filter(e => e.class && e.class.course?.deliveryMode !== 'RECORDED');
+      ])).map(plain)
+      // Trung tâm khóa học: chuyên cần chỉ áp dụng cho lớp Live đang/sắp học, không hiện khóa video hay lớp đã kết thúc.
+      .filter(e => e.class && e.class.course?.deliveryMode !== 'RECORDED' && e.class.status !== 'COMPLETED');
     const allRecords = (await Attendance.find({ studentId, classId: { $in: enrollments.map(e => e.classId) } })
       .sort({ sessionDate: 1 })).map(plain);
 
@@ -237,18 +239,20 @@ router.get('/attendances/my-report', authenticateJWT, authorizeRoles('STUDENT'),
       // Tuần 1
       schedules.forEach(s => {
         const dateStr = sessionDate(s.dayOfWeek);
-        plannedSessions.push({ week: 1, dateStr, dayOfWeek: s.dayOfWeek, shift: s.shift, room: s.room });
+        plannedSessions.push({ week: 1, dateStr, dayOfWeek: s.dayOfWeek, shift: s.shift, room: s.room, startTime: s.startTime, endTime: s.endTime });
       });
       // Tuần 2
       schedules.forEach(s => {
         const dateStr = sessionDate(s.dayOfWeek, 1);
-        plannedSessions.push({ week: 2, dateStr, dayOfWeek: s.dayOfWeek, shift: s.shift, room: s.room });
+        plannedSessions.push({ week: 2, dateStr, dayOfWeek: s.dayOfWeek, shift: s.shift, room: s.room, startTime: s.startTime, endTime: s.endTime });
       });
 
       // Giữ toàn bộ lịch sử đã điểm danh, kể cả ngoài hai tuần đang xem.
       for (const record of records) {
         const dateStr = new Date(record.sessionDate).toISOString().slice(0, 10);
-        if (!plannedSessions.some(s => s.dateStr === dateStr)) plannedSessions.push({ dateStr, week: null, dayOfWeek: new Date(record.sessionDate).getUTCDay() === 0 ? 8 : new Date(record.sessionDate).getUTCDay() + 1 });
+        const dayOfWeek = new Date(record.sessionDate).getUTCDay() === 0 ? 8 : new Date(record.sessionDate).getUTCDay() + 1;
+        const slot = schedules.find(s => s.dayOfWeek === dayOfWeek);
+        if (!plannedSessions.some(s => s.dateStr === dateStr)) plannedSessions.push({ dateStr, week: null, dayOfWeek, shift: slot?.shift, room: slot?.room, startTime: slot?.startTime, endTime: slot?.endTime });
       }
       plannedSessions.sort((a, b) => a.dateStr.localeCompare(b.dateStr) || (a.shift || 0) - (b.shift || 0));
       const totalSessions = e.class.course?.totalSessions || plannedSessions.length || 1;
@@ -268,6 +272,8 @@ router.get('/attendances/my-report', authenticateJWT, authorizeRoles('STUDENT'),
           dayOfWeek: ps.dayOfWeek,
           shift: ps.shift,
           room: ps.room,
+          startTime: ps.startTime || null,
+          endTime: ps.endTime || null,
           status: rec ? rec.status : ps.dateStr > vietnamToday() ? 'UPCOMING' : 'NOT_RECORDED',
           note: rec ? (rec.note || '') : ps.dateStr > vietnamToday() ? 'Chưa đến buổi học' : 'Chưa điểm danh'
         };
@@ -277,11 +283,17 @@ router.get('/attendances/my-report', authenticateJWT, authorizeRoles('STUDENT'),
         classId: e.class.id,
         classCode: e.class.classCode,
         semester: e.class.semester,
+        classStatus: e.class.status,
+        meetUrl: e.class.meetUrl || null,
         teacherName: e.class.teacher?.fullName || 'Chưa phân công',
         courseCode: e.class.course?.courseCode,
         courseName: e.class.course?.name,
         totalSessions,
         recordedSessions: records.length,
+        // Số liệu gọn cho học viên: đã tham gia bao nhiêu buổi trong các buổi đã diễn ra.
+        attendedSessions: present + late,
+        missedSessions: absentExcused + absentUnexcused,
+        attendanceRate: records.length ? Math.round(((present + late) / records.length) * 100) : 100,
         present,
         absentExcused,
         absentUnexcused,

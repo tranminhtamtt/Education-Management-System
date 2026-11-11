@@ -121,34 +121,56 @@ router.patch('/notifications/:id/read', authenticateJWT, async (req, res) => {
 // 2. ONLINE APPLICATIONS / REQUESTS (UC11.1 - UC11.2)
 // ==========================================
 
-// UC11.1: Học viên nộp đơn online (Nghỉ phép, Phúc khảo, Xác nhận SV)
+// Loại đơn học viên được gửi tới trung tâm (REMARK – phúc khảo – không còn áp dụng, chỉ đọc dữ liệu cũ).
+const REQUEST_TYPES = {
+  ABSENCE: { label: 'Xin nghỉ buổi học Live', needsClass: true },
+  CLASS_TRANSFER: { label: 'Xin chuyển lớp / đổi lịch học Live', needsClass: true },
+  DEFERRAL: { label: 'Xin bảo lưu khóa học', needsClass: true },
+  REFUND: { label: 'Xin hủy khóa & hoàn học phí', needsClass: true, allowPending: true },
+  PAYMENT_ISSUE: { label: 'Đã chuyển khoản nhưng khóa học chưa mở', allowPending: true },
+  CONFIRMATION: { label: 'Xin giấy xác nhận học viên / chứng nhận hoàn thành', },
+  FEEDBACK: { label: 'Góp ý / khiếu nại về khóa học, giảng viên' }
+};
+const requestLabel = type => REQUEST_TYPES[type]?.label || (type === 'REMARK' ? 'Phúc khảo điểm (cũ)' : type);
+
+// UC11.1: Học viên gửi đơn tới trung tâm
 router.post('/requests', authenticateJWT, authorizeRoles('STUDENT'), upload.single('attachment'), async (req, res) => {
   try {
     const studentId = req.user.id;
     const { requestType, classId, reason, sessionDate } = req.body;
 
-    if (!requestType || !reason) {
+    if (!requestType || !reason || !String(reason).trim()) {
       return errorResponse(res, 'Loại đơn và Lý do là bắt buộc', 400);
     }
+    const rule = REQUEST_TYPES[requestType];
+    if (!rule) return errorResponse(res, 'Loại đơn không hợp lệ', 400);
+    const classNumber = classId ? parseInt(classId) : null;
+    if (rule.needsClass && !classNumber) return errorResponse(res, 'Vui lòng chọn khóa học liên quan', 400);
+    if (classNumber) {
+      // Chỉ được gửi đơn cho khóa học của chính mình
+      const owned = await Enrollment.findOne({ classId: classNumber, studentId, status: { $in: rule.allowPending ? ['ACTIVE', 'PENDING_PAYMENT'] : ['ACTIVE'] } });
+      if (!owned) return errorResponse(res, 'Bạn không học khóa / lớp này', 403);
+    }
+    if (requestType === 'ABSENCE' && !sessionDate) return errorResponse(res, 'Vui lòng chọn ngày buổi học xin nghỉ', 400);
 
     const attachmentUrl = req.file ? `/uploads/${req.file.filename}` : null;
 
     const created = await StudentRequest.create({
       studentId,
-      classId: classId ? parseInt(classId) : null,
-      requestType, // 'ABSENCE', 'REMARK', 'CONFIRMATION'
-      sessionDate: sessionDate ? new Date(sessionDate) : null,
-      reason: reason.trim(),
+      classId: classNumber,
+      requestType,
+      sessionDate: requestType === 'ABSENCE' && sessionDate ? new Date(sessionDate) : null,
+      reason: String(reason).trim(),
       attachmentUrl,
       status: 'PENDING'
     });
     const request = await StudentRequest.findOne({ id: created.id }).populate({ path: 'student', select: 'fullName code' });
 
-    return successResponse(res, plain(request), 'Nộp đơn học vụ thành công', 201);
+    return successResponse(res, plain(request), 'Đã gửi đơn tới trung tâm', 201);
   } catch (error) {
     console.error('Error submitting student request:', error);
     if (error.name === 'ValidationError') return errorResponse(res, 'Loại đơn không hợp lệ', 400);
-    return errorResponse(res, 'Lỗi nộp đơn học vụ', 500);
+    return errorResponse(res, 'Lỗi gửi đơn', 500);
   }
 });
 
@@ -239,7 +261,7 @@ router.patch('/requests/:id/review', authenticateJWT, authorizeRoles('ADMIN'), a
     // Gửi thông báo đến sinh viên
     await Notification.create({
       userId: request.studentId,
-      title: `Kết quả xét duyệt đơn: ${request.requestType}`,
+      title: `Kết quả xét duyệt đơn: ${requestLabel(request.requestType)}`,
       message: `Đơn của bạn đã được ${status === 'APPROVED' ? 'CHẤP THUẬN' : 'TỪ CHỐI'}. Phản hồi: ${adminResponse || 'Không có ghi chú thêm'}`,
       type: 'REQUEST'
     });

@@ -33,15 +33,16 @@ const Sidebar = () => {
         { key: '/notifications', icon: <NotificationOutlined />, label: 'Thông báo' }
       ]
     : role === 'STUDENT' ? [
+        // Trung tâm khóa học: không có mục "Kết quả học tập" (không ràng buộc điểm số)
         { key: '/dashboard', icon: <DashboardOutlined />, label: 'Không gian học tập' },
         { key: '/catalog', icon: <BookOutlined />, label: 'Khám phá khóa học' },
         { key: '/my-courses', icon: <ApartmentOutlined />, label: 'Khóa học của tôi' },
         { key: '/schedule', icon: <CalendarOutlined />, label: 'Lịch học Live' },
         { key: '/attendance', icon: <CheckSquareOutlined />, label: 'Chuyên cần' },
         { key: '/assignments', icon: <FileTextOutlined />, label: 'Bài tập & nộp bài' },
-        { key: '/grades', icon: <TrophyOutlined />, label: 'Kết quả học tập' },
-        { key: '/tuition', icon: <DollarCircleOutlined />, label: 'Học phí & VietQR' },
         { key: '/questions', icon: <AuditOutlined />, label: 'Hỏi đáp giảng viên' },
+        { key: '/tuition', icon: <DollarCircleOutlined />, label: 'Học phí & VietQR' },
+        { key: '/requests', icon: <FileTextOutlined />, label: 'Đơn từ' },
         { key: '/notifications', icon: <NotificationOutlined />, label: 'Thông báo' }
       ] : [
     {

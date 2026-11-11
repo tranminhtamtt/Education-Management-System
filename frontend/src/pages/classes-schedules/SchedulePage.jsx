@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Table, Tag, Typography, Button, Space, Modal, Form, Select, Input, message, Row, Col, Radio, Alert, Badge } from 'antd';
+import { Card, Table, Tag, Typography, Button, Space, Modal, Form, Select, Input, message, Row, Col, Radio, Alert, Badge, Grid, Empty } from 'antd';
 import { PlusOutlined, CalendarOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import apiClient from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
@@ -73,6 +73,13 @@ const SchedulePage = () => {
       fetchClasses();
     }
   }, [isAdmin, weekStart]);
+
+  // Học viên: biết khóa nào không nằm trên thời khóa biểu và vì sao (video tự học, chờ thanh toán, sắp khai giảng).
+  const screens = Grid.useBreakpoint();
+  const [myCourses, setMyCourses] = useState([]);
+  useEffect(() => {
+    if (isStudent) apiClient.get('/my-courses').then(res => setMyCourses(res.data || [])).catch(() => setMyCourses([]));
+  }, [isStudent]);
 
   // Xếp lịch học mới (Admin)
   const handleCreateSchedule = async (values) => {
@@ -197,6 +204,20 @@ const SchedulePage = () => {
   ];
 
   const uniqueClassesCount = new Set(schedules.map(s => s.classId)).size;
+  const scheduledClassIds = new Set(schedules.map(s => s.classId));
+  const offTimetable = myCourses.filter(e => !scheduledClassIds.has(e.classId));
+  const offReason = e => e.class?.course?.deliveryMode === 'RECORDED'
+    ? 'Khóa video – tự học, không có lịch'
+    : e.status === 'PENDING_PAYMENT' ? 'Chờ thanh toán – lịch hiện sau khi thanh toán'
+    : e.class?.status === 'UPCOMING' ? 'Sắp khai giảng' : 'Lớp đã kết thúc';
+  // Danh sách theo ngày cho điện thoại (thay cho bảng 7 cột phải cuộn ngang)
+  const mobileList = isStudent && !screens.md;
+  const weeks = selectedWeek === 'BOTH' ? [0, 1] : selectedWeek === 'WEEK1' ? [0] : [1];
+  const dayGroups = weeks.flatMap(w => DAYS.map(day => ({
+    key: `${w}-${day.value}`,
+    label: `${day.label} ${w === 0 ? day.w1Date : day.w2Date}`,
+    items: schedules.filter(s => s.dayOfWeek === day.value).sort((a, b) => a.shift - b.shift).map(s => ({ ...s, session: w === 0 ? s.week1Session : s.week2Session }))
+  }))).filter(g => g.items.length);
 
   return (
     <div>
@@ -204,13 +225,22 @@ const SchedulePage = () => {
         message={`Lịch học từ ${dayjs(weekStart).format('DD/MM/YYYY')} đến ${dayjs(weekStart).add(13, 'day').format('DD/MM/YYYY')}`}
         description={
           isStudent
-            ? `Bạn có ${uniqueClassesCount} lớp (${schedules.length} ca/tuần). Trạng thái điểm danh được lấy từ dữ liệu của bạn.`
+            ? `Bạn có ${uniqueClassesCount} lớp Live (${schedules.length} buổi/tuần). Trạng thái điểm danh được lấy từ dữ liệu của bạn.`
             : 'Xem lịch giảng dạy và phòng học theo tuần.'
         }
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
       />
+      {isStudent && offTimetable.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={`${offTimetable.length} khóa học không có trên thời khóa biểu`}
+          description={<div>{offTimetable.map(e => <div key={e.id}>• <b>{e.class.course.name}</b> — {offReason(e)}</div>)}</div>}
+        />
+      )}
 
       <Card
         title={
@@ -245,6 +275,27 @@ const SchedulePage = () => {
           </Space>
         }
       >
+        {mobileList ? (
+          dayGroups.length === 0 ? <Empty description="Không có buổi học Live trong khoảng thời gian này" /> : (
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              {dayGroups.map(g => (
+                <div key={g.key}>
+                  <Text strong style={{ color: '#F26F21' }}>{g.label}</Text>
+                  {g.items.map(item => (
+                    <div key={item.id} style={{ background: '#FFF7E6', border: '1px solid #FFD591', borderRadius: 8, padding: '8px 10px', marginTop: 6 }}>
+                      <div style={{ fontWeight: 700, color: '#D46B08' }}>{item.startTime}–{item.endTime} · {item.courseName}</div>
+                      <div style={{ fontSize: 12, color: '#595959' }}>{item.classCode} · GV: {item.teacherName}</div>
+                      <Space wrap size={4} style={{ marginTop: 4 }}>
+                        {renderSessionBadge(item.session, 'Buổi')}
+                        {item.meetUrl && /^https?:\/\//i.test(item.meetUrl) && <Button type="link" size="small" href={item.meetUrl} target="_blank" rel="noreferrer" style={{ padding: 0 }}>Vào phòng học Online</Button>}
+                      </Space>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </Space>
+          )
+        ) : (
         <Table
           rowKey="key"
           bordered
@@ -254,6 +305,7 @@ const SchedulePage = () => {
           pagination={false}
           scroll={{ x: 1100 }}
         />
+        )}
       </Card>
 
       {/* Modal Xếp Lịch Học Mới Cho Admin */}

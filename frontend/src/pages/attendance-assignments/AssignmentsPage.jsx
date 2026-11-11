@@ -329,7 +329,7 @@ const AssignmentsPage = () => {
   return (
     <div>
       <Card
-        title="Quản lý Bài tập Lớp học"
+        title={isStudent ? 'Bài tập & nộp bài' : 'Quản lý Bài tập Lớp học'}
         extra={
           isTeacherOrAdmin && (
             <Button
@@ -343,16 +343,16 @@ const AssignmentsPage = () => {
           )
         }
       >
-        <Space style={{ marginBottom: 20 }} wrap>
-          <Text strong>Chọn Lớp Học:</Text>
+        <Space style={{ marginBottom: 20, width: '100%' }} wrap>
+          <Text strong>{isStudent ? 'Khóa học:' : 'Chọn Lớp Học:'}</Text>
           <Select
-            style={{ width: 320 }}
+            style={{ width: 360, maxWidth: '100%' }}
             value={selectedClassId}
             onChange={setSelectedClassId}
             options={[
-              ...(isStudent ? [{ label: '📚 Tất cả các môn đang học kỳ này (SP26)', value: 'ALL' }] : []),
+              ...(isStudent ? [{ label: '📚 Tất cả khóa đang học', value: 'ALL' }] : []),
               ...classes.map(c => ({
-                label: `${c.classCode} - ${c.course.name}`,
+                label: isStudent ? `${c.course.name} (${c.classCode.startsWith('VIDEO-') ? 'Video' : c.classCode})` : `${c.classCode} - ${c.course.name}`,
                 value: c.id
               }))
             ]}
@@ -365,6 +365,8 @@ const AssignmentsPage = () => {
           dataSource={assignments}
           loading={loading}
           pagination={{ pageSize: 10 }}
+          scroll={{ x: 900 }}
+          locale={{ emptyText: isStudent ? 'Chưa có bài tập nào. Khóa video tự học thường không có bài tập do giảng viên giao.' : undefined }}
         />
       </Card>
 

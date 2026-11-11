@@ -145,7 +145,7 @@ const NotificationsPage = () => {
   return (
     <div>
       <Card
-        title="Danh sách Thông báo Hệ thống & Lớp học"
+        title={isAdmin ? 'Danh sách Thông báo Hệ thống & Lớp học' : 'Thông báo'}
         extra={
           isAdmin && (
             <Button
@@ -165,6 +165,7 @@ const NotificationsPage = () => {
           dataSource={notifications}
           loading={loading}
           pagination={{ pageSize: 10 }}
+          scroll={{ x: 760 }}
         />
       </Card>
 

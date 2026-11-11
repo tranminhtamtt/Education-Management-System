@@ -32,7 +32,7 @@ import PaymentOperationsPage from './pages/grades-tuition/PaymentOperationsPage'
 // Cụm 5: Tương tác, Đơn từ & Báo cáo
 import RequestsPage from './pages/notifications-analytics/RequestsPage';
 import NotificationsPage from './pages/notifications-analytics/NotificationsPage';
-import { CatalogPage, MyLearningPage, CoursePlayerPage, QuestionsPage, StudentDashboard } from './pages/student/StudentPortal';
+import { CatalogPage, SubjectDetailPage, MyLearningPage, CoursePlayerPage, QuestionsPage, StudentDashboard } from './pages/student/StudentPortal';
 
 const RoleRoute = ({ allowed, children }) => {
   const { user } = useAuth();
@@ -50,7 +50,13 @@ const TuitionReportRoute = () => {
 
 const GradesRoute = () => {
   const { user } = useAuth();
-  return user?.role === 'TEACHER' ? <Navigate to="/dashboard" replace /> : <GradesPage />;
+  // Học viên trung tâm không có trang kết quả học tập; giảng viên chỉ chấm bài tập.
+  return ['TEACHER', 'STUDENT'].includes(user?.role) ? <Navigate to="/dashboard" replace /> : <GradesPage />;
+};
+
+const CurriculumRoute = () => {
+  const { user } = useAuth();
+  return user?.role === 'STUDENT' ? <Navigate to="/catalog" replace /> : <CurriculumPage />;
 };
 
 const App = () => {
@@ -75,6 +81,7 @@ const App = () => {
               <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="dashboard" element={<DashboardRoute />} />
               <Route path="catalog" element={<RoleRoute allowed={['STUDENT']}><CatalogPage /></RoleRoute>} />
+              <Route path="catalog/subjects/:subjectId" element={<RoleRoute allowed={['STUDENT']}><SubjectDetailPage /></RoleRoute>} />
               <Route path="my-courses" element={<RoleRoute allowed={['STUDENT']}><MyLearningPage /></RoleRoute>} />
               <Route path="my-courses/:id" element={<RoleRoute allowed={['STUDENT']}><CoursePlayerPage /></RoleRoute>} />
               <Route path="questions" element={<RoleRoute allowed={['STUDENT', 'TEACHER', 'ADMIN']}><QuestionsPage /></RoleRoute>} />
@@ -83,7 +90,7 @@ const App = () => {
               <Route path="students" element={<RoleRoute allowed={['ADMIN']}><StudentsPage /></RoleRoute>} />
               <Route path="teachers" element={<RoleRoute allowed={['ADMIN']}><TeachersPage /></RoleRoute>} />
               <Route path="courses" element={<RoleRoute allowed={['ADMIN', 'TEACHER']}><CoursesPage /></RoleRoute>} />
-              <Route path="curriculum" element={<CurriculumPage />} />
+              <Route path="curriculum" element={<CurriculumRoute />} />
 
               {/* Cụm 2 */}
               <Route path="classes" element={<RoleRoute allowed={['ADMIN', 'TEACHER']}><ClassesPage /></RoleRoute>} />
