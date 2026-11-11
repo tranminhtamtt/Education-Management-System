@@ -31,7 +31,7 @@ async function connectDB(uri = process.env.MONGODB_URI) {
     const passwordHash = await bcrypt.hash('123456', 10);
     const seed = buildLegacyTiDBSeed({ passwordHash });
     const COLLECTION_MODELS = {
-      users: models.User, courses: models.Course, classes: models.Class, schedules: models.Schedule, enrollments: models.Enrollment,
+      users: models.User, courses: models.Course, course_lessons: models.CourseLesson, classes: models.Class, schedules: models.Schedule, enrollments: models.Enrollment,
       grades: models.Grade, tuition_invoices: models.TuitionInvoice, tuition_payments: models.TuitionPayment, notifications: models.Notification,
       attendances: models.Attendance, assignments: models.Assignment, submissions: models.Submission, student_requests: models.StudentRequest
     };

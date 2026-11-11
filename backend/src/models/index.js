@@ -107,6 +107,11 @@ const User = define('User', 'users', {
 const Course = define('Course', 'courses', {
   courseCode: { type: String, required: true, unique: true, maxlength: 50 },
   name: { type: String, required: true, maxlength: 150 },
+  category: { type: String, enum: ['FPT_SUBJECT', 'CERTIFICATE'], default: 'FPT_SUBJECT', index: true },
+  deliveryMode: { type: String, enum: ['RECORDED', 'LIVE_ONLINE'], default: 'RECORDED', index: true },
+  level: { type: String, enum: ['BEGINNER', 'INTERMEDIATE', 'ADVANCED'], default: 'BEGINNER' },
+  instructorId: { type: Number, default: null, index: true },
+  thumbnailUrl: { type: String, default: null },
   credits: { type: Number, default: 3 },
   totalSessions: { type: Number, default: 30 },
   baseTuitionFee: { type: Number, default: 0, min: 0 },
@@ -115,7 +120,26 @@ const Course = define('Course', 'courses', {
   status: { type: String, enum: ['ACTIVE', 'INACTIVE'], default: 'ACTIVE' },
   ...ts
 }, {}, s => {
+  s.virtual('instructor', ref('User', 'instructorId'));
   s.virtual('classes', many('Class', 'courseId'));
+  s.virtual('lessons', many('CourseLesson', 'courseId', { options: { sort: { orderIndex: 1 } } }));
+});
+
+// ---------------------------------------------------------------------------
+// 2b. course_lessons (Bài giảng Video & Chương mục - UC3.2)
+// ---------------------------------------------------------------------------
+const CourseLesson = define('CourseLesson', 'course_lessons', {
+  courseId: { type: Number, required: true, index: true },
+  sectionTitle: { type: String, default: 'Chương 1' },
+  title: { type: String, required: true, maxlength: 200 },
+  orderIndex: { type: Number, default: 1 },
+  videoUrl: { type: String, default: null },
+  materialUrl: { type: String, default: null },
+  durationMinutes: { type: Number, default: 0 },
+  isPreview: { type: Boolean, default: false },
+  ...ts
+}, {}, s => {
+  s.virtual('course', ref('Course', 'courseId'));
 });
 
 // ---------------------------------------------------------------------------
@@ -127,6 +151,9 @@ const Class = define('Class', 'classes', {
   teacherId: { type: Number, default: null, index: true },
   semester: { type: String, required: true, maxlength: 20, index: true },
   maxStudents: { type: Number, default: 30 },
+  meetUrl: { type: String, default: null },
+  startDate: { type: Date, default: null },
+  endDate: { type: Date, default: null },
   status: { type: String, enum: ['UPCOMING', 'ONGOING', 'COMPLETED'], default: 'UPCOMING' },
   ...ts
 }, {}, s => {
@@ -371,6 +398,7 @@ module.exports = {
   Counter,
   User,
   Course,
+  CourseLesson,
   Class,
   Enrollment,
   Schedule,

@@ -170,6 +170,9 @@ router.get('/classes', authenticateJWT, async (req, res) => {
         maxStudents: c.maxStudents,
         currentStudents: countMap.get(c.id) || 0,
         status: c.status,
+        meetUrl: c.meetUrl || null,
+        startDate: c.startDate || null,
+        endDate: c.endDate || null,
         course: c.course,
         teacher: c.teacher || null,
         schedules: c.schedules,
@@ -222,7 +225,7 @@ router.get('/classes/:id', authenticateJWT, async (req, res) => {
 // UC4.1: Mở lớp học phần mới
 router.post('/classes', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
   try {
-    const { classCode, courseId, teacherId, semester, maxStudents } = req.body;
+    const { classCode, courseId, teacherId, semester, maxStudents, meetUrl, startDate, endDate } = req.body;
 
     if (!classCode || !courseId || !semester) {
       return errorResponse(res, 'Mã lớp, Môn học và Học kỳ là bắt buộc', 400);
@@ -246,6 +249,9 @@ router.post('/classes', authenticateJWT, authorizeRoles('ADMIN'), async (req, re
       teacherId: teacherId ? parseInt(teacherId) : null,
       semester: semester.trim().toUpperCase(),
       maxStudents: maxStudents ? parseInt(maxStudents) : 30,
+      meetUrl: meetUrl || null,
+      startDate: startDate ? new Date(startDate) : null,
+      endDate: endDate ? new Date(endDate) : null,
       status: 'UPCOMING'
     });
     const newClass = await Class.findOne({ id: created.id }).populate(['course', { path: 'teacher', select: 'fullName code' }]);
@@ -257,11 +263,11 @@ router.post('/classes', authenticateJWT, authorizeRoles('ADMIN'), async (req, re
   }
 });
 
-// Cập nhật thông tin lớp (Đổi GV, Trạng thái)
+// Cập nhật thông tin lớp (Đổi GV, Trạng thái, MeetUrl)
 router.put('/classes/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const { teacherId, status, maxStudents, semester } = req.body;
+    const { teacherId, status, maxStudents, semester, meetUrl, startDate, endDate } = req.body;
 
     const updated = await Class.findOneAndUpdate(
       { id },
@@ -270,7 +276,10 @@ router.put('/classes/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req,
           ...(teacherId !== undefined ? { teacherId: teacherId ? parseInt(teacherId) : null } : {}),
           ...(status ? { status } : {}),
           ...(maxStudents ? { maxStudents: parseInt(maxStudents) } : {}),
-          ...(semester ? { semester: semester.trim().toUpperCase() } : {})
+          ...(semester ? { semester: semester.trim().toUpperCase() } : {}),
+          ...(meetUrl !== undefined ? { meetUrl: meetUrl || null } : {}),
+          ...(startDate !== undefined ? { startDate: startDate ? new Date(startDate) : null } : {}),
+          ...(endDate !== undefined ? { endDate: endDate ? new Date(endDate) : null } : {})
         }
       },
       { new: true, runValidators: true }

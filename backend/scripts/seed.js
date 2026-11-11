@@ -250,7 +250,7 @@ function buildLegacyTiDBSeed({ passwordHash }) {
   const ids = {};
   const next = name => (ids[name] = (ids[name] || 0) + 1);
   const data = {
-    users: [], courses: [], classes: [], schedules: [], enrollments: [],
+    users: [], courses: [], course_lessons: [], classes: [], schedules: [], enrollments: [],
     grades: [], attendances: [], tuition_invoices: [], tuition_payments: [],
     assignments: [], submissions: [], student_requests: [], notifications: []
   };
@@ -338,10 +338,14 @@ function buildLegacyTiDBSeed({ passwordHash }) {
 
   const courseByCode = {};
   for (const c of SE_CURRICULUM) {
+    const isRecorded = ['PRF192', 'PRO192', 'CSD201'].includes(c.courseCode);
     const course = {
       id: next('courses'),
       courseCode: c.courseCode,
       name: c.name,
+      category: 'FPT_SUBJECT',
+      deliveryMode: isRecorded ? 'RECORDED' : 'LIVE_ONLINE',
+      level: c.term <= 2 ? 'BEGINNER' : c.term <= 4 ? 'INTERMEDIATE' : 'ADVANCED',
       credits: c.credits,
       totalSessions: 6,
       baseTuitionFee: c.credits >= 10 ? 8500000 : c.term >= 5 ? 5000000 : 4500000,
@@ -351,6 +355,25 @@ function buildLegacyTiDBSeed({ passwordHash }) {
     };
     data.courses.push(course);
     courseByCode[c.courseCode] = course;
+
+    // Seed bài giảng mẫu cho khóa học RECORDED PRF192
+    if (c.courseCode === 'PRF192') {
+      const prfLessons = [
+        { sectionTitle: 'Chương 1: Nhập môn Lập trình C', title: 'Bài 1: Cài đặt GCC & Viết chương trình Hello World', orderIndex: 1, durationMinutes: 25, isPreview: true, videoUrl: 'https://www.youtube.com/watch?v=KJgsSFOSQv0' },
+        { sectionTitle: 'Chương 1: Nhập môn Lập trình C', title: 'Bài 2: Kiểu dữ liệu, Biến và Hằng số trong C', orderIndex: 2, durationMinutes: 30, isPreview: true, videoUrl: 'https://www.youtube.com/watch?v=KJgsSFOSQv0' },
+        { sectionTitle: 'Chương 2: Cấu trúc Điều khiển', title: 'Bài 3: Cấu trúc Rẽ nhánh if-else và switch-case', orderIndex: 3, durationMinutes: 45, isPreview: false, videoUrl: 'https://www.youtube.com/watch?v=KJgsSFOSQv0' },
+        { sectionTitle: 'Chương 2: Cấu trúc Điều khiển', title: 'Bài 4: Vòng lặp for, while và do-while thực chiến', orderIndex: 4, durationMinutes: 40, isPreview: false, videoUrl: 'https://www.youtube.com/watch?v=KJgsSFOSQv0' },
+        { sectionTitle: 'Chương 3: Hàm và Mảng', title: 'Bài 5: Khai báo Hàm, Truyền tham trị & Tham chiếu', orderIndex: 5, durationMinutes: 50, isPreview: false, videoUrl: 'https://www.youtube.com/watch?v=KJgsSFOSQv0' }
+      ];
+      prfLessons.forEach(l => {
+        data.course_lessons.push({
+          id: next('course_lessons'),
+          courseId: course.id,
+          ...l,
+          materialUrl: 'https://fpt.edu.vn/materials/prf192-slides.pdf'
+        });
+      });
+    }
   }
 
   const historicalClassesSpec = [
@@ -406,6 +429,7 @@ function buildLegacyTiDBSeed({ passwordHash }) {
       teacherId: teachers[c.teacherIdx].id,
       semester: c.semester,
       maxStudents: 30,
+      meetUrl: status === 'COMPLETED' ? null : `https://meet.google.com/ems-${c.classCode.toLowerCase()}`,
       status,
       createdAt: status === 'COMPLETED' ? new Date('2025-05-01T08:00:00Z') : new Date('2026-10-20T08:00:00Z')
     };
