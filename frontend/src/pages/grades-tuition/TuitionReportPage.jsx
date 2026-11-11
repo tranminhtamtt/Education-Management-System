@@ -71,6 +71,7 @@ const exportDebtCsv = (rows, year) => {
 const TuitionReportPage = ({ embedded = false }) => {
   const navigate = useNavigate();
   const [year, setYear] = useState(dayjs().year());
+  const [range, setRange] = useState(null);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [receiptPaymentId, setReceiptPaymentId] = useState(null);
@@ -78,14 +79,19 @@ const TuitionReportPage = ({ embedded = false }) => {
   const fetchReport = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await apiClient.get('/analytics/tuition-revenue', { params: { year } });
+      const params = { year };
+      if (range) {
+        params.from = range[0].format('YYYY-MM-DD');
+        params.to = range[1].format('YYYY-MM-DD');
+      }
+      const res = await apiClient.get('/analytics/tuition-revenue', { params });
       if (res.success) setData(res.data);
     } catch (err) {
       message.error(err.response?.data?.message || 'Lỗi tải thống kê doanh thu');
     } finally {
       setLoading(false);
     }
-  }, [year]);
+  }, [year, range]);
 
   useEffect(() => {
     fetchReport();
@@ -99,7 +105,7 @@ const TuitionReportPage = ({ embedded = false }) => {
     );
   }
 
-  const { kpi, monthly, statusBreakdown, byCourse, debtList, recentPayments } = data;
+  const { kpi, monthly, statusBreakdown, byCourse, debtList, recentPayments, range: reportRange } = data;
   const hasMonthlyData = monthly.some((m) => m.collected > 0 || m.outstanding > 0);
 
   return (
@@ -117,13 +123,20 @@ const TuitionReportPage = ({ embedded = false }) => {
           )}
           <Text type="secondary">Đã thu theo ngày thu từng đợt • Còn nợ theo tháng phát sinh hóa đơn</Text>
         </div>
-        <Space>
+        <Space wrap>
           <DatePicker
             id="revenue-year-picker"
             picker="year"
             allowClear={false}
             value={dayjs().year(year)}
             onChange={(d) => d && setYear(d.year())}
+          />
+          <DatePicker.RangePicker
+            value={range}
+            format="DD/MM/YYYY"
+            placeholder={['Ngày bắt đầu', 'Ngày kết thúc']}
+            onChange={setRange}
+            disabled={loading}
           />
           <Button icon={<ReloadOutlined />} onClick={fetchReport} />
         </Space>
@@ -166,7 +179,7 @@ const TuitionReportPage = ({ embedded = false }) => {
         </Col>
         <Col xs={24} sm={12} xl={5}>
           <Card bordered={false}>
-            <Statistic title={`Thu trong tháng ${dayjs().format('MM/YYYY')}`} value={kpi.collectedThisMonth} formatter={formatVnd} valueStyle={{ color: '#F26F21', fontSize: 20 }} prefix={<RiseOutlined />} />
+            <Statistic title={reportRange ? 'Đã thu trong khoảng ngày' : `Thu trong tháng ${dayjs().format('MM/YYYY')}`} value={reportRange ? kpi.collectedInRange : kpi.collectedThisMonth} formatter={formatVnd} valueStyle={{ color: '#F26F21', fontSize: 20 }} prefix={<RiseOutlined />} />
             <Text type="secondary" style={{ fontSize: 12 }}>
               <TeamOutlined /> {kpi.debtorCount} học viên còn nợ
             </Text>
@@ -300,7 +313,7 @@ const TuitionReportPage = ({ embedded = false }) => {
           </Card>
         </Col>
         <Col xs={24} lg={12}>
-          <Card bordered={false} title="Giao dịch thu gần đây">
+          <Card bordered={false} title={reportRange ? 'Phiếu thu gần nhất trong khoảng ngày' : 'Giao dịch thu gần đây'}>
             <Table
               rowKey="id"
               size="small"

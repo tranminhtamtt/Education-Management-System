@@ -6,7 +6,7 @@ const { User, Class, Enrollment } = require('../../models');
 const { plain } = require('../../utils/query');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
 const { SE_CURRICULUM, TOTAL_TERMS, checkPrerequisites, summarizeEnrollments, findCurriculumCourse } = require('./curriculumData');
-const { enrollStudent, loadStudentEnrollments } = require('./enrollmentPolicy');
+const { enrollStudent, loadStudentEnrollments, reservedEnrollmentStatuses } = require('./enrollmentPolicy');
 
 const MAJOR = 'Kỹ thuật phần mềm (Software Engineering - SE)';
 const cohortOf = year => `K${(year || 2024) - 2006}`; // K18, K19, K20...
@@ -284,7 +284,7 @@ router.get('/curriculum/eligible-students/:classId', authenticateJWT, authorizeR
       return errorResponse(res, 'Không tìm thấy lớp học phần', 404);
     }
     const targetClass = plain(targetDoc);
-    const classEnrollments = await Enrollment.find({ classId, status: 'ACTIVE' }).select('studentId');
+    const classEnrollments = await Enrollment.find({ classId, status: { $in: reservedEnrollmentStatuses } }).select('studentId');
 
     const courseCode = targetClass.course.courseCode.toUpperCase();
     const enrolledStudentIds = new Set(classEnrollments.map(e => e.studentId));
@@ -299,7 +299,7 @@ router.get('/curriculum/eligible-students/:classId', authenticateJWT, authorizeR
 
     // Lấy tất cả sinh viên ACTIVE + lịch sử ghi danh
     const allStudents = (await User.find({ role: 'STUDENT', status: 'ACTIVE' }).sort({ code: 1 })).map(plain);
-    const allEnrollments = (await Enrollment.find({ studentId: { $in: allStudents.map(s => s.id) }, status: 'ACTIVE' })
+    const allEnrollments = (await Enrollment.find({ studentId: { $in: allStudents.map(s => s.id) }, status: { $in: reservedEnrollmentStatuses } })
       .populate([{ path: 'class', populate: ['course', 'schedules'] }, 'grade'])).map(plain);
     const enrollmentsByStudent = new Map();
     for (const e of allEnrollments) {

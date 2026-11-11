@@ -190,6 +190,9 @@ router.get('/classes', authenticateJWT, async (req, res) => {
 router.get('/classes/:id', authenticateJWT, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
+    if (req.user.role === 'STUDENT' && !(await Enrollment.exists({ classId: id, studentId: req.user.id, status: 'ACTIVE' }))) {
+      return errorResponse(res, 'Bạn chưa có quyền học lớp này', 403);
+    }
 
     const doc = await Class.findOne({ id }).populate([
       'course',

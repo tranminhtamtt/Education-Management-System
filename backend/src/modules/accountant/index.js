@@ -7,12 +7,13 @@ const router = require('express').Router();
 const auth = require('../../middlewares/auth.middleware');
 const roles = require('../../middlewares/role.middleware');
 const {
-  User, TuitionInvoice, PaymentOrder, PaymentTransaction, PaymentDiscrepancy, RefundRequest, PaymentAuditLog
+  User, TuitionInvoice, TuitionPayment, PaymentOrder, PaymentTransaction, PaymentDiscrepancy, RefundRequest, PaymentAuditLog
 } = require('../../models');
 const { like, plain } = require('../../utils/query');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
 const s = require('./payment.service');
 const { withTransaction } = require('../../config/db');
+const tuitionDateRange = require('../../utils/tuitionDateRange');
 
 const run = fn => async (req, res) => {
   try {
@@ -281,21 +282,26 @@ router.post('/accountant/recover-payment', run(async req => {
 // UC9.7: Tổng hợp tài chính theo khoảng thời gian (dựa trên giao dịch thực tế)
 router.get('/accountant/summary', run(async req => {
   let start, end, year = null;
-  if (req.query.from || req.query.to) {
-    start = new Date(`${req.query.from}T00:00:00+07:00`);
-    end = new Date(`${req.query.to}T23:59:59.999+07:00`);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) throw s.fail('Khoảng thời gian không hợp lệ');
+  if (req.query.from !== undefined || req.query.to !== undefined) {
+    const range = tuitionDateRange(req.query.from, req.query.to);
+    if (!range) throw s.fail('Khoảng thời gian không hợp lệ');
+    start = range.$gte;
+    end = range.$lte;
   } else {
     year = Number(req.query.year || new Date().getFullYear());
     if (!Number.isInteger(year) || year < 2000 || year > 2100) throw s.fail('Năm không hợp lệ');
     start = new Date(`${year}-01-01T00:00:00+07:00`);
     end = new Date(`${year}-12-31T23:59:59.999+07:00`);
   }
-  const [refunds, anomalous, transactions, invoices] = await Promise.all([
+  const [refunds, anomalous, transactions, invoices, receipts] = await Promise.all([
     RefundRequest.aggregate([{ $match: { status: 'COMPLETED', completedAt: { $gte: start, $lte: end } } }, { $group: { _id: null, amount: { $sum: '$amount' } } }]),
     PaymentDiscrepancy.countDocuments({ status: 'OPEN' }),
     PaymentTransaction.aggregate([{ $match: { occurredAt: { $gte: start, $lte: end } } }, { $group: { _id: null, amount: { $sum: '$amount' }, applied: { $sum: '$appliedAmount' }, count: { $sum: 1 } } }]),
-    TuitionInvoice.aggregate([{ $group: { _id: null, amount: { $sum: '$amount' }, paid: { $sum: '$paidAmount' } } }])
+    TuitionInvoice.aggregate([{ $group: { _id: null, amount: { $sum: '$amount' }, paid: { $sum: '$paidAmount' },
+      paidCount: { $sum: { $cond: [{ $eq: ['$status', 'PAID'] }, 1, 0] } },
+      unpaidCount: { $sum: { $cond: [{ $in: ['$status', ['UNPAID', 'PARTIAL']] }, 1, 0] } }
+    } }]),
+    TuitionPayment.aggregate([{ $match: { paidAt: { $gte: start, $lte: end } } }, { $group: { _id: null, amount: { $sum: '$amount' } } }])
   ]);
   const receivable = Number(invoices[0]?.amount || 0), collected = Number(invoices[0]?.paid || 0);
   return {
@@ -304,6 +310,9 @@ router.get('/accountant/summary', run(async req => {
     to: end,
     receivable,
     collected,
+    collectedInRange: Number(receipts[0]?.amount || 0),
+    paidCount: Number(invoices[0]?.paidCount || 0),
+    unpaidCount: Number(invoices[0]?.unpaidCount || 0),
     outstanding: Math.max(0, receivable - collected),
     refunded: Number(refunds[0]?.amount || 0),
     anomalous,

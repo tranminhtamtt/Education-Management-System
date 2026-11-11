@@ -16,6 +16,7 @@ const authenticateJWT = require('../../middlewares/auth.middleware');
 const authorizeRoles = require('../../middlewares/role.middleware');
 const { TuitionInvoice, TuitionPayment } = require('../../models');
 const { plain } = require('../../utils/query');
+const tuitionDateRange = require('../../utils/tuitionDateRange');
 const { numberToVietnameseWords } = require('../../utils/numberToWords');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
 
@@ -244,6 +245,11 @@ router.post('/tuition-invoices/reminders', authenticateJWT, authorizeRoles('ACCO
 // ==========================================
 router.get('/analytics/tuition-revenue', authenticateJWT, authorizeRoles(...FINANCE_ROLES), async (req, res) => {
   try {
+    const { from, to } = req.query;
+    const hasRange = from !== undefined || to !== undefined;
+    const paidAt = hasRange ? tuitionDateRange(from, to) : null;
+    if (hasRange && !paidAt) return errorResponse(res, 'Khoảng ngày không hợp lệ (YYYY-MM-DD)', 400);
+    const receiptFilter = paidAt ? { paidAt } : {};
     const year = parseInt(req.query.year) || new Date().getFullYear();
     const yearStart = new Date(year, 0, 1);
     const yearEnd = new Date(year + 1, 0, 1);
@@ -256,7 +262,7 @@ router.get('/analytics/tuition-revenue', authenticateJWT, authorizeRoles(...FINA
         { path: 'enrollment', populate: { path: 'class', populate: 'course' } }
       ]).then(list => list.map(plain)),
       TuitionPayment.find({ paidAt: { $gte: yearStart, $lt: yearEnd } }).select('amount paidAt'),
-      TuitionPayment.find({}).sort({ paidAt: -1, id: -1 }).limit(8).populate([
+      TuitionPayment.find(receiptFilter).sort({ paidAt: -1, id: -1 }).limit(8).populate([
         { path: 'collectedBy', select: 'code fullName' },
         { path: 'invoice', populate: [{ path: 'student', select: 'code fullName' }, { path: 'enrollment', populate: { path: 'class', populate: 'course' } }] }
       ]).then(list => list.map(plain))
@@ -313,8 +319,12 @@ router.get('/analytics/tuition-revenue', authenticateJWT, authorizeRoles(...FINA
     }
     // KPI "đã thu tháng này" luôn tính theo tháng hiện tại, độc lập với năm đang xem
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthAgg = await TuitionPayment.aggregate([{ $match: { paidAt: { $gte: monthStart } } }, { $group: { _id: null, sum: { $sum: '$amount' } } }]);
+    const [monthAgg, rangeAgg] = await Promise.all([
+      TuitionPayment.aggregate([{ $match: { paidAt: { $gte: monthStart } } }, { $group: { _id: null, sum: { $sum: '$amount' } } }]),
+      paidAt && TuitionPayment.aggregate([{ $match: receiptFilter }, { $group: { _id: null, sum: { $sum: '$amount' } } }])
+    ]);
     kpi.collectedThisMonth = Number(monthAgg[0]?.sum || 0);
+    kpi.collectedInRange = paidAt ? Number(rangeAgg[0]?.sum || 0) : null;
 
     for (const inv of allInvoices) {
       const d = new Date(inv.createdAt);
@@ -363,6 +373,7 @@ router.get('/analytics/tuition-revenue', authenticateJWT, authorizeRoles(...FINA
       res,
       {
         year,
+        range: paidAt ? { from, to } : null,
         kpi,
         monthly,
         statusBreakdown: [

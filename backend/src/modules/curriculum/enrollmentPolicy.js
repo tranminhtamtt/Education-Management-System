@@ -9,9 +9,10 @@ const { User, Class, Enrollment, Grade, TuitionInvoice } = require('../../models
 const { checkPrerequisites, summarizeEnrollments, findCurriculumCourse } = require('./curriculumData');
 
 const invalid = (message, extra = {}) => Object.assign(new Error(message), { status: 400, ...extra });
+const reservedEnrollmentStatuses = ['ACTIVE', 'PENDING_PAYMENT'];
 
 async function loadStudentEnrollments(studentId, session) {
-  return Enrollment.find({ studentId, status: 'ACTIVE' })
+  return Enrollment.find({ studentId, status: { $in: reservedEnrollmentStatuses } })
     .session(session || null)
     .populate([{ path: 'class', populate: ['course', 'schedules'] }, 'grade'])
     .then(list => list.map(e => e.toJSON()));
@@ -28,8 +29,8 @@ async function validateEnrollment(classId, studentId, { session, force = false }
   if (c.status === 'COMPLETED') throw invalid('Lớp đã kết thúc, không nhận ghi danh');
   if (!student || student.role !== 'STUDENT' || student.status !== 'ACTIVE') throw invalid('Sinh viên không hợp lệ hoặc không còn hoạt động');
 
-  const activeCount = await Enrollment.countDocuments({ classId, status: 'ACTIVE' }).session(session || null);
-  if (activeCount >= c.maxStudents) throw invalid(`Lớp đã đạt sĩ số tối đa (${c.maxStudents} sinh viên). Không thể thêm học viên.`);
+  const reservedCount = await Enrollment.countDocuments({ classId, status: { $in: reservedEnrollmentStatuses } }).session(session || null);
+  if (reservedCount >= c.maxStudents) throw invalid(`Lớp đã đạt sĩ số tối đa (${c.maxStudents} sinh viên). Không thể thêm học viên.`);
   if (await Enrollment.exists({ classId, studentId }).session(session || null)) throw invalid('Học viên này đã có trong danh sách lớp học');
 
   const enrollments = await loadStudentEnrollments(studentId, session);
@@ -71,7 +72,13 @@ async function enrollStudent(classId, studentId, { force = false } = {}) {
     await lockDoc(Class, { id: classId }, session);
     const { cls } = await validateEnrollment(classId, studentId, { session, force });
 
-    const [enrollment] = await Enrollment.create([{ classId, studentId, status: 'ACTIVE' }], { session });
+    const tuitionFee = Number(cls.course?.baseTuitionFee ?? 5000000);
+    const isFree = tuitionFee === 0;
+    const [enrollment] = await Enrollment.create([{
+      classId,
+      studentId,
+      status: isFree ? 'ACTIVE' : 'PENDING_PAYMENT'
+    }], { session });
     const [grade] = await Grade.create([{
       enrollmentId: enrollment.id,
       attendanceScore: null,
@@ -82,7 +89,6 @@ async function enrollStudent(classId, studentId, { force = false } = {}) {
       isBanned: false
     }], { session });
 
-    const tuitionFee = Number(cls.course?.baseTuitionFee ?? 5000000);
     const dueDate = new Date();
     dueDate.setDate(dueDate.getDate() + 30); // Hạn đóng sau 30 ngày
     const [invoice] = await TuitionInvoice.create([{
@@ -91,11 +97,12 @@ async function enrollStudent(classId, studentId, { force = false } = {}) {
       amount: tuitionFee,
       paidAmount: 0,
       dueDate,
-      status: 'UNPAID'
+      status: isFree ? 'PAID' : 'UNPAID',
+      paidAt: isFree ? new Date() : null
     }], { session });
 
     return { enrollment: enrollment.toJSON(), grade: grade.toJSON(), invoice: invoice.toJSON() };
   });
 }
 
-module.exports = { validateEnrollment, enrollStudent, loadStudentEnrollments };
+module.exports = { validateEnrollment, enrollStudent, loadStudentEnrollments, reservedEnrollmentStatuses };

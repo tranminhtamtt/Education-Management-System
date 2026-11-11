@@ -774,7 +774,13 @@ router.get('/courses/:id/lessons', authenticateJWT, async (req, res) => {
     const course = await Course.findOne({ id: courseId });
     if (!course) return errorResponse(res, 'Không tìm thấy khóa học', 404);
 
-    const lessons = await CourseLesson.find({ courseId }).sort({ orderIndex: 1, createdAt: 1 });
+    const filter = { courseId };
+    if (req.user.role === 'STUDENT') {
+      const classIds = await Class.distinct('id', { courseId });
+      const enrolled = await Enrollment.exists({ classId: { $in: classIds }, studentId: req.user.id, status: 'ACTIVE' });
+      if (!enrolled) filter.isPreview = true;
+    }
+    const lessons = await CourseLesson.find(filter).sort({ orderIndex: 1, createdAt: 1 });
     return successResponse(res, lessons.map(plain), 'Lấy danh sách bài giảng thành công');
   } catch (error) {
     console.error('Error fetching course lessons:', error);

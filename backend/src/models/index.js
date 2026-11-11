@@ -170,7 +170,7 @@ const Enrollment = define('Enrollment', 'enrollments', {
   classId: { type: Number, required: true },
   studentId: { type: Number, required: true, index: true },
   enrolledAt: { type: Date, default: Date.now },
-  status: { type: String, enum: ['ACTIVE', 'DROPPED'], default: 'ACTIVE' }
+  status: { type: String, enum: ['PENDING_PAYMENT', 'ACTIVE', 'DROPPED'], default: 'ACTIVE' }
 }, {}, s => {
   s.index({ classId: 1, studentId: 1 }, { unique: true });
   s.virtual('class', ref('Class', 'classId'));

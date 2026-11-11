@@ -518,6 +518,9 @@ const ClassesPage = () => {
                             render: (_, r) => {
                               const st = r.tuitionInvoice?.status;
                               if (st === 'PAID') return <Tag color="success">Đã nộp</Tag>;
+                              if (r.status === 'PENDING_PAYMENT') {
+                                return <Tag color="warning">{st === 'PARTIAL' ? 'Đóng một phần · Chưa mở quyền học' : 'Chờ thanh toán'}</Tag>;
+                              }
                               if (st === 'PARTIAL') return <Tag color="warning">Nợ 1 phần</Tag>;
                               return <Tag color="error">Chưa nộp</Tag>;
                             }

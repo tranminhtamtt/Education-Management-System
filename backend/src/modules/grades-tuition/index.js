@@ -145,7 +145,7 @@ router.get('/students/my-grades', authenticateJWT, async (req, res) => {
   try {
     const studentId = req.user.id;
 
-    const enrollments = (await Enrollment.find({ studentId })
+    const enrollments = (await Enrollment.find({ studentId, status: { $ne: 'PENDING_PAYMENT' } })
       .populate([{ path: 'class', populate: ['course', { path: 'teacher', select: 'fullName' }] }, 'grade']))
       .map(plain)
       .filter(e => e.class)

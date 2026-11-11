@@ -65,6 +65,7 @@ test('enrollment via API creates grade + UNPAID invoice; curriculum rules enforc
   const ok = await call('/classes/1/enrollments', ['ADMIN', 2], 'POST', { studentId: 10 });
   assert.equal(ok.status, 201, JSON.stringify(ok.body));
   assert.equal(ok.body.data.invoice.status, 'UNPAID');
+  assert.equal(ok.body.data.enrollment.status, 'PENDING_PAYMENT');
   assert.equal(ok.body.data.invoice.amount, 1000);
   assert.equal((await call('/classes/1/enrollments', ['ADMIN', 2], 'POST', { studentId: 10 })).status, 400); // trùng
   assert.match((await call('/classes/1/enrollments', ['ADMIN', 2], 'POST', { studentId: 11 })).body.message, /sĩ số/); // đầy lớp
@@ -80,20 +81,39 @@ test('enrollment via API creates grade + UNPAID invoice; curriculum rules enforc
   assert.equal(progress.body.data.allCourses.find(c => c.courseCode === 'PRF192').status, 'STUDYING');
   const overview = await call('/curriculum/term-overview', ['ADMIN', 2]);
   assert.equal(overview.body.data.terms[0].studentCount, 2);
+  await M.Course.updateOne({ id: 3 }, { $set: { baseTuitionFee: 0 } });
+  const free = await call('/classes/3/enrollments', ['ADMIN', 2], 'POST', { studentId: 11, forceEnroll: true });
+  assert.equal(free.status, 201);
+  assert.equal(free.body.data.enrollment.status, 'ACTIVE');
+  assert.equal(free.body.data.invoice.status, 'PAID');
 });
 
 test('student pays via SePay webhook end-to-end; student sees only own orders/invoices; retired reminders return 410', async () => {
   await seedBasic();
   await call('/classes/1/enrollments', ['ADMIN', 2], 'POST', { studentId: 10 });
   const invoiceId = (await M.TuitionInvoice.findOne({ studentId: 10 })).id;
+  await M.CourseLesson.create([
+    { courseId: 1, title: 'Xem thử', isPreview: true },
+    { courseId: 1, title: 'Bài học chính' }
+  ]);
+  assert.equal((await call('/classes/1', ['STUDENT', 10])).status, 403);
+  assert.deepEqual((await call('/courses/1/lessons', ['STUDENT', 10])).body.data.map(l => l.title), ['Xem thử']);
   assert.equal((await call('/payment-orders', ['STUDENT', 11], 'POST', { invoiceId })).status, 403);
   const order = await call('/payment-orders', ['STUDENT', 10], 'POST', { invoiceId });
   assert.equal(order.status, 200, JSON.stringify(order.body));
   assert.equal((await call(`/payment-orders/${order.body.data.id}`, ['STUDENT', 11])).status, 403);
 
-  const hook = { id: 555, transferAmount: 1000, transferType: 'in', accountNumber: 'TEST123', gateway: 'TestBank', transactionDate: '2026-11-04 09:00:00', referenceCode: 'FT555', content: `HP ${order.body.data.code}` };
+  const hook = { id: 555, transferAmount: 800, transferType: 'in', accountNumber: 'TEST123', gateway: 'TestBank', transactionDate: '2026-11-04 00:00:00', referenceCode: 'FT555', content: `HP ${order.body.data.code}` };
   assert.equal((await call('/payments/sepay/webhook', null, 'POST', hook, { Authorization: 'Apikey test-webhook-key' })).status, 200);
+  assert.equal((await M.TuitionInvoice.findOne({ id: invoiceId })).status, 'PARTIAL');
+  assert.equal((await M.Enrollment.findOne({ classId: 1, studentId: 10 })).status, 'PENDING_PAYMENT');
+  assert.equal((await call('/classes/1', ['STUDENT', 10])).status, 403);
+  const supplement = { ...hook, id: 556, transferAmount: 300, transactionDate: '2026-11-05 00:00:00', referenceCode: 'FT556' };
+  assert.equal((await call('/payments/sepay/webhook', null, 'POST', supplement, { Authorization: 'Apikey test-webhook-key' })).status, 200);
   assert.equal((await call('/payments/sepay/webhook', null, 'POST', hook, { Authorization: 'Apikey test-webhook-key' })).body.data.duplicate, true);
+  assert.equal((await M.Enrollment.findOne({ classId: 1, studentId: 10 })).status, 'ACTIVE');
+  assert.equal((await call('/classes/1', ['STUDENT', 10])).status, 200);
+  assert.equal((await call('/courses/1/lessons', ['STUDENT', 10])).body.data.length, 2);
 
   const status = await call(`/payment-orders/${order.body.data.id}`, ['STUDENT', 10]);
   assert.equal(status.body.data.invoiceStatus, 'PAID');
@@ -105,16 +125,25 @@ test('student pays via SePay webhook end-to-end; student sees only own orders/in
   assert.equal(mine.body.data.invoices.length, 0);
 
   const tx = await call('/accountant/transactions?search=SE01001', 'ACCOUNTANT');
-  assert.equal(tx.body.data.total, 1);
+  assert.equal(tx.body.data.total, 2);
   assert.equal(tx.body.data.items[0].invoice.student.code, 'SE01001');
-  const detail = await call(`/accountant/transactions/${tx.body.data.items[0].id}`, 'ACCOUNTANT');
+  const detail = await call(`/accountant/transactions/${tx.body.data.items.find(t => t.providerId === '555').id}`, 'ACCOUNTANT');
   assert.equal(detail.body.data.payload.referenceCode, 'FT555');
 
   assert.equal((await call('/tuition-invoices/reminders', 'ACCOUNTANT', 'POST', {})).status, 410); // retired MVP action
   const summary = await call('/accountant/summary?year=2026', 'ACCOUNTANT');
   assert.equal(summary.body.data.collected, 1000);
   assert.equal(summary.body.data.outstanding, 0);
-  assert.equal(summary.body.data.bankReceived, 1000);
+  assert.equal(summary.body.data.bankReceived, 1100);
+  assert.equal(summary.body.data.collectedInRange, 1000);
+  assert.equal(summary.body.data.paidCount, 1);
+  const day = '?from=2026-11-04&to=2026-11-04';
+  const report = await call('/analytics/tuition-revenue' + day, 'ACCOUNTANT');
+  assert.equal(report.status, 200);
+  assert.equal(report.body.data.kpi.collectedInRange, 800);
+  assert.deepEqual(report.body.data.recentPayments.map(p => p.amount), [800]);
+  assert.equal((await call('/accountant/summary' + day, 'ACCOUNTANT')).body.data.collectedInRange, 800);
+  assert.equal((await call('/analytics/tuition-revenue?from=2026-02-30&to=2026-03-02', 'ACCOUNTANT')).status, 400);
 });
 
 test('retired writes are inaccessible while historical refunds remain readable', async () => {
@@ -260,6 +289,7 @@ test('range recovery pays once and incomplete or failed SePay responses are expl
       assert.equal((await call('/accountant/recover-payment', 'ACCOUNTANT', 'POST', { providerId: 800 })).status, 200);
     }
     assert.equal((await M.TuitionInvoice.findOne({ id: invoice.id })).paidAmount, 1000);
+    assert.equal((await M.Enrollment.findOne({ id: invoice.enrollmentId })).status, 'ACTIVE');
     assert.equal(await M.TuitionPayment.countDocuments({ invoiceId: invoice.id }), 1);
     assert.equal((await range()).body.data.rows[0].status, 'MATCHED');
     mode = 'mismatch';

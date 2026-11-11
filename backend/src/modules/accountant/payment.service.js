@@ -11,7 +11,7 @@ const crypto = require('crypto');
 const { withTransaction, lockDoc } = require('../../config/db');
 const {
   TuitionInvoice, TuitionPayment, PaymentOrder, PaymentTransaction, PaymentDiscrepancy,
-  RefundRequest, PaymentAuditLog, Notification
+  RefundRequest, PaymentAuditLog, Notification, Enrollment
 } = require('../../models');
 const { generateVietQRData } = require('../../utils/vietqrGenerator');
 
@@ -83,11 +83,17 @@ async function applyPayment(session, transactionId, invoiceId, actorId = null) {
       paidAt: transaction.occurredAt,
       note: 'SePay verified webhook'
     }], { session });
+    const activated = status === 'PAID' && (await Enrollment.updateOne(
+      { id: inv.enrollmentId, status: 'PENDING_PAYMENT' },
+      { $set: { status: 'ACTIVE' } },
+      { session }
+    )).modifiedCount > 0;
     await Notification.create([{
       userId: inv.studentId,
       type: 'TUITION',
       title: 'Đã nhận thanh toán học phí',
       message: `Hóa đơn #${invoiceId}: đã nhận ${appliedAmount.toLocaleString('vi-VN')} VND qua chuyển khoản ngân hàng (SePay ${transaction.providerId}).`
+        + (activated ? ' Bạn đã được cấp quyền học khóa học.' : '')
     }], { session });
   }
 

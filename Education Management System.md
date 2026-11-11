@@ -212,7 +212,7 @@ graph TD
 #### Module 6. Course Purchase Billing & SePay Reconciliation (Thanh toán Khóa học & Kế toán)
 
 * **UC9.1 - Quản lý hóa đơn mua khóa học (`TuitionInvoice`)**
-  * Mỗi lượt đăng ký mua khóa học (`RECORDED` hoặc `LIVE_ONLINE`) sinh một hóa đơn `UNPAID`. Hóa đơn có thể chuyển sang `PARTIAL` khi nhận một phần hoặc sang `PAID` khi thu đủ.
+  * Mỗi lượt đăng ký mua khóa học có phí (`RECORDED` hoặc `LIVE_ONLINE`) sinh một hóa đơn `UNPAID`. Hóa đơn có thể chuyển sang `PARTIAL` khi nhận một phần hoặc sang `PAID` khi thu đủ.
   * Kế toán tra cứu theo học viên, khóa học và trạng thái thanh toán. Chi tiết hóa đơn hiển thị số phải thu, số đã ghi nhận, số còn thiếu và các phiếu thu. `paidAmount` do backend cập nhật từ giao dịch đã xác minh.
 * **UC-PAY.1 - Tạo lệnh thanh toán và sinh VietQR động**
   * Mỗi lần tạo QR, backend sinh một `PaymentOrder` với mã duy nhất gồm `EMS` và 24 ký tự hex in hoa (`A–F`, `0–9`), ví dụ `EMS0123456789ABCDEF01234567`.
@@ -221,7 +221,7 @@ graph TD
   * Backend nhận `POST /api/v1/payments/sepay/webhook`, xác thực `Authorization: Apikey <SEPAY_WEBHOOK_API_KEY>`, kiểm tra tài khoản nhận, loại giao dịch tiền vào, số tiền và mã thanh toán.
   * Backend lưu giao dịch ngân hàng gốc và chống xử lý trùng theo SePay transaction ID (`providerId`). Các giao dịch hợp lệ có ID khác nhau có thể cộng dồn vào cùng hóa đơn, kể cả khi dùng lại cùng mã `PaymentOrder` hợp lệ.
   * Với mỗi khoản được phân bổ, backend cộng tối đa số còn thiếu vào `paidAmount` và phát hành một phiếu thu `SEPAY-<providerId>` cho phần đã phân bổ. Khi thu đủ, backend chuyển hóa đơn sang `PAID`, kích hoạt Enrollment (`ACTIVE`) trong cùng transaction và gửi thông báo xác nhận mua khóa học. Hóa đơn `UNPAID` hoặc `PARTIAL` chưa cấp quyền học.
-  * **Chưa hoàn tất tích hợp quyền học:** Phần kích hoạt Enrollment sau thanh toán là yêu cầu mục tiêu; code hiện vẫn tạo ACTIVE khi ghi danh và payment service chưa cập nhật Enrollment. Cần bàn giao thành viên phụ trách Enrollment/quyền học, không coi luồng này đã được triển khai.
+  * Lượt ghi danh có phí mới bắt đầu ở `PENDING_PAYMENT` và giữ chỗ trong sĩ số lớp. Khóa miễn phí cấp quyền ngay với hóa đơn 0 đồng ở trạng thái `PAID`. Các lượt đã `ACTIVE` trước khi áp dụng luồng này giữ quyền học hiện có.
 * **UC9.2 - Lịch sử giao dịch ngân hàng**
   * Kế toán xem danh sách và chi tiết giao dịch ở chế độ chỉ đọc. Tra cứu theo SePay transaction ID, mã tham chiếu ngân hàng, thời gian và trạng thái. Hiển thị riêng số tiền ngân hàng thực nhận và số tiền đã phân bổ vào hóa đơn.
 * **UC9.3 - Payment Reconciliation & Recovery**
@@ -389,7 +389,7 @@ flowchart LR
     end
 ```
 
-**Ghi chú tích hợp hiện tại:** Code Enrollment hiện tạo ACTIVE trước thanh toán; payment service chưa kích hoạt quyền học khi PAID. Luồng kích hoạt sau thanh toán ở trên là yêu cầu tích hợp chưa hoàn tất, cần thành viên phụ trách Enrollment/quyền học xử lý, không thuộc bản sửa Accountant này.
+**Quyền học:** Lượt ghi danh có phí mới giữ chỗ ở trạng thái `PENDING_PAYMENT`. Khi khoản thu đã xác minh đưa hóa đơn lên `PAID`, webhook hoặc thao tác khôi phục giao dịch kích hoạt Enrollment trong cùng transaction.
 
 **PaymentOrder hiện tại:** Mỗi lần mở QR có thể tạo mã mới; mã cũ vẫn hợp lệ. Chống ghi nhận trùng dựa trên SePay providerId, không dựa trên số lệnh. QR cũ có thể dẫn đến chuyển thừa và được chặn phân bổ vượt công nợ. Mã hợp lệ của hóa đơn khác vẫn phân bổ theo hóa đơn chứa mã đó; EMS chưa xác minh danh tính người chuyển.
 
@@ -520,7 +520,7 @@ Mọi API tuân thủ tiền tố `/api/v1` và trả về cấu trúc JSON đ�
 * `POST /api/v1/accountant/recover-payment` — Kế toán yêu cầu khôi phục theo `providerId`. Backend lấy dữ liệu từ SePay và dùng chung logic ghi nhận webhook.
 * `GET /api/v1/accountant/discrepancies` — Tra cứu sai lệch, lọc OPEN/RESOLVED và lý do.
 * `PATCH /api/v1/accountant/discrepancies/:id` — Chỉ ACCOUNTANT; body `{ status: "RESOLVED", note: "Kết quả xử lý" }`, chỉ OPEN → RESOLVED. Ghi chú bắt buộc, tối đa 4.000 ký tự; từ chối trường khác, hồ sơ đã đóng trả 409. Không phụ thuộc RefundRequest; không thay đổi dữ liệu tài chính.
-* `GET /api/v1/analytics/tuition-revenue` & `GET /api/v1/accountant/summary` — Xem học phí đã thu theo khoảng thời gian và số hóa đơn đã hoặc chưa thanh toán đủ theo `UC9.7`.
+* `GET /api/v1/analytics/tuition-revenue` & `GET /api/v1/accountant/summary` — Xem học phí đã thu theo ngày trên phiếu thu (`from` và `to` theo định dạng `YYYY-MM-DD`, múi giờ Việt Nam) và số hóa đơn đã hoặc chưa thanh toán đủ theo `UC9.7`.
 
 ### 4. Cụm API của TEACHER / Giảng viên Trung tâm (Phụ trách: Người 4)
 * `GET /api/v1/teacher/dashboard` — Dashboard Giảng viên: Danh sách khóa/lớp đang dạy, lịch dạy, số bài nộp mới và câu hỏi học viên.
