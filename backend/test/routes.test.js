@@ -320,3 +320,66 @@ test('manual discrepancy closure requires note and preserves all financial recor
   assert.equal(await M.RefundRequest.countDocuments(), 0);
   assert.equal(await M.PaymentDiscrepancy.countDocuments(), 1);
 });
+
+test('academic staff: courses multi-delivery, lessons management, class meetUrl', async () => {
+  await seedBasic();
+  // 1. Tạo khóa học CERTIFICATE LIVE_ONLINE
+  const createRes = await call('/courses', 'ADMIN', 'POST', {
+    courseCode: 'CCNA-200',
+    name: 'Cisco Certified Network Associate',
+    category: 'CERTIFICATE',
+    deliveryMode: 'LIVE_ONLINE',
+    level: 'INTERMEDIATE',
+    baseTuitionFee: 7500000,
+    credits: 3
+  });
+  assert.equal(createRes.status, 201);
+  assert.equal(createRes.body.data.category, 'CERTIFICATE');
+  assert.equal(createRes.body.data.deliveryMode, 'LIVE_ONLINE');
+
+  // 2. Lấy danh sách khóa học lọc theo category và deliveryMode
+  const listCert = await call('/courses?category=CERTIFICATE', 'ADMIN');
+  assert.equal(listCert.status, 200);
+  assert.equal(listCert.body.data.length, 1);
+  assert.equal(listCert.body.data[0].courseCode, 'CCNA-200');
+
+  // 3. Quản lý bài giảng video (course_lessons)
+  const addLesson = await call('/courses/' + createRes.body.data.id + '/lessons', 'ADMIN', 'POST', {
+    sectionTitle: 'Chương 1: Mạng căn bản',
+    title: 'Mô hình OSI và TCP/IP',
+    videoUrl: 'https://youtube.com/watch?v=sample',
+    durationMinutes: 45,
+    isPreview: true
+  });
+  assert.equal(addLesson.status, 201);
+  const lessonId = addLesson.body.data.id;
+  assert.equal(addLesson.body.data.title, 'Mô hình OSI và TCP/IP');
+
+  // 4. Lấy danh sách bài giảng
+  const getLessons = await call('/courses/' + createRes.body.data.id + '/lessons', 'ADMIN');
+  assert.equal(getLessons.status, 200);
+  assert.equal(getLessons.body.data.length, 1);
+
+  // 5. Cập nhật bài giảng
+  const updateLesson = await call('/lessons/' + lessonId, 'ADMIN', 'PUT', {
+    title: 'Mô hình OSI và TCP/IP nâng cao',
+    durationMinutes: 50
+  });
+  assert.equal(updateLesson.status, 200);
+  assert.equal(updateLesson.body.data.title, 'Mô hình OSI và TCP/IP nâng cao');
+
+  // 6. Mở lớp Live kèm meetUrl
+  const openClass = await call('/classes', 'ADMIN', 'POST', {
+    classCode: 'CCNA-K01-LIVE',
+    courseId: createRes.body.data.id,
+    semester: 'SU26',
+    maxStudents: 25,
+    meetUrl: 'https://meet.google.com/ccna-k01-live'
+  });
+  assert.equal(openClass.status, 201);
+  assert.equal(openClass.body.data.meetUrl, 'https://meet.google.com/ccna-k01-live');
+
+  // 7. Xóa bài giảng
+  const delLesson = await call('/lessons/' + lessonId, 'ADMIN', 'DELETE');
+  assert.equal(delLesson.status, 200);
+});

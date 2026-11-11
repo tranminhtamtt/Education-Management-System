@@ -4,7 +4,7 @@ const bcrypt = require('bcryptjs');
 const { login, getMe } = require('./auth.controller');
 const authenticateJWT = require('../../middlewares/auth.middleware');
 const authorizeRoles = require('../../middlewares/role.middleware');
-const { User, Course, Class, Enrollment } = require('../../models');
+const { User, Course, CourseLesson, Class, Enrollment } = require('../../models');
 const { like, plain } = require('../../utils/query');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
 const xlsx = require('xlsx');
@@ -568,25 +568,76 @@ router.post('/teachers', authenticateJWT, authorizeRoles('ADMIN'), async (req, r
   }
 });
 
+// UC2.2: Cập nhật thông tin giảng viên (chuyên môn, học vị, tiểu sử, số điện thoại)
+router.put('/teachers/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return errorResponse(res, 'ID giảng viên không hợp lệ', 400);
+    const { fullName, phone, degree, specialty, bio, status } = req.body;
+
+    const teacher = await User.findOne({ id, role: 'TEACHER' });
+    if (!teacher) return errorResponse(res, 'Không tìm thấy giảng viên', 404);
+
+    const updated = await User.findOneAndUpdate(
+      { id, role: 'TEACHER' },
+      {
+        $set: {
+          ...(fullName ? { fullName: fullName.trim() } : {}),
+          ...(phone !== undefined ? { phone } : {}),
+          ...(status ? { status } : {}),
+          'teacherProfile.degree': degree || teacher.teacherProfile?.degree || 'Thạc sĩ',
+          'teacherProfile.specialty': specialty || teacher.teacherProfile?.specialty || 'Chưa cập nhật',
+          'teacherProfile.bio': bio !== undefined ? bio : (teacher.teacherProfile?.bio || '')
+        }
+      },
+      { new: true, runValidators: true }
+    );
+
+    const data = plain(updated);
+    delete data.passwordHash;
+    return successResponse(res, data, 'Cập nhật thông tin giảng viên thành công');
+  } catch (error) {
+    console.error('Error updating teacher:', error);
+    return errorResponse(res, 'Lỗi cập nhật giảng viên', 500);
+  }
+});
+
 // ==========================================
-// 4. COURSES MANAGEMENT (UC3.1)
+// 4. COURSES MANAGEMENT (UC3.1 - UC3.3)
 // ==========================================
 
-// UC3.1: Lấy danh sách môn học
+// UC3.1: Lấy danh sách môn học & khóa học
 router.get('/courses', authenticateJWT, async (req, res) => {
   try {
-    const { status } = req.query;
-    const where = status ? { status } : {};
+    const { status, category, deliveryMode, search } = req.query;
+    const where = {
+      ...(status ? { status } : {}),
+      ...(category ? { category } : {}),
+      ...(deliveryMode ? { deliveryMode } : {}),
+      ...(search
+        ? {
+            $or: [
+              { courseCode: like(search) },
+              { name: like(search) }
+            ]
+          }
+        : {})
+    };
 
     const courses = await Course.find(where).sort({ courseCode: 1 });
-    const counts = await Class.aggregate([{ $group: { _id: '$courseId', n: { $sum: 1 } } }]);
-    const countMap = new Map(counts.map(c => [c._id, c.n]));
+    const [classCounts, lessonCounts] = await Promise.all([
+      Class.aggregate([{ $group: { _id: '$courseId', n: { $sum: 1 } } }]),
+      CourseLesson.aggregate([{ $group: { _id: '$courseId', n: { $sum: 1 } } }])
+    ]);
+    const classCountMap = new Map(classCounts.map(c => [c._id, c.n]));
+    const lessonCountMap = new Map(lessonCounts.map(l => [l._id, l.n]));
 
     return successResponse(
       res,
       courses.map(c => ({
         ...plain(c),
-        totalClasses: countMap.get(c.id) || 0
+        totalClasses: classCountMap.get(c.id) || 0,
+        totalLessons: lessonCountMap.get(c.id) || 0
       })),
       'Lấy danh sách môn học thành công'
     );
@@ -596,13 +647,27 @@ router.get('/courses', authenticateJWT, async (req, res) => {
   }
 });
 
-// UC3.1: Tạo môn học mới
+// UC3.1: Tạo môn học / khóa học mới
 router.post('/courses', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
   try {
-    const { courseCode, name, credits, totalSessions, baseTuitionFee, description, syllabusUrl, status } = req.body;
+    const {
+      courseCode,
+      name,
+      category,
+      deliveryMode,
+      level,
+      instructorId,
+      thumbnailUrl,
+      credits,
+      totalSessions,
+      baseTuitionFee,
+      description,
+      syllabusUrl,
+      status
+    } = req.body;
 
-    if (!courseCode || !name || !credits) {
-      return errorResponse(res, 'Mã môn, Tên môn và Số tín chỉ là bắt buộc', 400);
+    if (!courseCode || !name) {
+      return errorResponse(res, 'Mã khóa học và Tên khóa học là bắt buộc', 400);
     }
 
     const existing = await Course.findOne({ courseCode: String(courseCode).toUpperCase().trim() });
@@ -613,9 +678,14 @@ router.post('/courses', authenticateJWT, authorizeRoles('ADMIN'), async (req, re
     const course = await Course.create({
       courseCode: courseCode.toUpperCase().trim(),
       name: name.trim(),
-      credits: parseInt(credits),
-      totalSessions: parseInt(totalSessions) || 30,
-      baseTuitionFee: parseFloat(baseTuitionFee) || 5000000.0,
+      category: category || 'FPT_SUBJECT',
+      deliveryMode: deliveryMode || 'RECORDED',
+      level: level || 'BEGINNER',
+      instructorId: instructorId ? Number.parseInt(instructorId, 10) : null,
+      thumbnailUrl: thumbnailUrl || null,
+      credits: credits !== undefined ? Number.parseInt(credits, 10) : 3,
+      totalSessions: Number.parseInt(totalSessions, 10) || 30,
+      baseTuitionFee: Number.parseFloat(baseTuitionFee) || 5000000.0,
       description: description || null,
       syllabusUrl: syllabusUrl || null,
       status: status || 'ACTIVE'
@@ -628,25 +698,33 @@ router.post('/courses', authenticateJWT, authorizeRoles('ADMIN'), async (req, re
   }
 });
 
-// UC3.1: Cập nhật môn học
+function extractCourseUpdates(body) {
+  const updates = {};
+  const strKeys = ['name', 'category', 'deliveryMode', 'level', 'description', 'syllabusUrl', 'thumbnailUrl', 'status'];
+  for (const k of strKeys) {
+    if (body[k] !== undefined) {
+      updates[k] = typeof body[k] === 'string' ? body[k].trim() : body[k];
+    }
+  }
+  if (body.credits !== undefined) updates.credits = Number.parseInt(body.credits, 10);
+  if (body.totalSessions !== undefined) updates.totalSessions = Number.parseInt(body.totalSessions, 10);
+  if (body.baseTuitionFee !== undefined) updates.baseTuitionFee = Number.parseFloat(body.baseTuitionFee);
+  if (body.instructorId !== undefined) {
+    updates.instructorId = body.instructorId ? Number.parseInt(body.instructorId, 10) : null;
+  }
+  return updates;
+}
+
+// UC3.1: Cập nhật môn học / khóa học
 router.put('/courses/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
-    const { name, credits, totalSessions, baseTuitionFee, description, syllabusUrl, status } = req.body;
+    const id = Number.parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return errorResponse(res, 'ID môn học không hợp lệ', 400);
 
+    const updateDoc = extractCourseUpdates(req.body);
     const updated = await Course.findOneAndUpdate(
       { id },
-      {
-        $set: {
-          ...(name ? { name: name.trim() } : {}),
-          ...(credits ? { credits: parseInt(credits) } : {}),
-          ...(totalSessions ? { totalSessions: parseInt(totalSessions) } : {}),
-          ...(baseTuitionFee !== undefined ? { baseTuitionFee: parseFloat(baseTuitionFee) } : {}),
-          ...(description !== undefined ? { description } : {}),
-          ...(syllabusUrl !== undefined ? { syllabusUrl } : {}),
-          ...(status ? { status } : {})
-        }
-      },
+      { $set: updateDoc },
       { new: true, runValidators: true }
     );
     if (!updated) return errorResponse(res, 'Không tìm thấy môn học', 404);
@@ -661,11 +739,11 @@ router.put('/courses/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req,
 // UC3.1: Xóa môn học (Nếu đã có lớp thì Soft-delete chuyển sang INACTIVE, nếu chưa có thì xóa cứng)
 router.delete('/courses/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = Number.parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return errorResponse(res, 'ID môn học không hợp lệ', 400);
     const countClasses = await Class.countDocuments({ courseId: id });
 
     if (countClasses > 0) {
-      // Soft-delete chuyển trạng thái sang INACTIVE
       const deactivated = await Course.findOneAndUpdate({ id }, { $set: { status: 'INACTIVE' } }, { new: true });
       return successResponse(
         res,
@@ -680,6 +758,112 @@ router.delete('/courses/:id', authenticateJWT, authorizeRoles('ADMIN'), async (r
   } catch (error) {
     console.error('Error deleting course:', error);
     return errorResponse(res, 'Lỗi khi xóa môn học', 500);
+  }
+});
+
+// ==========================================
+// 5. COURSE LESSONS MANAGEMENT (UC3.2)
+// ==========================================
+
+// UC3.2: Lấy danh sách bài giảng của khóa học
+router.get('/courses/:id/lessons', authenticateJWT, async (req, res) => {
+  try {
+    const courseId = Number.parseInt(req.params.id, 10);
+    if (Number.isNaN(courseId)) return errorResponse(res, 'ID khóa học không hợp lệ', 400);
+
+    const course = await Course.findOne({ id: courseId });
+    if (!course) return errorResponse(res, 'Không tìm thấy khóa học', 404);
+
+    const lessons = await CourseLesson.find({ courseId }).sort({ orderIndex: 1, createdAt: 1 });
+    return successResponse(res, lessons.map(plain), 'Lấy danh sách bài giảng thành công');
+  } catch (error) {
+    console.error('Error fetching course lessons:', error);
+    return errorResponse(res, 'Lỗi khi lấy danh sách bài giảng', 500);
+  }
+});
+
+// UC3.2: Thêm bài giảng mới vào khóa học
+router.post('/courses/:id/lessons', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
+  try {
+    const courseId = Number.parseInt(req.params.id, 10);
+    if (Number.isNaN(courseId)) return errorResponse(res, 'ID khóa học không hợp lệ', 400);
+
+    const course = await Course.findOne({ id: courseId });
+    if (!course) return errorResponse(res, 'Không tìm thấy khóa học', 404);
+
+    const { sectionTitle, title, orderIndex, videoUrl, materialUrl, durationMinutes, isPreview } = req.body;
+    if (!title || !String(title).trim()) {
+      return errorResponse(res, 'Tiêu đề bài học là bắt buộc', 400);
+    }
+
+    let lessonOrder = orderIndex ? Number.parseInt(orderIndex, 10) : null;
+    if (!lessonOrder) {
+      const count = await CourseLesson.countDocuments({ courseId });
+      lessonOrder = count + 1;
+    }
+
+    const lesson = await CourseLesson.create({
+      courseId,
+      sectionTitle: (sectionTitle || 'Chương 1').trim(),
+      title: title.trim(),
+      orderIndex: lessonOrder,
+      videoUrl: videoUrl || null,
+      materialUrl: materialUrl || null,
+      durationMinutes: Number.parseInt(durationMinutes, 10) || 0,
+      isPreview: Boolean(isPreview)
+    });
+
+    return successResponse(res, plain(lesson), 'Thêm bài giảng mới thành công', 201);
+  } catch (error) {
+    console.error('Error creating course lesson:', error);
+    return errorResponse(res, 'Lỗi khi tạo bài giảng mới', 500);
+  }
+});
+
+// UC3.2: Cập nhật bài giảng
+router.put('/lessons/:lessonId', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
+  try {
+    const lessonId = Number.parseInt(req.params.lessonId, 10);
+    if (Number.isNaN(lessonId)) return errorResponse(res, 'ID bài giảng không hợp lệ', 400);
+
+    const { sectionTitle, title, orderIndex, videoUrl, materialUrl, durationMinutes, isPreview } = req.body;
+
+    const updated = await CourseLesson.findOneAndUpdate(
+      { id: lessonId },
+      {
+        $set: {
+          ...(sectionTitle !== undefined ? { sectionTitle: sectionTitle.trim() } : {}),
+          ...(title !== undefined ? { title: title.trim() } : {}),
+          ...(orderIndex !== undefined ? { orderIndex: Number.parseInt(orderIndex, 10) } : {}),
+          ...(videoUrl !== undefined ? { videoUrl } : {}),
+          ...(materialUrl !== undefined ? { materialUrl } : {}),
+          ...(durationMinutes !== undefined ? { durationMinutes: Number.parseInt(durationMinutes, 10) } : {}),
+          ...(isPreview !== undefined ? { isPreview: Boolean(isPreview) } : {})
+        }
+      },
+      { new: true, runValidators: true }
+    );
+
+    if (!updated) return errorResponse(res, 'Không tìm thấy bài giảng', 404);
+    return successResponse(res, plain(updated), 'Cập nhật bài giảng thành công');
+  } catch (error) {
+    console.error('Error updating course lesson:', error);
+    return errorResponse(res, 'Lỗi khi cập nhật bài giảng', 500);
+  }
+});
+
+// UC3.2: Xóa bài giảng
+router.delete('/lessons/:lessonId', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
+  try {
+    const lessonId = Number.parseInt(req.params.lessonId, 10);
+    if (Number.isNaN(lessonId)) return errorResponse(res, 'ID bài giảng không hợp lệ', 400);
+
+    const deleted = await CourseLesson.deleteOne({ id: lessonId });
+    if (!deleted.deletedCount) return errorResponse(res, 'Không tìm thấy bài giảng', 404);
+    return successResponse(res, null, 'Xóa bài giảng thành công');
+  } catch (error) {
+    console.error('Error deleting course lesson:', error);
+    return errorResponse(res, 'Lỗi khi xóa bài giảng', 500);
   }
 });
 
