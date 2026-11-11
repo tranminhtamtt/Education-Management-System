@@ -50,6 +50,7 @@ const CoursesPage = () => {
         setData(res.data);
       }
     } catch (err) {
+      console.error(err);
       message.error('Lỗi khi tải danh mục môn học / khóa đào tạo');
     } finally {
       setLoading(false);
@@ -57,7 +58,7 @@ const CoursesPage = () => {
   };
 
   useEffect(() => {
-    fetchCourses();
+    void fetchCourses();
   }, []);
 
   const handleOpenCreate = () => {
@@ -102,7 +103,7 @@ const CoursesPage = () => {
         if (res.success) {
           message.success('Cập nhật khóa học thành công');
           setModalOpen(false);
-          fetchCourses();
+          await fetchCourses();
         }
       } else {
         const res = await apiClient.post('/courses', values);
@@ -110,10 +111,11 @@ const CoursesPage = () => {
           message.success('Tạo khóa đào tạo mới thành công');
           setModalOpen(false);
           form.resetFields();
-          fetchCourses();
+          await fetchCourses();
         }
       }
     } catch (err) {
+      console.error(err);
       message.error(err.response?.data?.message || 'Lỗi khi lưu thông tin khóa học');
     } finally {
       setSubmitting(false);
@@ -135,6 +137,7 @@ const CoursesPage = () => {
         setLessons(res.data);
       }
     } catch (err) {
+      console.error(err);
       message.error('Lỗi khi tải danh sách bài giảng');
     } finally {
       setLoadingLessons(false);
@@ -175,8 +178,8 @@ const CoursesPage = () => {
         if (res.success) {
           message.success('Cập nhật bài giảng thành công');
           setLessonModalOpen(false);
-          if (currentCourse?.id) fetchLessons(currentCourse.id);
-          fetchCourses();
+          if (currentCourse?.id) await fetchLessons(currentCourse.id);
+          await fetchCourses();
         }
       } else {
         const res = await apiClient.post(`/courses/${currentCourse.id}/lessons`, values);
@@ -184,11 +187,12 @@ const CoursesPage = () => {
           message.success('Thêm bài giảng mới thành công');
           setLessonModalOpen(false);
           lessonForm.resetFields();
-          if (currentCourse?.id) fetchLessons(currentCourse.id);
-          fetchCourses();
+          if (currentCourse?.id) await fetchLessons(currentCourse.id);
+          await fetchCourses();
         }
       }
     } catch (err) {
+      console.error(err);
       message.error(err.response?.data?.message || 'Lỗi khi lưu bài giảng');
     } finally {
       setSubmittingLesson(false);
@@ -200,10 +204,11 @@ const CoursesPage = () => {
       const res = await apiClient.delete(`/lessons/${lessonId}`);
       if (res.success) {
         message.success('Đã xóa bài giảng');
-        if (currentCourse?.id) fetchLessons(currentCourse.id);
-        fetchCourses();
+        if (currentCourse?.id) await fetchLessons(currentCourse.id);
+        await fetchCourses();
       }
     } catch (err) {
+      console.error(err);
       message.error('Lỗi khi xóa bài giảng');
     }
   };

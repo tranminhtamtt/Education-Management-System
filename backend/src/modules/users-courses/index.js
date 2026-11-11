@@ -571,8 +571,8 @@ router.post('/teachers', authenticateJWT, authorizeRoles('ADMIN'), async (req, r
 // UC2.2: Cập nhật thông tin giảng viên (chuyên môn, học vị, tiểu sử, số điện thoại)
 router.put('/teachers/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) return errorResponse(res, 'ID giảng viên không hợp lệ', 400);
+    const id = Number.parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return errorResponse(res, 'ID giảng viên không hợp lệ', 400);
     const { fullName, phone, degree, specialty, bio, status } = req.body;
 
     const teacher = await User.findOne({ id, role: 'TEACHER' });
@@ -681,11 +681,11 @@ router.post('/courses', authenticateJWT, authorizeRoles('ADMIN'), async (req, re
       category: category || 'FPT_SUBJECT',
       deliveryMode: deliveryMode || 'RECORDED',
       level: level || 'BEGINNER',
-      instructorId: instructorId ? parseInt(instructorId) : null,
+      instructorId: instructorId ? Number.parseInt(instructorId, 10) : null,
       thumbnailUrl: thumbnailUrl || null,
-      credits: credits !== undefined ? parseInt(credits) : 3,
-      totalSessions: parseInt(totalSessions) || 30,
-      baseTuitionFee: parseFloat(baseTuitionFee) || 5000000.0,
+      credits: credits !== undefined ? Number.parseInt(credits, 10) : 3,
+      totalSessions: Number.parseInt(totalSessions, 10) || 30,
+      baseTuitionFee: Number.parseFloat(baseTuitionFee) || 5000000.0,
       description: description || null,
       syllabusUrl: syllabusUrl || null,
       status: status || 'ACTIVE'
@@ -698,43 +698,33 @@ router.post('/courses', authenticateJWT, authorizeRoles('ADMIN'), async (req, re
   }
 });
 
+function extractCourseUpdates(body) {
+  const updates = {};
+  const strKeys = ['name', 'category', 'deliveryMode', 'level', 'description', 'syllabusUrl', 'thumbnailUrl', 'status'];
+  for (const k of strKeys) {
+    if (body[k] !== undefined) {
+      updates[k] = typeof body[k] === 'string' ? body[k].trim() : body[k];
+    }
+  }
+  if (body.credits !== undefined) updates.credits = Number.parseInt(body.credits, 10);
+  if (body.totalSessions !== undefined) updates.totalSessions = Number.parseInt(body.totalSessions, 10);
+  if (body.baseTuitionFee !== undefined) updates.baseTuitionFee = Number.parseFloat(body.baseTuitionFee);
+  if (body.instructorId !== undefined) {
+    updates.instructorId = body.instructorId ? Number.parseInt(body.instructorId, 10) : null;
+  }
+  return updates;
+}
+
 // UC3.1: Cập nhật môn học / khóa học
 router.put('/courses/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
-    const {
-      name,
-      category,
-      deliveryMode,
-      level,
-      instructorId,
-      thumbnailUrl,
-      credits,
-      totalSessions,
-      baseTuitionFee,
-      description,
-      syllabusUrl,
-      status
-    } = req.body;
+    const id = Number.parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return errorResponse(res, 'ID môn học không hợp lệ', 400);
 
+    const updateDoc = extractCourseUpdates(req.body);
     const updated = await Course.findOneAndUpdate(
       { id },
-      {
-        $set: {
-          ...(name ? { name: name.trim() } : {}),
-          ...(category ? { category } : {}),
-          ...(deliveryMode ? { deliveryMode } : {}),
-          ...(level ? { level } : {}),
-          ...(instructorId !== undefined ? { instructorId: instructorId ? parseInt(instructorId) : null } : {}),
-          ...(thumbnailUrl !== undefined ? { thumbnailUrl } : {}),
-          ...(credits ? { credits: parseInt(credits) } : {}),
-          ...(totalSessions ? { totalSessions: parseInt(totalSessions) } : {}),
-          ...(baseTuitionFee !== undefined ? { baseTuitionFee: parseFloat(baseTuitionFee) } : {}),
-          ...(description !== undefined ? { description } : {}),
-          ...(syllabusUrl !== undefined ? { syllabusUrl } : {}),
-          ...(status ? { status } : {})
-        }
-      },
+      { $set: updateDoc },
       { new: true, runValidators: true }
     );
     if (!updated) return errorResponse(res, 'Không tìm thấy môn học', 404);
@@ -749,7 +739,8 @@ router.put('/courses/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req,
 // UC3.1: Xóa môn học (Nếu đã có lớp thì Soft-delete chuyển sang INACTIVE, nếu chưa có thì xóa cứng)
 router.delete('/courses/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = Number.parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return errorResponse(res, 'ID môn học không hợp lệ', 400);
     const countClasses = await Class.countDocuments({ courseId: id });
 
     if (countClasses > 0) {
@@ -777,8 +768,8 @@ router.delete('/courses/:id', authenticateJWT, authorizeRoles('ADMIN'), async (r
 // UC3.2: Lấy danh sách bài giảng của khóa học
 router.get('/courses/:id/lessons', authenticateJWT, async (req, res) => {
   try {
-    const courseId = parseInt(req.params.id, 10);
-    if (isNaN(courseId)) return errorResponse(res, 'ID khóa học không hợp lệ', 400);
+    const courseId = Number.parseInt(req.params.id, 10);
+    if (Number.isNaN(courseId)) return errorResponse(res, 'ID khóa học không hợp lệ', 400);
 
     const course = await Course.findOne({ id: courseId });
     if (!course) return errorResponse(res, 'Không tìm thấy khóa học', 404);
@@ -794,8 +785,8 @@ router.get('/courses/:id/lessons', authenticateJWT, async (req, res) => {
 // UC3.2: Thêm bài giảng mới vào khóa học
 router.post('/courses/:id/lessons', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
   try {
-    const courseId = parseInt(req.params.id, 10);
-    if (isNaN(courseId)) return errorResponse(res, 'ID khóa học không hợp lệ', 400);
+    const courseId = Number.parseInt(req.params.id, 10);
+    if (Number.isNaN(courseId)) return errorResponse(res, 'ID khóa học không hợp lệ', 400);
 
     const course = await Course.findOne({ id: courseId });
     if (!course) return errorResponse(res, 'Không tìm thấy khóa học', 404);
@@ -805,7 +796,7 @@ router.post('/courses/:id/lessons', authenticateJWT, authorizeRoles('ADMIN', 'TE
       return errorResponse(res, 'Tiêu đề bài học là bắt buộc', 400);
     }
 
-    let lessonOrder = orderIndex ? parseInt(orderIndex, 10) : null;
+    let lessonOrder = orderIndex ? Number.parseInt(orderIndex, 10) : null;
     if (!lessonOrder) {
       const count = await CourseLesson.countDocuments({ courseId });
       lessonOrder = count + 1;
@@ -818,7 +809,7 @@ router.post('/courses/:id/lessons', authenticateJWT, authorizeRoles('ADMIN', 'TE
       orderIndex: lessonOrder,
       videoUrl: videoUrl || null,
       materialUrl: materialUrl || null,
-      durationMinutes: parseInt(durationMinutes, 10) || 0,
+      durationMinutes: Number.parseInt(durationMinutes, 10) || 0,
       isPreview: Boolean(isPreview)
     });
 
@@ -832,8 +823,8 @@ router.post('/courses/:id/lessons', authenticateJWT, authorizeRoles('ADMIN', 'TE
 // UC3.2: Cập nhật bài giảng
 router.put('/lessons/:lessonId', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
   try {
-    const lessonId = parseInt(req.params.lessonId, 10);
-    if (isNaN(lessonId)) return errorResponse(res, 'ID bài giảng không hợp lệ', 400);
+    const lessonId = Number.parseInt(req.params.lessonId, 10);
+    if (Number.isNaN(lessonId)) return errorResponse(res, 'ID bài giảng không hợp lệ', 400);
 
     const { sectionTitle, title, orderIndex, videoUrl, materialUrl, durationMinutes, isPreview } = req.body;
 
@@ -843,10 +834,10 @@ router.put('/lessons/:lessonId', authenticateJWT, authorizeRoles('ADMIN', 'TEACH
         $set: {
           ...(sectionTitle !== undefined ? { sectionTitle: sectionTitle.trim() } : {}),
           ...(title !== undefined ? { title: title.trim() } : {}),
-          ...(orderIndex !== undefined ? { orderIndex: parseInt(orderIndex, 10) } : {}),
+          ...(orderIndex !== undefined ? { orderIndex: Number.parseInt(orderIndex, 10) } : {}),
           ...(videoUrl !== undefined ? { videoUrl } : {}),
           ...(materialUrl !== undefined ? { materialUrl } : {}),
-          ...(durationMinutes !== undefined ? { durationMinutes: parseInt(durationMinutes, 10) } : {}),
+          ...(durationMinutes !== undefined ? { durationMinutes: Number.parseInt(durationMinutes, 10) } : {}),
           ...(isPreview !== undefined ? { isPreview: Boolean(isPreview) } : {})
         }
       },
@@ -864,8 +855,8 @@ router.put('/lessons/:lessonId', authenticateJWT, authorizeRoles('ADMIN', 'TEACH
 // UC3.2: Xóa bài giảng
 router.delete('/lessons/:lessonId', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
   try {
-    const lessonId = parseInt(req.params.lessonId, 10);
-    if (isNaN(lessonId)) return errorResponse(res, 'ID bài giảng không hợp lệ', 400);
+    const lessonId = Number.parseInt(req.params.lessonId, 10);
+    if (Number.isNaN(lessonId)) return errorResponse(res, 'ID bài giảng không hợp lệ', 400);
 
     const deleted = await CourseLesson.deleteOne({ id: lessonId });
     if (!deleted.deletedCount) return errorResponse(res, 'Không tìm thấy bài giảng', 404);

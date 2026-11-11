@@ -339,13 +339,19 @@ function buildLegacyTiDBSeed({ passwordHash }) {
   const courseByCode = {};
   for (const c of SE_CURRICULUM) {
     const isRecorded = ['PRF192', 'PRO192', 'CSD201'].includes(c.courseCode);
+    let courseLevel = 'ADVANCED';
+    if (c.term <= 2) {
+      courseLevel = 'BEGINNER';
+    } else if (c.term <= 4) {
+      courseLevel = 'INTERMEDIATE';
+    }
     const course = {
       id: next('courses'),
       courseCode: c.courseCode,
       name: c.name,
       category: 'FPT_SUBJECT',
       deliveryMode: isRecorded ? 'RECORDED' : 'LIVE_ONLINE',
-      level: c.term <= 2 ? 'BEGINNER' : c.term <= 4 ? 'INTERMEDIATE' : 'ADVANCED',
+      level: courseLevel,
       credits: c.credits,
       totalSessions: 6,
       baseTuitionFee: c.credits >= 10 ? 8500000 : c.term >= 5 ? 5000000 : 4500000,
