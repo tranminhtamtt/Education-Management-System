@@ -571,7 +571,8 @@ router.post('/teachers', authenticateJWT, authorizeRoles('ADMIN'), async (req, r
 // UC2.2: Cập nhật thông tin giảng viên (chuyên môn, học vị, tiểu sử, số điện thoại)
 router.put('/teachers/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) return errorResponse(res, 'ID giảng viên không hợp lệ', 400);
     const { fullName, phone, degree, specialty, bio, status } = req.body;
 
     const teacher = await User.findOne({ id, role: 'TEACHER' });
@@ -776,7 +777,9 @@ router.delete('/courses/:id', authenticateJWT, authorizeRoles('ADMIN'), async (r
 // UC3.2: Lấy danh sách bài giảng của khóa học
 router.get('/courses/:id/lessons', authenticateJWT, async (req, res) => {
   try {
-    const courseId = parseInt(req.params.id);
+    const courseId = parseInt(req.params.id, 10);
+    if (isNaN(courseId)) return errorResponse(res, 'ID khóa học không hợp lệ', 400);
+
     const course = await Course.findOne({ id: courseId });
     if (!course) return errorResponse(res, 'Không tìm thấy khóa học', 404);
 
@@ -791,7 +794,9 @@ router.get('/courses/:id/lessons', authenticateJWT, async (req, res) => {
 // UC3.2: Thêm bài giảng mới vào khóa học
 router.post('/courses/:id/lessons', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
   try {
-    const courseId = parseInt(req.params.id);
+    const courseId = parseInt(req.params.id, 10);
+    if (isNaN(courseId)) return errorResponse(res, 'ID khóa học không hợp lệ', 400);
+
     const course = await Course.findOne({ id: courseId });
     if (!course) return errorResponse(res, 'Không tìm thấy khóa học', 404);
 
@@ -800,7 +805,7 @@ router.post('/courses/:id/lessons', authenticateJWT, authorizeRoles('ADMIN', 'TE
       return errorResponse(res, 'Tiêu đề bài học là bắt buộc', 400);
     }
 
-    let lessonOrder = orderIndex ? parseInt(orderIndex) : null;
+    let lessonOrder = orderIndex ? parseInt(orderIndex, 10) : null;
     if (!lessonOrder) {
       const count = await CourseLesson.countDocuments({ courseId });
       lessonOrder = count + 1;
@@ -813,7 +818,7 @@ router.post('/courses/:id/lessons', authenticateJWT, authorizeRoles('ADMIN', 'TE
       orderIndex: lessonOrder,
       videoUrl: videoUrl || null,
       materialUrl: materialUrl || null,
-      durationMinutes: parseInt(durationMinutes) || 0,
+      durationMinutes: parseInt(durationMinutes, 10) || 0,
       isPreview: Boolean(isPreview)
     });
 
@@ -827,7 +832,9 @@ router.post('/courses/:id/lessons', authenticateJWT, authorizeRoles('ADMIN', 'TE
 // UC3.2: Cập nhật bài giảng
 router.put('/lessons/:lessonId', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
   try {
-    const lessonId = parseInt(req.params.lessonId);
+    const lessonId = parseInt(req.params.lessonId, 10);
+    if (isNaN(lessonId)) return errorResponse(res, 'ID bài giảng không hợp lệ', 400);
+
     const { sectionTitle, title, orderIndex, videoUrl, materialUrl, durationMinutes, isPreview } = req.body;
 
     const updated = await CourseLesson.findOneAndUpdate(
@@ -836,10 +843,10 @@ router.put('/lessons/:lessonId', authenticateJWT, authorizeRoles('ADMIN', 'TEACH
         $set: {
           ...(sectionTitle !== undefined ? { sectionTitle: sectionTitle.trim() } : {}),
           ...(title !== undefined ? { title: title.trim() } : {}),
-          ...(orderIndex !== undefined ? { orderIndex: parseInt(orderIndex) } : {}),
+          ...(orderIndex !== undefined ? { orderIndex: parseInt(orderIndex, 10) } : {}),
           ...(videoUrl !== undefined ? { videoUrl } : {}),
           ...(materialUrl !== undefined ? { materialUrl } : {}),
-          ...(durationMinutes !== undefined ? { durationMinutes: parseInt(durationMinutes) } : {}),
+          ...(durationMinutes !== undefined ? { durationMinutes: parseInt(durationMinutes, 10) } : {}),
           ...(isPreview !== undefined ? { isPreview: Boolean(isPreview) } : {})
         }
       },
@@ -857,7 +864,9 @@ router.put('/lessons/:lessonId', authenticateJWT, authorizeRoles('ADMIN', 'TEACH
 // UC3.2: Xóa bài giảng
 router.delete('/lessons/:lessonId', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
   try {
-    const lessonId = parseInt(req.params.lessonId);
+    const lessonId = parseInt(req.params.lessonId, 10);
+    if (isNaN(lessonId)) return errorResponse(res, 'ID bài giảng không hợp lệ', 400);
+
     const deleted = await CourseLesson.deleteOne({ id: lessonId });
     if (!deleted.deletedCount) return errorResponse(res, 'Không tìm thấy bài giảng', 404);
     return successResponse(res, null, 'Xóa bài giảng thành công');

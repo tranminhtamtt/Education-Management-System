@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import {
   Table, Card, Button, Input, Space, Tag, Modal, Form, Typography,
-  message, InputNumber, Row, Col, Select, Drawer, List, Popconfirm, Switch, Tooltip
+  message, InputNumber, Row, Col, Select, Drawer, List, Popconfirm, Switch
 } from 'antd';
 import {
-  PlusOutlined, BookOutlined, LinkOutlined, SearchOutlined,
+  PlusOutlined, LinkOutlined, SearchOutlined,
   PlayCircleOutlined, DeleteOutlined, EditOutlined, VideoCameraOutlined,
-  FileTextOutlined, CheckCircleOutlined
+  FileTextOutlined
 } from '@ant-design/icons';
 import apiClient from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
@@ -175,7 +175,7 @@ const CoursesPage = () => {
         if (res.success) {
           message.success('Cập nhật bài giảng thành công');
           setLessonModalOpen(false);
-          fetchLessons(currentCourse.id);
+          if (currentCourse?.id) fetchLessons(currentCourse.id);
           fetchCourses();
         }
       } else {
@@ -184,7 +184,7 @@ const CoursesPage = () => {
           message.success('Thêm bài giảng mới thành công');
           setLessonModalOpen(false);
           lessonForm.resetFields();
-          fetchLessons(currentCourse.id);
+          if (currentCourse?.id) fetchLessons(currentCourse.id);
           fetchCourses();
         }
       }
@@ -200,7 +200,7 @@ const CoursesPage = () => {
       const res = await apiClient.delete(`/lessons/${lessonId}`);
       if (res.success) {
         message.success('Đã xóa bài giảng');
-        fetchLessons(currentCourse.id);
+        if (currentCourse?.id) fetchLessons(currentCourse.id);
         fetchCourses();
       }
     } catch (err) {
@@ -270,7 +270,7 @@ const CoursesPage = () => {
       title: 'Hành động',
       width: 220,
       render: (_, record) => (
-        <Space wrap orientation="horizontal" size="small">
+        <Space wrap direction="horizontal" size="small">
           <Button
             type="primary"
             size="small"
@@ -431,7 +431,7 @@ const CoursesPage = () => {
                 <InputNumber
                   style={{ width: '100%' }}
                   formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                  parser={(value) => value.replace(/\$\s?|(,*)/g, '')}
+                  parser={(value) => (value ? value.replace(/\$\s?|(,*)/g, '') : '')}
                 />
               </Form.Item>
             </Col>
@@ -498,9 +498,10 @@ const CoursesPage = () => {
           locale={{ emptyText: 'Chưa có bài giảng nào trong khóa học này. Hãy bấm "Thêm Bài Giảng" để bắt đầu.' }}
           renderItem={(item) => (
             <List.Item
+              key={item.id}
               actions={[
-                <Button type="link" icon={<EditOutlined />} onClick={() => handleOpenEditLesson(item)}>Sửa</Button>,
-                <Popconfirm title="Xác nhận xóa bài giảng này?" onConfirm={() => handleDeleteLesson(item.id)} okText="Xóa" cancelText="Hủy">
+                <Button key="edit" type="link" icon={<EditOutlined />} onClick={() => handleOpenEditLesson(item)}>Sửa</Button>,
+                <Popconfirm key="delete" title="Xác nhận xóa bài giảng này?" onConfirm={() => handleDeleteLesson(item.id)} okText="Xóa" cancelText="Hủy">
                   <Button type="link" danger icon={<DeleteOutlined />}>Xóa</Button>
                 </Popconfirm>
               ]}
