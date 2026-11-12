@@ -16,13 +16,14 @@ const stringQueryValue = value => (typeof value === 'string' ? value : undefined
 const teacherCanManageCourse = async (courseId, user) => {
   if (user.role === 'ADMIN') return true;
   if (!Number.isSafeInteger(courseId)) return false;
-  return Boolean(await Course.exists({
-    id: courseId,
+  const assignedCourseIds = await Class.find({ teacherId: user.id }).distinct('courseId');
+  const manageableCourseIds = await Course.find({
     $or: [
       { instructorId: user.id },
-      { id: { $in: (await Class.find({ teacherId: user.id }).distinct('courseId')) } }
+      { id: { $in: assignedCourseIds } }
     ]
-  }));
+  }).distinct('id');
+  return manageableCourseIds.includes(courseId);
 };
 
 // ==========================================

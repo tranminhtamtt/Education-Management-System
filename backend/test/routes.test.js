@@ -268,6 +268,11 @@ test('teacher workflow scopes dashboard, content, attendance, grading, and Q&A t
     score: 9, teacherFeedback: 'Good work'
   })).status, 200);
 
+  const operatorId = '%7B%22%24ne%22%3Anull%7D';
+  assert.equal((await call(`/classes/${operatorId}`, ['TEACHER', 3])).status, 400);
+  assert.equal((await call(`/classes/${operatorId}/grades`, ['TEACHER', 3])).status, 400);
+  assert.equal((await call(`/classes/${operatorId}/grades`, ['TEACHER', 3], 'PUT', { gradesList: [] })).status, 400);
+
   const grades = await call('/classes/4/grades', ['TEACHER', 3]);
   assert.equal(grades.status, 200);
   assert.equal(grades.body.data.grades.length, 2);

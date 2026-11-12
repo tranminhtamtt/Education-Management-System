@@ -9,7 +9,7 @@ const {
 const { plain } = require('../../utils/query');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
 
-const activeStatuses = ['UPCOMING', 'ONGOING'];
+const activeStatuses = new Set(['UPCOMING', 'ONGOING']);
 
 async function getTeacherScope(teacherId) {
   const classes = (await Class.find({ teacherId })
@@ -89,7 +89,7 @@ router.get('/teacher/dashboard', authenticateJWT, authorizeRoles('TEACHER'), asy
   try {
     const scope = await getTeacherScope(req.user.id);
     const liveClasses = scope.classes.filter(item =>
-      item.course?.deliveryMode === 'LIVE_ONLINE' && activeStatuses.includes(item.status)
+      item.course?.deliveryMode === 'LIVE_ONLINE' && activeStatuses.has(item.status)
     );
     const activeClassIds = liveClasses.map(item => item.id);
     const activeEnrollments = activeClassIds.length
@@ -142,7 +142,7 @@ router.get('/teacher/dashboard', authenticateJWT, authorizeRoles('TEACHER'), asy
       }] : [];
     }).sort((a, b) => b.absentRate - a.absentRate);
 
-    const schedules = scope.classes.filter(classItem => activeStatuses.includes(classItem.status)).flatMap(classItem =>
+    const schedules = scope.classes.filter(classItem => activeStatuses.has(classItem.status)).flatMap(classItem =>
       (classItem.schedules || []).map(schedule => ({
         id: schedule.id,
         classId: classItem.id,
