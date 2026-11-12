@@ -10,6 +10,7 @@ import LoginPage from './pages/auth/LoginPage';
 import DashboardPage from './pages/dashboard/DashboardPage';
 
 // Cụm 1: Quản trị Hồ sơ & Môn học
+import UsersPage from './pages/users-courses/UsersPage';
 import StudentsPage from './pages/users-courses/StudentsPage';
 import TeachersPage from './pages/users-courses/TeachersPage';
 import CoursesPage from './pages/users-courses/CoursesPage';
@@ -34,6 +35,11 @@ import RequestsPage from './pages/notifications-analytics/RequestsPage';
 import NotificationsPage from './pages/notifications-analytics/NotificationsPage';
 import TeacherContentPage from './pages/teacher/TeacherContentPage';
 import CourseQuestionsPage from './pages/teacher/CourseQuestionsPage';
+
+const UsersRoute = () => {
+  const { user } = useAuth();
+  return user?.role === 'ADMIN' ? <UsersPage /> : <Navigate to="/dashboard" replace />;
+};
 
 const TuitionReportRoute = () => {
   const { user } = useAuth();
@@ -82,6 +88,7 @@ const App = () => {
               <Route path="dashboard" element={<DashboardPage />} />
 
               {/* Cụm 1 */}
+              <Route path="users" element={<UsersRoute />} />
               <Route path="students" element={<StudentsPage />} />
               <Route path="teachers" element={<TeachersPage />} />
               <Route path="courses" element={<CoursesPage />} />

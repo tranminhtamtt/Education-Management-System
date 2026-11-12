@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
-const { login, getMe } = require('./auth.controller');
+const { login, register, getMe } = require('./auth.controller');
 const authenticateJWT = require('../../middlewares/auth.middleware');
 const authorizeRoles = require('../../middlewares/role.middleware');
 const { User, Course, CourseLesson, Class, Enrollment } = require('../../models');
@@ -30,7 +30,114 @@ const teacherCanManageCourse = async (courseId, user) => {
 // 1. AUTH ROUTES
 // ==========================================
 router.post('/auth/login', login);
+router.post('/auth/register', register);
 router.get('/auth/me', authenticateJWT, getMe);
+
+// ==========================================
+// 1b. SYSTEM ADMIN USER ACCOUNTS MANAGEMENT
+// ==========================================
+
+// UC1.1: Danh sách toàn bộ tài khoản người dùng trên hệ thống (SYSTEM ADMIN)
+router.get('/users', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const pageSize = Math.max(1, parseInt(req.query.pageSize) || 10);
+    const search = (stringQueryValue(req.query.search) || '').trim();
+    const role = stringQueryValue(req.query.role);
+    const status = stringQueryValue(req.query.status);
+
+    const where = {
+      ...(role ? { role } : {}),
+      ...(status ? { status } : {}),
+      ...(search
+        ? {
+            $or: [
+              { code: like(search) },
+              { fullName: like(search) },
+              { email: like(search) },
+              { phone: like(search) }
+            ]
+          }
+        : {})
+    };
+
+    const [total, users] = await Promise.all([
+      User.countDocuments(where),
+      User.find(where)
+        .sort({ id: 1 })
+        .skip((page - 1) * pageSize)
+        .limit(pageSize)
+    ]);
+
+    return successResponse(
+      res,
+      {
+        items: users.map(u => {
+          const item = plain(u);
+          delete item.passwordHash;
+          return item;
+        }),
+        pagination: {
+          page,
+          pageSize,
+          total,
+          totalPages: Math.ceil(total / pageSize)
+        }
+      },
+      'Lấy danh sách người dùng thành công'
+    );
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    return errorResponse(res, 'Lỗi lấy danh sách tài khoản người dùng', 500);
+  }
+});
+
+// UC1.1: Khóa / Mở khóa tài khoản & cập nhật vai trò (chặn tự khóa ADM001 hoặc chính mình)
+router.patch('/users/:id/status', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const user = await User.findOne({ id });
+
+    if (!user) {
+      return errorResponse(res, 'Không tìm thấy tài khoản người dùng', 404);
+    }
+
+    const { status, role } = req.body;
+
+    const isSuperAdmin = user.code === 'ADM001';
+    const isSelf = req.user.id === user.id;
+
+    if (status && status !== 'ACTIVE') {
+      if (isSuperAdmin) {
+        return errorResponse(res, 'Không được phép khóa tài khoản Quản trị viên hệ thống gốc (ADM001)', 403);
+      }
+      if (isSelf) {
+        return errorResponse(res, 'Bạn không thể tự khóa tài khoản của chính mình khi đang đăng nhập', 403);
+      }
+    }
+
+    if (role && isSuperAdmin && role !== 'ADMIN') {
+      return errorResponse(res, 'Không được phép thay đổi vai trò của tài khoản ADM001', 403);
+    }
+
+    if (status) user.status = status;
+    if (role) user.role = role;
+
+    await user.save();
+
+    const data = plain(user);
+    delete data.passwordHash;
+
+    return successResponse(
+      res,
+      data,
+      `Cập nhật trạng thái người dùng [${user.code}] thành công`
+    );
+  } catch (error) {
+    console.error('Error updating user status:', error);
+    return errorResponse(res, 'Lỗi cập nhật trạng thái người dùng', 500);
+  }
+});
 
 // ==========================================
 // 2. STUDENTS MANAGEMENT (UC1.1 - UC1.4)

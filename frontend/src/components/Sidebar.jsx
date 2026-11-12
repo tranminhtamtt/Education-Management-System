@@ -16,7 +16,8 @@ import {
   NotificationOutlined,
   BarChartOutlined,
   ReadOutlined,
-  MessageOutlined
+  MessageOutlined,
+  SafetyCertificateOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../context/AuthContext';
 
@@ -49,6 +50,11 @@ const Sidebar = () => {
     // Admin only: Quản trị người dùng & môn
     ...(role === 'ADMIN'
       ? [
+          {
+            key: '/users',
+            icon: <SafetyCertificateOutlined />,
+            label: 'Quản lý Tài khoản'
+          },
           {
             key: '/students',
             icon: <UserOutlined />,
