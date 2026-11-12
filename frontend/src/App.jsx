@@ -46,10 +46,6 @@ const DashboardRoute = () => {
   return user?.role === 'STUDENT' ? <StudentDashboard /> : <DashboardPage />;
 };
 
-const UsersRoute = () => {
-  const { user } = useAuth();
-  return user?.role === 'ADMIN' ? <UsersPage /> : <Navigate to="/dashboard" replace />;
-};
 
 const TuitionReportRoute = () => {
   const { user } = useAuth();
