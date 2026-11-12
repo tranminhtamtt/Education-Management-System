@@ -124,7 +124,7 @@ export default function PaymentOperationsPage() {
         <InputNumber aria-label="Năm báo cáo" min={2000} max={2100} value={year} onChange={v => v && setYear(v)} />
         <Statistic title="Tiền vào ngân hàng trong năm" value={money(summary?.bankReceived)} />
         <Statistic title="Đã phân bổ học phí trong năm" value={money(summary?.applied)} />
-        <Statistic title="Công nợ còn lại (toàn bộ)" value={money(summary?.outstanding)} />
+        <Statistic title="Chưa thu trên hóa đơn (toàn bộ)" value={money(summary?.outstanding)} />
         <Statistic title="Sai lệch đang mở" value={summary?.anomalous || 0} valueStyle={{ color: summary?.anomalous ? '#cf1322' : undefined }} />
       </Space>
     </Card>

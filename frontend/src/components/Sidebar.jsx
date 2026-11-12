@@ -36,7 +36,7 @@ const Sidebar = () => {
     ? [
         // Accountant (Người 3): chỉ các chức năng tài chính học phí
         { key: '/dashboard', icon: <DashboardOutlined />, label: 'Tổng quan & Báo cáo' },
-        { key: '/tuition', icon: <DollarCircleOutlined />, label: 'Công nợ học phí' },
+        { key: '/tuition', icon: <DollarCircleOutlined />, label: 'Hóa đơn mua khóa học' },
         { key: '/payment-operations', icon: <AuditOutlined />, label: 'Giao dịch thanh toán' },
         { key: '/notifications', icon: <NotificationOutlined />, label: 'Thông báo' }
       ]
@@ -49,7 +49,7 @@ const Sidebar = () => {
         { key: '/attendance', icon: <CheckSquareOutlined />, label: 'Chuyên cần' },
         { key: '/assignments', icon: <FileTextOutlined />, label: 'Bài tập & nộp bài' },
         { key: '/questions', icon: <AuditOutlined />, label: 'Hỏi đáp giảng viên' },
-        { key: '/tuition', icon: <DollarCircleOutlined />, label: 'Học phí & VietQR' },
+        { key: '/tuition', icon: <DollarCircleOutlined />, label: 'Đơn mua khóa học' },
         { key: '/requests', icon: <FileTextOutlined />, label: 'Đơn từ' },
         { key: '/notifications', icon: <NotificationOutlined />, label: 'Thông báo' }
       ] : [

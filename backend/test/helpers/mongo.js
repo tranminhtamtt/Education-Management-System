@@ -5,7 +5,9 @@ const { connectDB, disconnectDB, mongoose } = require('../../src/config/db');
 let replSet;
 async function startMongo() {
   replSet = await MongoMemoryReplSet.create({ replSet: { count: 1, storageEngine: 'wiredTiger' } });
-  await connectDB(replSet.getUri('ems_test'));
+  const uri = replSet.getUri('ems_test');
+  await connectDB(uri);
+  return uri;
 }
 async function resetMongo() {
   const models = require('../../src/models');

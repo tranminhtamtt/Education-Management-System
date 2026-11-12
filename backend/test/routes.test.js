@@ -10,12 +10,13 @@ process.env.VIETQR_BANK_ID = 'TEST';
 process.env.VIETQR_ACCOUNT_NAME = 'TEST EMS';
 delete process.env.SEPAY_API_TOKEN;
 const { startMongo, stopMongo, resetMongo } = require('./helpers/mongo');
+const { connectDB, disconnectDB } = require('../src/config/db');
 const app = require('../src/app');
 const M = require('../src/models');
 
-let server, base;
+let server, base, mongoUri;
 before(async () => {
-  await startMongo();
+  mongoUri = await startMongo();
   server = app.listen(0, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));
   base = `http://127.0.0.1:${server.address().port}/api/v1`;
@@ -47,7 +48,7 @@ async function seedBasic() {
   ]);
 }
 
-test('self-registration creates an active student and supports login without admin approval', async () => {
+test('self-registration persists across database reconnection and supports login with the original email', async () => {
   await seedBasic();
   const payload = { fullName: 'Học viên mới', email: ' Buyer@Example.com ', password: 'buyer-password', role: 'ADMIN' };
   const results = await Promise.all([
@@ -60,7 +61,9 @@ test('self-registration creates an active student and supports login without adm
   assert.match(account.code, /^HV\d{8,}$/);
   assert.equal(account.email, 'buyer@example.com');
   assert.equal(account.passwordHash, undefined);
-  const login = await call('/auth/login', null, 'POST', { email: account.email, password: payload.password });
+  await disconnectDB();
+  await connectDB(mongoUri);
+  const login = await call('/auth/login', null, 'POST', { email: payload.email, password: payload.password });
   assert.equal(login.status, 200);
   assert.equal(login.body.data.user.id, account.id);
 });

@@ -74,25 +74,25 @@ const SMALL_GROUP_FPT = ['PRF192', 'PRO192', 'CSD201'];
 const UPCOMING_COHORT = ['PRF192-LIVE', 'PRJ301-LIVE', 'CCNA-LIVE', 'IELTS-LIVE'];
 const CERT_COURSES = {
   CCNA: [
-    { suffix: 'VID', mode: 'RECORDED', name: 'CCNA 200-301 – Lý thuyết & Lab Packet Tracer', price: 1290000, level: 'BEGINNER' },
-    { suffix: 'LIVE', mode: 'LIVE_ONLINE', name: 'CCNA Live Lab cùng chuyên gia Cisco', price: 4500000, level: 'INTERMEDIATE' }
+    { suffix: 'VID', mode: 'RECORDED', name: 'CCNA 200-301 – Lý thuyết & Lab Packet Tracer', level: 'BEGINNER' },
+    { suffix: 'LIVE', mode: 'LIVE_ONLINE', name: 'CCNA Live Lab cùng chuyên gia Cisco', level: 'INTERMEDIATE' }
   ],
   IELTS: [
-    { suffix: 'VID', mode: 'RECORDED', name: 'IELTS Foundation 5.0 – Ngữ pháp & Từ vựng', price: 990000, level: 'BEGINNER' },
-    { suffix: 'LIVE', mode: 'LIVE_ONLINE', name: 'IELTS Intensive 6.5+ (chấm Writing hằng tuần)', price: 6900000, level: 'INTERMEDIATE' },
-    { suffix: 'SPK', mode: 'LIVE_ONLINE', name: 'IELTS Speaking nhóm nhỏ (tối đa 8 học viên)', price: 3500000, level: 'INTERMEDIATE', maxStudents: 8, teacherIndex: 1 }
+    { suffix: 'VID', mode: 'RECORDED', name: 'IELTS Foundation 5.0 – Ngữ pháp & Từ vựng', level: 'BEGINNER' },
+    { suffix: 'LIVE', mode: 'LIVE_ONLINE', name: 'IELTS Intensive 6.5+ (chấm Writing hằng tuần)', level: 'INTERMEDIATE' },
+    { suffix: 'SPK', mode: 'LIVE_ONLINE', name: 'IELTS Speaking nhóm nhỏ (tối đa 8 học viên)', level: 'INTERMEDIATE', maxStudents: 8, teacherIndex: 1 }
   ],
   TOEIC: [
-    { suffix: 'VID', mode: 'RECORDED', name: 'TOEIC 650+ Listening & Reading', price: 790000, level: 'BEGINNER' },
-    { suffix: 'LIVE', mode: 'LIVE_ONLINE', name: 'TOEIC 750+ cấp tốc 4 tuần', price: 2900000, level: 'INTERMEDIATE' }
+    { suffix: 'VID', mode: 'RECORDED', name: 'TOEIC 650+ Listening & Reading', level: 'BEGINNER' },
+    { suffix: 'LIVE', mode: 'LIVE_ONLINE', name: 'TOEIC 750+ cấp tốc 4 tuần', level: 'INTERMEDIATE' }
   ],
   'AWS-CCP': [
-    { suffix: 'VID', mode: 'RECORDED', name: 'AWS Cloud Practitioner (CLF-C02) trọn bộ', price: 1190000, level: 'BEGINNER' },
-    { suffix: 'LIVE', mode: 'LIVE_ONLINE', name: 'AWS CCP Bootcamp – Live & thi thử', price: 3200000, level: 'BEGINNER' }
+    { suffix: 'VID', mode: 'RECORDED', name: 'AWS Cloud Practitioner (CLF-C02) trọn bộ', level: 'BEGINNER' },
+    { suffix: 'LIVE', mode: 'LIVE_ONLINE', name: 'AWS CCP Bootcamp – Live & thi thử', level: 'BEGINNER' }
   ],
   'JLPT-N3': [
-    { suffix: 'VID', mode: 'RECORDED', name: 'JLPT N3 – Ngữ pháp & Kanji qua video', price: 890000, level: 'INTERMEDIATE' },
-    { suffix: 'LIVE', mode: 'LIVE_ONLINE', name: 'Luyện thi JLPT N3 cấp tốc', price: 3900000, level: 'INTERMEDIATE' }
+    { suffix: 'VID', mode: 'RECORDED', name: 'JLPT N3 – Ngữ pháp & Kanji qua video', level: 'INTERMEDIATE' },
+    { suffix: 'LIVE', mode: 'LIVE_ONLINE', name: 'Luyện thi JLPT N3 cấp tốc', level: 'INTERMEDIATE' }
   ]
 };
 
@@ -117,14 +117,14 @@ const STUDENTS = [
  */
 const PURCHASES = {
   HE170001: [{ course: 'SWD392-VID', status: 'PAID', lessons: 4 }, { course: 'CCNA-LIVE', status: 'PAID', late: [2] }, { course: 'AWS-CCP-VID', status: 'UNPAID' }, { course: 'SWD392-LIVE', status: 'PAID' }, { course: 'MLN122-LIVE', status: 'PAID', absent: [0] }],
-  HE170002: [{ course: 'IELTS-LIVE', status: 'PAID' }, { course: 'IELTS-VID', status: 'PAID', lessons: 6 }, { course: 'PRM392-VID', status: 'UNPAID' }, { course: 'TOEIC-LIVE', status: 'PAID' }, { course: 'PRM392-LIVE', status: 'PAID', late: [1] }],
+  HE170002: [{ course: 'IELTS-LIVE', status: 'PAID' }, { course: 'IELTS-VID', status: 'PAID', lessons: 6 }, { course: 'PRM392-VID', status: 'PAID' }, { course: 'TOEIC-LIVE', status: 'PAID' }, { course: 'PRM392-LIVE', status: 'PAID', late: [1] }],
   HE170003: [{ course: 'PRN231-VID', status: 'PAID', lessons: 2 }, { course: 'TOEIC-LIVE', status: 'PAID', late: [1] }, { course: 'CCNA-VID', status: 'PARTIAL' }, { course: 'PRN231-LIVE', status: 'PAID' }, { course: 'SWD392-LIVE', status: 'PAID' }],
   HE170004: [{ course: 'SWP391-LIVE', status: 'PAID' }, { course: 'IELTS-VID', status: 'PAID', lessons: 3 }, { course: 'IELTS-SPK', status: 'PAID' }, { course: 'SWR302-LIVE', status: 'PAID' }],
   HE170005: [{ course: 'PRJ301-LIVE', status: 'PAID', absent: [1], late: [0] }, { course: 'DBI202-VID', status: 'PAID', lessons: 1 }, { course: 'PRN231-LIVE', status: 'PAID' }, { course: 'IOT102-LIVE', status: 'PAID' }],
-  HE170006: [{ course: 'SWE201C-VID', status: 'PAID', lessons: 5 }, { course: 'JLPT-N3-LIVE', status: 'PAID' }, { course: 'IELTS-LIVE', status: 'UNPAID', cohort: 'UPCOMING' }, { course: 'SWR302-LIVE', status: 'PAID' }, { course: 'TOEIC-LIVE', status: 'PAID' }],
-  HE170007: [{ course: 'CSD201-LIVE', status: 'PAID' }, { course: 'CSD201-VID', status: 'PAID', lessons: 2 }, { course: 'DBI202-LIVE', status: 'UNPAID' }, { course: 'MAS291-LIVE', status: 'PAID' }, { course: 'JPD113-LIVE', status: 'PAID' }],
+  HE170006: [{ course: 'SWE201C-VID', status: 'PAID', lessons: 5 }, { course: 'JLPT-N3-LIVE', status: 'PAID' }, { course: 'IELTS-LIVE', status: 'PAID', cohort: 'UPCOMING' }, { course: 'SWR302-LIVE', status: 'PAID' }, { course: 'TOEIC-LIVE', status: 'PAID' }],
+  HE170007: [{ course: 'CSD201-LIVE', status: 'PAID' }, { course: 'CSD201-VID', status: 'PAID', lessons: 2 }, { course: 'DBI202-LIVE', status: 'PAID' }, { course: 'MAS291-LIVE', status: 'PAID' }, { course: 'JPD113-LIVE', status: 'PAID' }],
   HE170008: [{ course: 'DBI202-LIVE', status: 'PAID', absent: [1] }, { course: 'MAS291-VID', status: 'PAID', lessons: 6 }, { course: 'MAD101-LIVE', status: 'PAID' }, { course: 'JPD113-LIVE', status: 'PAID' }],
-  HE170009: [{ course: 'PRF192-LIVE', status: 'PAID' }, { course: 'PRF192-VID', status: 'PAID', lessons: 3 }, { course: 'MAD101-VID', status: 'UNPAID' }, { course: 'MAE101-LIVE', status: 'PAID' }, { course: 'CEA201-LIVE', status: 'PAID', late: [0] }],
+  HE170009: [{ course: 'PRF192-LIVE', status: 'PAID' }, { course: 'PRF192-VID', status: 'PAID', lessons: 3 }, { course: 'MAD101-VID', status: 'PAID' }, { course: 'MAE101-LIVE', status: 'PAID' }, { course: 'CEA201-LIVE', status: 'PAID', late: [0] }],
   HE170010: [{ course: 'PRF192-LIVE2', status: 'PAID' }, { course: 'MAE101-VID', status: 'PAID', lessons: 0 }, { course: 'CSI104-LIVE', status: 'PAID' }, { course: 'SSG104-LIVE', status: 'PAID' }]
 };
 
@@ -190,10 +190,9 @@ function buildCourseCenterSeed({ passwordHash, now = new Date() }) {
   const courseSpecs = [];
   for (const c of SE_CURRICULUM) {
     const code = c.courseCode.toUpperCase();
-    const big = c.credits >= 10;
-    courseSpecs.push({ subject: code, suffix: 'VID', mode: 'RECORDED', name: `${c.courseCode} – Nắm chắc kiến thức qua video`, price: big ? 990000 : 590000 + c.term * 30000, level: 'BEGINNER' });
-    courseSpecs.push({ subject: code, suffix: 'LIVE', mode: 'LIVE_ONLINE', name: `${c.courseCode} – Lớp Live ôn tập & luyện đề cùng giảng viên`, price: big ? 3500000 : 1800000 + c.term * 100000, level: 'INTERMEDIATE' });
-    if (SMALL_GROUP_FPT.includes(code)) courseSpecs.push({ subject: code, suffix: 'LIVE2', mode: 'LIVE_ONLINE', name: `${c.courseCode} – Kèm cặp nhóm nhỏ (tối đa 10 học viên)`, price: 2600000, level: 'BEGINNER', maxStudents: 10, teacherIndex: 1 });
+    courseSpecs.push({ subject: code, suffix: 'VID', mode: 'RECORDED', name: `${c.courseCode} – Nắm chắc kiến thức qua video`, level: 'BEGINNER' });
+    courseSpecs.push({ subject: code, suffix: 'LIVE', mode: 'LIVE_ONLINE', name: `${c.courseCode} – Lớp Live ôn tập & luyện đề cùng giảng viên`, level: 'INTERMEDIATE' });
+    if (SMALL_GROUP_FPT.includes(code)) courseSpecs.push({ subject: code, suffix: 'LIVE2', mode: 'LIVE_ONLINE', name: `${c.courseCode} – Kèm cặp nhóm nhỏ (tối đa 10 học viên)`, level: 'BEGINNER', maxStudents: 10, teacherIndex: 1 });
   }
   for (const c of CERTIFICATES) {
     for (const spec of CERT_COURSES[c.code]) courseSpecs.push({ subject: c.code, ...spec });
@@ -231,7 +230,7 @@ function buildCourseCenterSeed({ passwordHash, now = new Date() }) {
       instructorId: instructor.id,
       credits: subject.credits || 0,
       totalSessions: isLive ? pattern.length * WEEKS_PER_COHORT : lessons.length,
-      baseTuitionFee: spec.price,
+      baseTuitionFee: isLive ? 3000 : 2000,
       description: isLive
         ? `Học trực tuyến qua Google Meet theo lịch cố định, ${pattern.length} buổi/tuần trong ${WEEKS_PER_COHORT} tuần. Giảng viên giao bài, chấm điểm và giải đáp thắc mắc trực tiếp.`
         : `Học mọi lúc mọi nơi qua ${lessons.length} video bài giảng, có tài liệu kèm theo. Mua xong học ngay, theo dõi tiến độ từng bài.`,
@@ -342,7 +341,7 @@ function buildCourseCenterSeed({ passwordHash, now = new Date() }) {
         });
       }
       if (!paid) {
-        data.notifications.push({ id: next('notifications'), userId: stu.id, title: 'Hoàn tất thanh toán để mở khóa học', message: `Khóa "${course.name}" còn ${(amount - paidAmount).toLocaleString('vi-VN')} đ chưa thanh toán. Quét VietQR trong mục Học phí để vào học.`, type: 'TUITION', isRead: false, createdAt: enrolledAt });
+        data.notifications.push({ id: next('notifications'), userId: stu.id, title: 'Hoàn tất thanh toán để mở khóa học', message: `Khóa "${course.name}" còn ${(amount - paidAmount).toLocaleString('vi-VN')} đ chưa thanh toán. Mở VietQR trong mục Đơn mua khóa học để vào học.`, type: 'TUITION', isRead: false, createdAt: enrolledAt });
       }
 
       // Điểm danh lớp Live: chỉ các buổi đã diễn ra (trước hôm nay)

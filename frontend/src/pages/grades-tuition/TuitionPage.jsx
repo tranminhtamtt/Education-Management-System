@@ -27,11 +27,11 @@ import {
   FileDoneOutlined
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import apiClient from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { VietQRModal, ReceiptModal, PaymentHistory } from '../../components/tuition/TuitionModals';
-import { formatVnd, InvoiceStatusTag, STATUS_OPTIONS } from '../../components/tuition/tuitionHelpers';
+import { formatVnd, InvoiceStatusTag, STATUS_OPTIONS, sumUncollectedByStatus } from '../../components/tuition/tuitionHelpers';
 
 const { Text } = Typography;
 
@@ -75,11 +75,11 @@ const TuitionPage = () => {
         setSummary(res.data.summary);
       }
     } catch (err) {
-      if (!silent) message.error(err.response?.data?.message || 'Lỗi khi tải danh sách học phí');
+      if (!silent) message.error(err.response?.data?.message || (isStudent ? 'Không tải được đơn mua khóa học' : 'Lỗi khi tải danh sách học phí'));
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [filters]);
+  }, [filters, isStudent]);
 
   useEffect(() => {
     fetchInvoices();
@@ -98,7 +98,7 @@ const TuitionPage = () => {
   // ---------- Bảng ----------
   const columns = [
     {
-      title: 'Hóa đơn',
+      title: isStudent ? 'Mã đơn' : 'Hóa đơn',
       dataIndex: 'id',
       width: 90,
       render: (id) => <Text strong>#{id}</Text>
@@ -117,24 +117,26 @@ const TuitionPage = () => {
         ]
       : []),
     {
-      title: 'Lớp & Môn học',
+      title: isStudent ? 'Khóa học' : 'Lớp & Môn học',
       render: (_, r) => (
         <div>
           <Text strong>{r.courseName}</Text>
           <div style={{ fontSize: 12, color: '#8c8c8c' }}>
-            {r.classCode} ({r.courseCode}){!isAccountant && <> • {r.semester}</>}
+            {isStudent
+              ? [r.courseCode, r.semester !== 'SELF_PACED' && r.classCode].filter(Boolean).join(' · ')
+              : <>{r.classCode} ({r.courseCode}){!isAccountant && <> • {r.semester}</>}</>}
           </div>
         </div>
       )
     },
     {
-      title: 'Học phí',
+      title: isStudent ? 'Giá khóa học' : 'Học phí',
       dataIndex: 'amount',
       align: 'right',
       render: (amt) => formatVnd(amt)
     },
     {
-      title: 'Đã nộp',
+      title: isStudent ? 'Đã thanh toán' : 'Đã nộp',
       dataIndex: 'paidAmount',
       align: 'right',
       render: (amt, r) => (
@@ -144,16 +146,16 @@ const TuitionPage = () => {
       )
     },
     {
-      title: 'Còn nợ',
+      title: isStudent ? 'Còn thiếu' : 'Chưa thu',
       dataIndex: 'remainingAmount',
       align: 'right',
       sorter: (a, b) => a.remainingAmount - b.remainingAmount,
-      render: (amt) => (
-        <span style={{ color: amt > 0 ? '#ff4d4f' : '#52c41a', fontWeight: amt > 0 ? 600 : 400 }}>{formatVnd(amt)}</span>
+      render: (amt, invoice) => isStudent && invoice.status !== 'PARTIAL' ? '—' : (
+        <span style={{ fontWeight: amt > 0 ? 600 : 400 }}>{formatVnd(amt)}</span>
       )
     },
-    {
-      title: 'Hạn đóng',
+    ...(!isStudent ? [{
+      title: 'Hạn thanh toán',
       dataIndex: 'dueDate',
       sorter: (a, b) => new Date(a.dueDate) - new Date(b.dueDate),
       render: (d, r) => (
@@ -166,44 +168,35 @@ const TuitionPage = () => {
           )}
         </div>
       )
-    },
+    }] : []),
     {
       title: 'Trạng thái',
       dataIndex: 'status',
       render: (st) => <InvoiceStatusTag status={st} />
     },
-    {
-      title: 'Hành động',
+    ...(isStudent ? [{
+      title: 'Thanh toán',
       fixed: 'right',
-      render: (_, r) => (
-        <Space wrap>
-          {isStudent && r.remainingAmount > 0 && (
-            <Button
-              size="small"
-              icon={<QrcodeOutlined />}
-              type={isStudent ? 'primary' : 'default'}
-              style={isStudent ? { backgroundColor: '#F26F21', borderColor: '#F26F21' } : undefined}
-              onClick={() => setQrInvoiceId(r.id)}
-            >
-              Thanh toán QR
-            </Button>
-          )}
-        </Space>
+      render: (_, invoice) => invoice.remainingAmount > 0 && (
+        <Button size="small" type="primary" icon={<QrcodeOutlined />} onClick={() => setQrInvoiceId(invoice.id)}>
+          {invoice.status === 'PARTIAL' ? 'Thanh toán phần còn thiếu' : 'Thanh toán VietQR'}
+        </Button>
       )
-    }
+    }] : [])
   ];
 
   const collectedRate = summary.totalAmount > 0 ? Math.round((summary.paidAmount / summary.totalAmount) * 1000) / 10 : 0;
+  const remainingByStatus = sumUncollectedByStatus(invoices);
 
   return (
     <div>
       {isAccountant && <Alert style={{ marginBottom: 16 }} showIcon type="info" message="Hệ thống tự ghi nhận khi nhận xác nhận tiền vào. Kế toán xem hóa đơn, phiếu thu và theo dõi giao dịch sai lệch. Dữ liệu làm mới mỗi 15 giây." />}
-      {/* ===== Thẻ tổng hợp công nợ ===== */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+      {/* ===== Tổng hợp hóa đơn ===== */}
+      {!isStudent && <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false}>
             <Statistic
-              title={isStudent ? 'Tổng học phí phải nộp' : 'Tổng phải thu'}
+              title="Tổng giá trị hóa đơn"
               value={summary.totalAmount}
               formatter={(v) => formatVnd(v)}
               prefix={<WalletOutlined style={{ color: '#1677ff' }} />}
@@ -213,7 +206,7 @@ const TuitionPage = () => {
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false}>
             <Statistic
-              title={isStudent ? 'Đã đóng' : 'Đã thu'}
+              title="Đã thu"
               value={summary.paidAmount}
               formatter={(v) => formatVnd(v)}
               valueStyle={{ color: '#52c41a' }}
@@ -225,12 +218,15 @@ const TuitionPage = () => {
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false}>
             <Statistic
-              title="Còn nợ"
+              title="Chưa thu"
               value={summary.remainingAmount}
               formatter={(v) => formatVnd(v)}
-              valueStyle={{ color: summary.remainingAmount > 0 ? '#ff4d4f' : '#52c41a' }}
               prefix={<DollarCircleOutlined />}
             />
+            <Space direction="vertical" size={0}>
+              <Text type="secondary">Chờ thanh toán ({summary.UNPAID}) · {formatVnd(remainingByStatus.UNPAID)}</Text>
+              <Text type="secondary">Đã trả một phần ({summary.PARTIAL}) · {formatVnd(remainingByStatus.PARTIAL)}</Text>
+            </Space>
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
@@ -240,40 +236,23 @@ const TuitionPage = () => {
               value={summary.overdueCount}
               valueStyle={{ color: summary.overdueCount > 0 ? '#ff4d4f' : undefined }}
               prefix={<WarningOutlined />}
-              suffix={
-                <Text type="secondary" style={{ fontSize: 13 }}>
-                  / {summary.UNPAID} chưa đóng • {summary.PARTIAL} nợ một phần
-                </Text>
-              }
             />
           </Card>
         </Col>
-      </Row>
-
-      {isStudent && summary.remainingAmount > 0 && (
-        <Alert
-          style={{ marginBottom: 16 }}
-          type="warning"
-          showIcon
-          message={`Bạn còn nợ ${formatVnd(summary.remainingAmount)} học phí.`}
-          description='Bấm "Thanh toán QR" để tạo mã riêng cho lần thanh toán. Hệ thống tự cập nhật công nợ khi nhận xác nhận tiền vào. Chỉ quét QR chưa được tính là đã thanh toán.'
-        />
-      )}
-      {isStudent && invoices.length > 0 && summary.remainingAmount === 0 && (
-        <Alert style={{ marginBottom: 16 }} type="success" showIcon message="Bạn đã hoàn thành toàn bộ học phí. Cảm ơn bạn!" />
-      )}
+      </Row>}
 
       <Card
         title={
           isAccountant
             ? 'Hóa đơn mua khóa học'
             : isStudent
-            ? 'Công nợ Học phí Cá nhân'
+            ? 'Đơn mua khóa học'
             : 'Danh sách Hóa đơn Học phí (Chỉ xem)'
         }
         extra={
           <Space wrap>
-            <Button icon={<ReloadOutlined />} onClick={() => fetchInvoices()} />
+            {isStudent && <Link to="/catalog">Khám phá khóa học</Link>}
+            <Button aria-label="Tải lại danh sách" icon={<ReloadOutlined />} onClick={() => fetchInvoices()} />
           </Space>
         }
       >
@@ -332,11 +311,12 @@ const TuitionPage = () => {
           dataSource={invoices}
           loading={loading}
           scroll={{ x: 1100 }}
-          pagination={{ pageSize: 10, showTotal: (t) => `${t} hóa đơn` }}
-          rowClassName={(r) => (r.isOverdue ? 'tuition-row-overdue' : '')}
+          pagination={{ pageSize: 10, showTotal: (t) => `${t} ${isStudent ? 'đơn mua' : 'hóa đơn'}` }}
+          locale={isStudent ? { emptyText: 'Bạn chưa có đơn mua khóa học.' } : undefined}
+          rowClassName={(r) => (!isStudent && r.isOverdue ? 'tuition-row-overdue' : '')}
           expandable={{
-            expandedRowRender: (r) => <PaymentHistory invoice={r} onOpenReceipt={setReceiptPaymentId} />,
-            rowExpandable: () => true
+            expandedRowRender: (r) => <PaymentHistory invoice={r} studentView={isStudent} onOpenReceipt={setReceiptPaymentId} />,
+            rowExpandable: (r) => !isStudent || r.payments.length > 0
           }}
         />
       </Card>
@@ -345,7 +325,7 @@ const TuitionPage = () => {
       <VietQRModal open={!!qrInvoiceId} invoiceId={qrInvoiceId} onClose={() => setQrInvoiceId(null)} onPayment={() => fetchInvoices(true)} />
 
       {/* ===== Modal Phiếu thu (DF35) ===== */}
-      <ReceiptModal open={!!receiptPaymentId} paymentId={receiptPaymentId} onClose={() => setReceiptPaymentId(null)} />
+      <ReceiptModal open={!!receiptPaymentId} paymentId={receiptPaymentId} studentView={isStudent} onClose={() => setReceiptPaymentId(null)} />
 
     </div>
   );

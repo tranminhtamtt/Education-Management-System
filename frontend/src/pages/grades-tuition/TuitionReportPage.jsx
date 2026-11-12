@@ -5,7 +5,6 @@ import {
   WalletOutlined,
   WarningOutlined,
   RiseOutlined,
-  TeamOutlined,
   ReloadOutlined,
   DownloadOutlined,
   PrinterOutlined,
@@ -29,15 +28,15 @@ import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../../api/client';
 import { ReceiptModal } from '../../components/tuition/TuitionModals';
-import { formatVnd, InvoiceStatusTag, METHOD_LABELS } from '../../components/tuition/tuitionHelpers';
+import { formatVnd, invoiceChartStatus, InvoiceStatusTag, METHOD_LABELS, sumUncollectedByStatus } from '../../components/tuition/tuitionHelpers';
 
 const { Title, Text } = Typography;
 
 const toMillion = (v) => `${(Number(v) / 1e6).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}Tr`;
 
-// Xuất danh sách công nợ ra CSV (mở được bằng Excel, có BOM UTF-8 để hiển thị tiếng Việt)
+// Xuất danh sách hóa đơn chưa thanh toán đủ ra CSV.
 const exportDebtCsv = (rows, year) => {
-  const header = ['Mã HĐ', 'Mã HV', 'Họ tên', 'Email', 'SĐT', 'Lớp', 'Môn', 'Học phí', 'Đã nộp', 'Còn nợ', 'Trạng thái', 'Hạn đóng', 'Số ngày quá hạn'];
+  const header = ['Mã HĐ', 'Mã HV', 'Họ tên', 'Email', 'SĐT', 'Lớp', 'Môn', 'Giá trị hóa đơn', 'Đã thu', 'Chưa thu', 'Trạng thái', 'Hạn thanh toán', 'Số ngày quá hạn'];
   const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const lines = rows.map((r) =>
     [
@@ -63,7 +62,7 @@ const exportDebtCsv = (rows, year) => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `cong-no-hoc-phi-${year}-${dayjs().format('YYYYMMDD')}.csv`;
+  a.download = `hoa-don-chua-thanh-toan-du-${year}-${dayjs().format('YYYYMMDD')}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 };
@@ -107,6 +106,8 @@ const TuitionReportPage = ({ embedded = false }) => {
 
   const { kpi, monthly, statusBreakdown, byCourse, debtList, recentPayments, range: reportRange } = data;
   const hasMonthlyData = monthly.some((m) => m.collected > 0 || m.outstanding > 0);
+  const remainingByStatus = sumUncollectedByStatus(debtList);
+  const invoiceStatuses = statusBreakdown.map(invoiceChartStatus);
 
   return (
     <Spin spinning={loading}>
@@ -114,14 +115,13 @@ const TuitionReportPage = ({ embedded = false }) => {
         <div>
           {embedded ? (
             <Title level={5} style={{ margin: 0 }}>
-              Tổng quan Tài chính Học phí
+              Tổng quan thanh toán khóa học
             </Title>
           ) : (
             <Title level={4} style={{ margin: 0 }}>
-              Báo cáo Doanh thu & Công nợ Học phí
+              Báo cáo thanh toán khóa học
             </Title>
           )}
-          <Text type="secondary">Đã thu theo ngày thu từng đợt • Còn nợ theo tháng phát sinh hóa đơn</Text>
         </div>
         <Space wrap>
           <DatePicker
@@ -146,7 +146,7 @@ const TuitionReportPage = ({ embedded = false }) => {
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={24} sm={12} xl={4}>
           <Card bordered={false}>
-            <Statistic title="Tổng phải thu" value={kpi.totalAmount} formatter={formatVnd} prefix={<WalletOutlined style={{ color: '#1677ff' }} />} valueStyle={{ fontSize: 20 }} />
+            <Statistic title="Tổng giá trị hóa đơn" value={kpi.totalAmount} formatter={formatVnd} prefix={<WalletOutlined style={{ color: '#1677ff' }} />} valueStyle={{ fontSize: 20 }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} xl={5}>
@@ -157,32 +157,29 @@ const TuitionReportPage = ({ embedded = false }) => {
         </Col>
         <Col xs={24} sm={12} xl={5}>
           <Card bordered={false}>
-            <Statistic title="Còn nợ" value={kpi.debtAmount} formatter={formatVnd} valueStyle={{ color: '#ff4d4f', fontSize: 20 }} prefix={<DollarCircleOutlined />} />
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {kpi.unpaidCount} chưa đóng • {kpi.partialCount} nợ một phần • {kpi.paidCount} hoàn thành
-            </Text>
+            <Statistic title="Chưa thu" value={kpi.debtAmount} formatter={formatVnd} valueStyle={{ fontSize: 20 }} prefix={<DollarCircleOutlined />} />
+            <Space direction="vertical" size={0}>
+              <Text type="secondary">Chờ thanh toán ({kpi.unpaidCount}) · {formatVnd(remainingByStatus.UNPAID)}</Text>
+              <Text type="secondary">Đã trả một phần ({kpi.partialCount}) · {formatVnd(remainingByStatus.PARTIAL)}</Text>
+            </Space>
           </Card>
         </Col>
         <Col xs={24} sm={12} xl={5}>
           <Card bordered={false}>
             <Statistic
-              title="Quá hạn"
-              value={kpi.overdueAmount}
-              formatter={formatVnd}
+              title="Hóa đơn quá hạn"
+              value={kpi.overdueCount}
               valueStyle={{ color: kpi.overdueCount ? '#cf1322' : undefined, fontSize: 20 }}
               prefix={<WarningOutlined />}
             />
             <Text type="secondary" style={{ fontSize: 12 }}>
-              {kpi.overdueCount} hóa đơn quá hạn
+              Chưa thu {formatVnd(kpi.overdueAmount)}
             </Text>
           </Card>
         </Col>
         <Col xs={24} sm={12} xl={5}>
           <Card bordered={false}>
             <Statistic title={reportRange ? 'Đã thu trong khoảng ngày' : `Thu trong tháng ${dayjs().format('MM/YYYY')}`} value={reportRange ? kpi.collectedInRange : kpi.collectedThisMonth} formatter={formatVnd} valueStyle={{ color: '#F26F21', fontSize: 20 }} prefix={<RiseOutlined />} />
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              <TeamOutlined /> {kpi.debtorCount} học viên còn nợ
-            </Text>
           </Card>
         </Col>
       </Row>
@@ -190,7 +187,7 @@ const TuitionReportPage = ({ embedded = false }) => {
       {/* ===== Biểu đồ ===== */}
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={24} lg={16}>
-          <Card bordered={false} title={`Doanh thu đã thu vs Còn nợ theo tháng – năm ${year}`}>
+          <Card bordered={false} title={`Hóa đơn và thanh toán theo tháng – năm ${year}`}>
             {hasMonthlyData ? (
               <div style={{ height: 320 }}>
                 <ResponsiveContainer width="100%" height="100%">
@@ -200,9 +197,9 @@ const TuitionReportPage = ({ embedded = false }) => {
                     <YAxis tickFormatter={toMillion} />
                     <Tooltip formatter={(v) => formatVnd(v)} />
                     <Legend />
-                    <Bar dataKey="collected" name="Đã thu" fill="#52c41a" radius={[6, 6, 0, 0]} />
-                    <Bar dataKey="outstanding" name="Còn nợ" fill="#ff4d4f" radius={[6, 6, 0, 0]} />
-                    <Line type="monotone" dataKey="issued" name="Phát sinh phải thu" stroke="#F26F21" strokeWidth={2} dot={{ r: 3 }} />
+                    <Bar dataKey="collected" name="Đã thu theo tháng thanh toán" fill="#52c41a" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="outstanding" name="Chưa thu theo tháng tạo hóa đơn" fill="#faad14" radius={[6, 6, 0, 0]} />
+                    <Line type="monotone" dataKey="issued" name="Giá trị hóa đơn đã tạo" stroke="#1677ff" strokeWidth={2} dot={{ r: 3 }} />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
@@ -217,8 +214,8 @@ const TuitionReportPage = ({ embedded = false }) => {
               <div style={{ height: 320 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={statusBreakdown} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={4} label={({ value }) => value || ''}>
-                      {statusBreakdown.map((s) => (
+                    <Pie data={invoiceStatuses} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={4} label={({ value }) => value || ''}>
+                      {invoiceStatuses.map((s) => (
                         <Cell key={s.status} fill={s.color} />
                       ))}
                     </Pie>
@@ -234,13 +231,13 @@ const TuitionReportPage = ({ embedded = false }) => {
         </Col>
       </Row>
 
-      {/* ===== Danh sách công nợ ===== */}
+      {/* ===== Hóa đơn chưa thanh toán đủ ===== */}
       <Card
         bordered={false}
         style={{ marginBottom: 16 }}
         title={
           <span>
-            Danh sách công nợ <Tag color="red">{debtList.length}</Tag>
+            Hóa đơn chưa thanh toán đủ <Tag>{debtList.length}</Tag>
           </span>
         }
         extra={
@@ -249,7 +246,7 @@ const TuitionReportPage = ({ embedded = false }) => {
               Xuất Excel (CSV)
             </Button>
             <Button type="primary" icon={<ArrowRightOutlined />} onClick={() => navigate('/tuition')} style={{ backgroundColor: '#F26F21', borderColor: '#F26F21' }}>
-              Đến trang Thu phí
+              Xem danh sách hóa đơn
             </Button>
           </Space>
         }
@@ -272,10 +269,10 @@ const TuitionReportPage = ({ embedded = false }) => {
               )
             },
             { title: 'Lớp / Môn', render: (_, r) => `${r.classCode} (${r.courseCode})` },
-            { title: 'Còn nợ', dataIndex: 'remainingAmount', align: 'right', render: (v) => <Text strong type="danger">{formatVnd(v)}</Text> },
+            { title: 'Chưa thu', dataIndex: 'remainingAmount', align: 'right', render: (v) => <Text strong>{formatVnd(v)}</Text> },
             { title: 'Trạng thái', dataIndex: 'status', render: (s) => <InvoiceStatusTag status={s} /> },
             {
-              title: 'Hạn đóng',
+              title: 'Hạn thanh toán',
               dataIndex: 'dueDate',
               render: (d, r) => (
                 <span>
@@ -289,7 +286,7 @@ const TuitionReportPage = ({ embedded = false }) => {
         {embedded && debtList.length > 5 && (
           <div style={{ textAlign: 'center', marginTop: 8 }}>
             <Button type="link" onClick={() => navigate('/tuition-report')}>
-              Xem toàn bộ {debtList.length} khoản nợ →
+              Xem toàn bộ {debtList.length} hóa đơn →
             </Button>
           </div>
         )}
@@ -297,17 +294,17 @@ const TuitionReportPage = ({ embedded = false }) => {
 
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={12}>
-          <Card bordered={false} title="Doanh thu theo môn học">
+          <Card bordered={false} title="Thanh toán theo khóa học">
             <Table
               rowKey="courseCode"
               size="small"
               pagination={false}
               dataSource={byCourse}
               columns={[
-                { title: 'Môn', render: (_, r) => <CourseCell code={r.courseCode} name={r.courseName} /> },
-                { title: 'Phải thu', dataIndex: 'total', align: 'right', render: formatVnd },
+                { title: 'Khóa học', render: (_, r) => <CourseCell code={r.courseCode} name={r.courseName} /> },
+                { title: 'Giá trị hóa đơn', dataIndex: 'total', align: 'right', render: formatVnd },
                 { title: 'Đã thu', dataIndex: 'paid', align: 'right', render: (v) => <span style={{ color: '#52c41a' }}>{formatVnd(v)}</span> },
-                { title: 'Còn nợ', dataIndex: 'debt', align: 'right', render: (v) => <span style={{ color: v ? '#ff4d4f' : undefined }}>{formatVnd(v)}</span> }
+                { title: 'Chưa thu', dataIndex: 'debt', align: 'right', render: formatVnd }
               ]}
             />
           </Card>

@@ -7,14 +7,7 @@ mongoose.set('strictQuery', true);
  * Multi-document transaction yêu cầu replica set — Atlas luôn đáp ứng.
  */
 async function connectDB(uri = process.env.MONGODB_URI) {
-  if (!uri && process.env.NODE_ENV === 'development') {
-    const { MongoMemoryReplSet } = require('mongodb-memory-server');
-    const replSet = await MongoMemoryReplSet.create({ replSet: { count: 1, storageEngine: 'wiredTiger' } });
-    uri = replSet.getUri('ems_db');
-    process.env._USING_IN_MEMORY_MONGO = '1';
-    console.log('⚡ Khởi chạy MongoDB Replica Set nội bộ (Development Fallback)...');
-  }
-  if (!uri) throw new Error('Thiếu biến môi trường MONGODB_URI (chuỗi kết nối MongoDB Atlas)');
+  if (!uri?.trim()) throw new Error('Thiếu MONGODB_URI. Cấu hình MongoDB trong backend/.env trước khi chạy EMS.');
   if (mongoose.connection.readyState === 1) return mongoose.connection;
   await mongoose.connect(uri, {
     dbName: process.env.MONGODB_DB || undefined,

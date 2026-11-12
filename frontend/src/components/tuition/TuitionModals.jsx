@@ -8,7 +8,7 @@ import { formatVnd, METHOD_LABELS } from './tuitionHelpers';
 const { Text } = Typography;
 
 // ============================================================
-// UC9.3: Modal hiển thị mã VietQR theo số tiền còn nợ (DF32 -> DF33)
+// Modal hiển thị mã VietQR cho số tiền cần thanh toán.
 // ============================================================
 export const VietQRModal = ({ open, invoiceId, onClose, onPayment }) => {
   const [loading, setLoading] = useState(false);
@@ -73,10 +73,13 @@ export const VietQRModal = ({ open, invoiceId, onClose, onPayment }) => {
     navigator.clipboard?.writeText(String(text));
     message.success('Đã sao chép');
   };
+  const remaining = payment?.invoice
+    ? Math.max(0, payment.invoice.amount - payment.invoice.paidAmount)
+    : null;
 
   return (
     <Modal
-      title="Thanh toán Học phí qua VietQR (NAPAS 247)"
+      title={`Thanh toán đơn #${invoiceId} qua VietQR`}
       open={open}
       onCancel={onClose}
       footer={[
@@ -97,19 +100,19 @@ export const VietQRModal = ({ open, invoiceId, onClose, onPayment }) => {
         <div style={{ textAlign: 'center' }}>
           {!payment && <Image
             src={qrData.qrImageUrl}
-            alt="Mã VietQR thanh toán học phí"
+            alt="Mã VietQR thanh toán đơn mua khóa học"
             width={260}
             style={{ borderRadius: 8, border: '1px solid #f0f0f0', padding: 8 }}
           />}
           {payment && <Alert showIcon style={{ marginBottom: 12, textAlign: 'left' }}
             type={payment.invoiceStatus === 'PAID' ? 'success' : 'warning'}
-            message={payment.invoiceStatus === 'PAID' ? 'Học phí đã thanh toán đủ' : 'Đã nhận giao dịch — công nợ đã được cập nhật'}
+            message={payment.invoiceStatus === 'PAID' ? 'Đơn đã thanh toán' : 'Đã ghi nhận giao dịch'}
             description={payment.invoiceStatus === 'PAID'
-              ? 'Bạn có thể đóng cửa sổ để xem phiếu thu. Không cần chuyển khoản thêm.'
-              : 'Nếu còn nợ, đóng cửa sổ và tạo QR mới cho số tiền còn lại. Giao dịch chuyển thừa hoặc chưa khớp sẽ được kế toán kiểm tra.'} />}
-          <div style={{ marginTop: 16, textAlign: 'left', background: '#fafafa', padding: 12, borderRadius: 8, lineHeight: 1.9 }}>
+              ? 'Bạn có thể đóng cửa sổ để xem phiếu thu.'
+              : `${remaining > 0 ? `Còn thiếu ${formatVnd(remaining)}. ` : ''}Đóng cửa sổ để xem trạng thái đơn và thanh toán phần còn thiếu.`} />}
+          {!payment && <div style={{ marginTop: 16, textAlign: 'left', background: '#fafafa', padding: 12, borderRadius: 8, lineHeight: 1.9 }}>
             <div>
-              <b>Học viên:</b> {qrData.studentName} • <b>Môn:</b> {qrData.courseName}
+              <b>Học viên:</b> {qrData.studentName} • <b>Khóa học:</b> {qrData.courseName}
             </div>
             <div>
               <b>Chủ tài khoản:</b> {qrData.accountName}
@@ -119,26 +122,26 @@ export const VietQRModal = ({ open, invoiceId, onClose, onPayment }) => {
               <Button size="small" type="link" icon={<CopyOutlined />} onClick={() => copy(qrData.accountNo)} />
             </div>
             <div>
-              <b>Số tiền của lệnh thanh toán:</b>{' '}
+              <b>Số tiền cần chuyển:</b>{' '}
               <Text strong style={{ color: '#F26F21', fontSize: 16 }}>
                 {formatVnd(qrData.amount)}
               </Text>
               <Text type="secondary" style={{ fontSize: 12 }}>
                 {' '}
-                (Tổng {formatVnd(qrData.totalAmount)} – đã đóng {formatVnd(qrData.paidAmount)})
+                (Giá khóa học {formatVnd(qrData.totalAmount)} · Đã thanh toán {formatVnd(qrData.paidAmount)})
               </Text>
             </div>
             <div>
               <b>Nội dung chuyển khoản:</b> <Tag color="blue">{qrData.description}</Tag>
               <Button size="small" type="link" icon={<CopyOutlined />} onClick={() => copy(qrData.description)} />
             </div>
-          </div>
-          <Alert
-            message="Mỗi lệnh có mã chuyển khoản riêng. Quét QR và xác nhận chuyển tiền trong ứng dụng ngân hàng; hệ thống tự kiểm tra kết quả mỗi 5 giây sau khi nhận xác nhận tiền vào. Không sửa nội dung chuyển khoản."
+          </div>}
+          {!payment && <Alert
+            message="Quét QR, giữ nguyên nội dung và xác nhận chuyển tiền trong ứng dụng ngân hàng. EMS sẽ tự kiểm tra giao dịch."
             type="info"
             showIcon
             style={{ marginTop: 12, textAlign: 'left' }}
-          />
+          />}
           {pollError && <Alert type="warning" showIcon message={pollError} style={{ marginTop: 12 }} />}
         </div>
       )}
@@ -169,7 +172,7 @@ const RECEIPT_PRINT_CSS = `
   .r-foot { font-size: 12px; font-style: italic; margin-top: 18px; text-align: center; }
 `;
 
-export const ReceiptModal = ({ open, paymentId, onClose }) => {
+export const ReceiptModal = ({ open, paymentId, onClose, studentView = false }) => {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState(null);
   const printRef = useRef(null);
@@ -252,7 +255,7 @@ export const ReceiptModal = ({ open, paymentId, onClose }) => {
                   <div>
                     Số phiếu: <b>{data.receiptNo}</b>
                   </div>
-                  <div>Hóa đơn: #{data.invoice.id}</div>
+                  <div>{studentView ? 'Đơn mua' : 'Hóa đơn'}: #{data.invoice.id}</div>
                   <div>Đợt thu: {data.installment}</div>
                 </div>
               </div>
@@ -271,10 +274,10 @@ export const ReceiptModal = ({ open, paymentId, onClose }) => {
               <table className="r-table">
                 <thead>
                   <tr>
-                    <th>Tổng học phí</th>
+                    <th>{studentView ? 'Giá khóa học' : 'Tổng học phí'}</th>
                     <th>Đã đóng trước đợt này</th>
                     <th>Thu đợt này</th>
-                    <th>Còn nợ sau đợt này</th>
+                    <th>{studentView ? 'Còn thiếu sau lần này' : 'Chưa thu sau đợt này'}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -314,7 +317,7 @@ export const ReceiptModal = ({ open, paymentId, onClose }) => {
 // ============================================================
 // Lịch sử các đợt thu của 1 hóa đơn (dùng trong bảng mở rộng)
 // ============================================================
-export const PaymentHistory = ({ invoice, onOpenReceipt }) => {
+export const PaymentHistory = ({ invoice, onOpenReceipt, studentView = false }) => {
   if (!invoice.payments || invoice.payments.length === 0) {
     return <Text type="secondary">Chưa có đợt thanh toán nào được ghi nhận.</Text>;
   }
@@ -323,7 +326,7 @@ export const PaymentHistory = ({ invoice, onOpenReceipt }) => {
       size="small"
       bordered
       column={1}
-      title={<span style={{ fontSize: 14 }}>Lịch sử thanh toán hóa đơn #{invoice.id}</span>}
+      title={<span style={{ fontSize: 14 }}>Lịch sử thanh toán {studentView ? 'đơn' : 'hóa đơn'} #{invoice.id}</span>}
     >
       {invoice.payments.map((p, idx) => (
         <Descriptions.Item

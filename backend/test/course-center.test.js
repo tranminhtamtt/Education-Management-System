@@ -55,6 +55,9 @@ test('seed keeps every FPT subject with its curriculum term and adds certificate
     assert.ok(modes.has('RECORDED') && modes.has('LIVE_ONLINE'), `${code} có cả khóa video và Live`);
   }
   assert.equal(seed.data.grades, undefined, 'không tạo bảng điểm');
+  assert.ok(courses.every(c => c.baseTuitionFee === (c.deliveryMode === 'LIVE_ONLINE' ? 3000 : 2000)));
+  assert.equal(seed.data.tuition_invoices.filter(invoice => invoice.status === 'UNPAID').length, 1);
+  assert.equal(seed.data.tuition_invoices.filter(invoice => invoice.status === 'PARTIAL').length, 1);
 });
 
 test('seed live schedules never overlap for teachers, rooms or students in the same cohort', () => {
@@ -118,9 +121,9 @@ test('Q&A: students can only ask the teacher who teaches their unlocked course; 
   assert.equal(teachers.status, 200);
   const live = teachers.body.data.find(t => t.classCode === 'PRF192-LIVE-K1');
   assert.equal(live.teacherName, 'ThS. Nguyễn Hoài Nam');
-  // Không được hỏi khóa chưa thanh toán (MAD101-VID đang chờ thanh toán)
-  const pendingClass = seed.data.classes.find(c => c.classCode === `VIDEO-${seed.data.courses.find(x => x.courseCode === 'MAD101-VID').id}`);
-  assert.equal((await call('/questions', 'HE170009', 'POST', { classId: pendingClass.id, questionTitle: 'Q', questionContent: 'Chưa mua' })).status, 403);
+  // Không được hỏi khóa chưa thanh toán (AWS-CCP-VID đang chờ thanh toán)
+  const pendingClass = seed.data.classes.find(c => c.classCode === `VIDEO-${seed.data.courses.find(x => x.courseCode === 'AWS-CCP-VID').id}`);
+  assert.equal((await call('/questions', 'HE170001', 'POST', { classId: pendingClass.id, questionTitle: 'Q', questionContent: 'Chưa mua' })).status, 403);
   const asked = await call('/questions', 'HE170009', 'POST', { classId: live.classId, questionTitle: 'Hỏi về vòng lặp', questionContent: 'Khi nào dùng do-while?' });
   assert.equal(asked.status, 201);
   assert.equal(asked.body.data.teacherId, live.teacherId);

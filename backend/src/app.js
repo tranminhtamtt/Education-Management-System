@@ -1,4 +1,5 @@
-require('dotenv').config();
+const path = require('node:path');
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
@@ -11,7 +12,6 @@ const notificationsAnalyticsRouter = require('./modules/notifications-analytics'
 const curriculumRouter = require('./modules/curriculum');
 const teacherRouter = require('./modules/teacher');
 
-const path = require('path');
 const { connectDB, mongoose } = require('./config/db');
 
 const app = express();
@@ -71,7 +71,7 @@ app.use((err, req, res, next) => {
 if (process.env.NODE_ENV !== 'test') {
   connectDB()
     .then(() => {
-      console.log('🍃 Connected to MongoDB Atlas');
+      console.log(`🍃 Connected to MongoDB (database: ${mongoose.connection.name})`);
       app.listen(PORT, () => {
         console.log(`🚀 EMS Backend Server running on port ${PORT}`);
         console.log(`📡 Health check: http://localhost:${PORT}/api/health`);

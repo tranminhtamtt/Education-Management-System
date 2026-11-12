@@ -42,16 +42,20 @@ const register = async (req, res) => {
 
 const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password } = req.body || {};
 
-    if (!email || !password) {
+    if (typeof email !== 'string' || !email.trim() || typeof password !== 'string' || !password) {
       return errorResponse(res, 'Vui lòng nhập đầy đủ email và mật khẩu.', 400);
     }
 
-    const trimmed = String(email).trim();
-    const user = await User.findOne({
+    const trimmed = email.trim();
+    let user = await User.findOne({
       $or: [{ email: trimmed }, { code: trimmed }]
     }).select('+passwordHash');
+    const normalizedEmail = trimmed.toLowerCase();
+    if (!user && trimmed.includes('@') && normalizedEmail !== trimmed) {
+      user = await User.findOne({ email: normalizedEmail }).select('+passwordHash');
+    }
 
     if (!user) {
       return errorResponse(res, 'Tài khoản không tồn tại trên hệ thống.', 401);
