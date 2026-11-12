@@ -106,9 +106,9 @@ test('dashboard has no GPA / passed-course scoring', async () => {
 test('attendance report only shows ongoing live classes with a simple attended count', async () => {
   const res = await call('/attendances/my-report', 'HE170005');
   assert.equal(res.status, 200);
-  assert.equal(res.body.data.length, 1, 'chỉ lớp Live PRJ301, không có khóa video');
-  const r = res.body.data[0];
-  assert.equal(r.classCode, 'PRJ301-LIVE-K1');
+  assert.ok(res.body.data.every(r => !r.classCode.startsWith('VIDEO-')), 'không có khóa video');
+  assert.equal(res.body.data.length, 3, 'chỉ các lớp Live: PRJ301, PRN231, IOT102');
+  const r = res.body.data.find(x => x.classCode === 'PRJ301-LIVE-K1');
   assert.equal(r.attendedSessions + r.missedSessions, r.recordedSessions);
   assert.equal(r.missedSessions, 1);
 });

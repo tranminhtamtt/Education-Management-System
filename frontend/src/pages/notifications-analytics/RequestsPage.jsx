@@ -7,6 +7,17 @@ import dayjs from 'dayjs';
 
 const { Text, Title } = Typography;
 
+// Các loại đơn giữa học viên và trung tâm khóa học
+const REQUEST_TYPES = [
+  { value: 'ABSENCE', short: 'Xin nghỉ buổi Live', label: 'Xin nghỉ một buổi học Live (ốm, bận việc…)', color: 'blue', needsClass: true },
+  { value: 'CLASS_TRANSFER', short: 'Chuyển lớp / đổi lịch', label: 'Xin chuyển sang lớp Live khác / đổi lịch học', color: 'cyan', needsClass: true },
+  { value: 'DEFERRAL', short: 'Bảo lưu khóa học', label: 'Xin bảo lưu khóa học, học tiếp đợt sau', color: 'geekblue', needsClass: true },
+  { value: 'REFUND', short: 'Hủy khóa & hoàn tiền', label: 'Xin hủy khóa học và hoàn học phí', color: 'red', needsClass: true },
+  { value: 'PAYMENT_ISSUE', short: 'Lỗi thanh toán', label: 'Đã chuyển khoản nhưng khóa học chưa mở / sai số tiền', color: 'gold' },
+  { value: 'CONFIRMATION', short: 'Giấy xác nhận', label: 'Xin giấy xác nhận học viên / chứng nhận hoàn thành khóa', color: 'purple' },
+  { value: 'FEEDBACK', short: 'Góp ý / khiếu nại', label: 'Góp ý, khiếu nại về khóa học hoặc giảng viên', color: 'magenta' }
+];
+
 const RequestsPage = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
@@ -44,9 +55,12 @@ const RequestsPage = () => {
 
   const fetchClasses = async () => {
     try {
-      const res = await apiClient.get('/classes');
+      // Học viên chỉ chọn khóa của mình; admin vẫn xem danh sách lớp
+      const res = await apiClient.get(isStudent ? '/my-courses' : '/classes');
       if (res.success) {
-        setClasses(res.data);
+        setClasses(isStudent
+          ? (res.data || []).map(e => ({ id: e.classId, classCode: e.class.classCode, course: e.class.course, pending: e.status === 'PENDING_PAYMENT' }))
+          : res.data);
       }
     } catch (err) {
       console.error('Error fetching classes:', err);
@@ -76,7 +90,7 @@ const RequestsPage = () => {
       });
 
       if (res.success) {
-        message.success('Gửi đơn học vụ trực tuyến thành công');
+        message.success('Đã gửi đơn tới trung tâm');
         setCreateModalOpen(false);
         createForm.resetFields();
         setFileList([]);
@@ -107,7 +121,7 @@ const RequestsPage = () => {
       if (res.success) {
         message.success(
           values.status === 'APPROVED' && selectedRequest.requestType === 'ABSENCE'
-            ? 'Đã duyệt đơn (Đã tự động cập nhật trạng thái điểm danh sang Vắng có phép và đồng bộ cấm thi)'
+            ? 'Đã duyệt đơn (buổi học được cập nhật thành Vắng có phép)'
             : 'Đã hoàn tất xét duyệt đơn học vụ'
         );
         setReviewModalOpen(false);
@@ -121,12 +135,10 @@ const RequestsPage = () => {
   };
 
   const getRequestTypeTag = (type) => {
-    switch (type) {
-      case 'ABSENCE': return <Tag color="blue">Xin nghỉ học có phép</Tag>;
-      case 'REMARK': return <Tag color="orange">Phúc khảo điểm thi</Tag>;
-      case 'CONFIRMATION': return <Tag color="purple">Xin cấp giấy xác nhận SV</Tag>;
-      default: return <Tag>{type}</Tag>;
-    }
+    const t = REQUEST_TYPES.find(x => x.value === type);
+    if (t) return <Tag color={t.color}>{t.short}</Tag>;
+    if (type === 'REMARK') return <Tag color="orange">Phúc khảo điểm (cũ)</Tag>;
+    return <Tag>{type}</Tag>;
   };
 
   const getStatusTag = (status) => {
@@ -165,10 +177,10 @@ const RequestsPage = () => {
     {
       title: 'Lớp liên quan',
       dataIndex: 'classInfo',
-      render: (c) => c || 'Toàn trường'
+      render: (c) => c || '-'
     },
     {
-      title: 'Ngày xin nghỉ',
+      title: 'Ngày nghỉ',
       dataIndex: 'sessionDate',
       render: (d) => d ? <Tag color="cyan">{dayjs(d).format('DD/MM/YYYY')}</Tag> : '-'
     },
@@ -191,7 +203,7 @@ const RequestsPage = () => {
       render: (st) => getStatusTag(st)
     },
     {
-      title: 'Phản hồi từ Giáo vụ',
+      title: 'Phản hồi của trung tâm',
       dataIndex: 'adminResponse',
       render: (resp) => resp || '-'
     },
@@ -222,7 +234,7 @@ const RequestsPage = () => {
   return (
     <div>
       <Card
-        title="Quản lý Đơn từ Học vụ Trực tuyến (Online Applications)"
+        title={isStudent ? 'Đơn từ gửi trung tâm' : 'Quản lý Đơn từ của học viên'}
         extra={
           isStudent && (
             <Button
@@ -242,12 +254,13 @@ const RequestsPage = () => {
           dataSource={requests}
           loading={loading}
           pagination={{ pageSize: 10 }}
+          scroll={{ x: 1000 }}
         />
       </Card>
 
       {/* Modal Học Viên Gửi Đơn Online */}
       <Modal
-        title="Nộp Đơn Học Vụ Trực Tuyến"
+        title="Gửi đơn tới trung tâm"
         open={createModalOpen}
         onCancel={() => setCreateModalOpen(false)}
         footer={null}
@@ -256,28 +269,25 @@ const RequestsPage = () => {
         <Form form={createForm} layout="vertical" onFinish={handleCreateRequest}>
           <Form.Item
             name="requestType"
-            label="Loại đơn học vụ"
+            label="Loại đơn"
             rules={[{ required: true, message: 'Vui lòng chọn loại đơn' }]}
             initialValue="ABSENCE"
           >
-            <Select
-              options={[
-                { label: 'Đơn xin nghỉ học có phép (Minh chứng y tế / công việc)', value: 'ABSENCE' },
-                { label: 'Đơn phúc khảo bài thi kết thúc môn', value: 'REMARK' },
-                { label: 'Đơn xin cấp Giấy xác nhận sinh viên (Vay vốn / NVQS)', value: 'CONFIRMATION' }
-              ]}
-            />
+            <Select options={REQUEST_TYPES.map(t => ({ label: t.label, value: t.value }))} />
           </Form.Item>
 
-          <Form.Item name="classId" label="Lớp học phần liên quan (nếu có)">
-            <Select
-              placeholder="Chọn lớp học (không bắt buộc với đơn xác nhận)"
-              allowClear
-              options={classes.map(c => ({
-                label: `${c.classCode} - ${c.course.name}`,
-                value: c.id
-              }))}
-            />
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.requestType !== cur.requestType}>
+            {({ getFieldValue }) => {
+              const type = REQUEST_TYPES.find(t => t.value === getFieldValue('requestType'));
+              const options = classes
+                .filter(c => getFieldValue('requestType') === 'ABSENCE' || getFieldValue('requestType') === 'CLASS_TRANSFER' ? !c.classCode.startsWith('VIDEO-') && !c.pending : true)
+                .map(c => ({ label: `${c.course.name} (${c.classCode.startsWith('VIDEO-') ? 'Video' : c.classCode})${c.pending ? ' – chờ thanh toán' : ''}`, value: c.id }));
+              return (
+                <Form.Item name="classId" label="Khóa học liên quan" rules={[{ required: !!type?.needsClass, message: 'Vui lòng chọn khóa học' }]}>
+                  <Select placeholder={type?.needsClass ? 'Chọn khóa học' : 'Không bắt buộc'} allowClear options={options} notFoundContent="Không có khóa học phù hợp" />
+                </Form.Item>
+              );
+            }}
           </Form.Item>
 
           <Form.Item
@@ -325,7 +335,7 @@ const RequestsPage = () => {
                 loading={creating}
                 style={{ backgroundColor: '#F26F21', borderColor: '#F26F21' }}
               >
-                Gửi Đơn Đến Giáo Vụ
+                Gửi đơn
               </Button>
             </Space>
           </Form.Item>

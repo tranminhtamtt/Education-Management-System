@@ -116,16 +116,16 @@ const STUDENTS = [
  *  absent / late: chỉ số buổi (bắt đầu từ 0) vắng / muộn trong lớp Live.
  */
 const PURCHASES = {
-  HE170001: [{ course: 'SWD392-VID', status: 'PAID', lessons: 4 }, { course: 'CCNA-LIVE', status: 'PAID', late: [2] }, { course: 'AWS-CCP-VID', status: 'UNPAID' }],
-  HE170002: [{ course: 'IELTS-LIVE', status: 'PAID' }, { course: 'IELTS-VID', status: 'PAID', lessons: 6 }, { course: 'PRM392-VID', status: 'UNPAID' }],
-  HE170003: [{ course: 'PRN231-VID', status: 'PAID', lessons: 2 }, { course: 'TOEIC-LIVE', status: 'PAID', late: [1] }, { course: 'CCNA-VID', status: 'PARTIAL' }],
-  HE170004: [{ course: 'SWP391-LIVE', status: 'PAID' }, { course: 'IELTS-VID', status: 'PAID', lessons: 3 }],
-  HE170005: [{ course: 'PRJ301-LIVE', status: 'PAID', absent: [1], late: [0] }, { course: 'DBI202-VID', status: 'PAID', lessons: 1 }],
-  HE170006: [{ course: 'SWE201C-VID', status: 'PAID', lessons: 5 }, { course: 'JLPT-N3-LIVE', status: 'PAID' }, { course: 'IELTS-LIVE', status: 'UNPAID', cohort: 'UPCOMING' }],
-  HE170007: [{ course: 'CSD201-LIVE', status: 'PAID' }, { course: 'CSD201-VID', status: 'PAID', lessons: 2 }, { course: 'DBI202-LIVE', status: 'UNPAID' }],
-  HE170008: [{ course: 'DBI202-LIVE', status: 'PAID', absent: [1] }, { course: 'MAS291-VID', status: 'PAID', lessons: 6 }],
-  HE170009: [{ course: 'PRF192-LIVE', status: 'PAID' }, { course: 'PRF192-VID', status: 'PAID', lessons: 3 }, { course: 'MAD101-VID', status: 'UNPAID' }],
-  HE170010: [{ course: 'PRF192-LIVE2', status: 'PAID' }, { course: 'MAE101-VID', status: 'PAID', lessons: 0 }]
+  HE170001: [{ course: 'SWD392-VID', status: 'PAID', lessons: 4 }, { course: 'CCNA-LIVE', status: 'PAID', late: [2] }, { course: 'AWS-CCP-VID', status: 'UNPAID' }, { course: 'SWD392-LIVE', status: 'PAID' }, { course: 'MLN122-LIVE', status: 'PAID', absent: [0] }],
+  HE170002: [{ course: 'IELTS-LIVE', status: 'PAID' }, { course: 'IELTS-VID', status: 'PAID', lessons: 6 }, { course: 'PRM392-VID', status: 'UNPAID' }, { course: 'TOEIC-LIVE', status: 'PAID' }, { course: 'PRM392-LIVE', status: 'PAID', late: [1] }],
+  HE170003: [{ course: 'PRN231-VID', status: 'PAID', lessons: 2 }, { course: 'TOEIC-LIVE', status: 'PAID', late: [1] }, { course: 'CCNA-VID', status: 'PARTIAL' }, { course: 'PRN231-LIVE', status: 'PAID' }, { course: 'SWD392-LIVE', status: 'PAID' }],
+  HE170004: [{ course: 'SWP391-LIVE', status: 'PAID' }, { course: 'IELTS-VID', status: 'PAID', lessons: 3 }, { course: 'IELTS-SPK', status: 'PAID' }, { course: 'SWR302-LIVE', status: 'PAID' }],
+  HE170005: [{ course: 'PRJ301-LIVE', status: 'PAID', absent: [1], late: [0] }, { course: 'DBI202-VID', status: 'PAID', lessons: 1 }, { course: 'PRN231-LIVE', status: 'PAID' }, { course: 'IOT102-LIVE', status: 'PAID' }],
+  HE170006: [{ course: 'SWE201C-VID', status: 'PAID', lessons: 5 }, { course: 'JLPT-N3-LIVE', status: 'PAID' }, { course: 'IELTS-LIVE', status: 'UNPAID', cohort: 'UPCOMING' }, { course: 'SWR302-LIVE', status: 'PAID' }, { course: 'TOEIC-LIVE', status: 'PAID' }],
+  HE170007: [{ course: 'CSD201-LIVE', status: 'PAID' }, { course: 'CSD201-VID', status: 'PAID', lessons: 2 }, { course: 'DBI202-LIVE', status: 'UNPAID' }, { course: 'MAS291-LIVE', status: 'PAID' }, { course: 'JPD113-LIVE', status: 'PAID' }],
+  HE170008: [{ course: 'DBI202-LIVE', status: 'PAID', absent: [1] }, { course: 'MAS291-VID', status: 'PAID', lessons: 6 }, { course: 'MAD101-LIVE', status: 'PAID' }, { course: 'JPD113-LIVE', status: 'PAID' }],
+  HE170009: [{ course: 'PRF192-LIVE', status: 'PAID' }, { course: 'PRF192-VID', status: 'PAID', lessons: 3 }, { course: 'MAD101-VID', status: 'UNPAID' }, { course: 'MAE101-LIVE', status: 'PAID' }, { course: 'CEA201-LIVE', status: 'PAID', late: [0] }],
+  HE170010: [{ course: 'PRF192-LIVE2', status: 'PAID' }, { course: 'MAE101-VID', status: 'PAID', lessons: 0 }, { course: 'CSI104-LIVE', status: 'PAID' }, { course: 'SSG104-LIVE', status: 'PAID' }]
 };
 
 function lessonPlan(subjectName, isCertificate) {
@@ -396,9 +396,16 @@ function buildCourseCenterSeed({ passwordHash, now = new Date() }) {
 
   // ---- Đơn từ học vụ (vẫn giữ) ----
   const { cls: prj } = classOf('HE170005', 'PRJ301-LIVE');
+  const { cls: toeic } = classOf('HE170006', 'TOEIC-LIVE');
+  const { cls: ielts } = classOf('HE170002', 'IELTS-LIVE');
+  const ccnaVideo = data.classes.find(c => c.classCode === `VIDEO-${courseByCode['CCNA-VID'].id}`);
+  const daysAgo = n => new Date(utcDay(today).getTime() - n * DAY);
   data.student_requests.push(
-    { id: next('student_requests'), studentId: studentByCode.HE170005.id, classId: prj.id, requestType: 'ABSENCE', sessionDate: sessionDates(prj, cohortStart)[1], reason: 'Em bị ốm có giấy khám, xin phép nghỉ buổi học Live này.', attachmentUrl: null, status: 'PENDING', adminResponse: null, createdAt: new Date(utcDay(today).getTime() - 3 * DAY) },
-    { id: next('student_requests'), studentId: studentByCode.HE170002.id, classId: null, requestType: 'CONFIRMATION', sessionDate: null, reason: 'Xin giấy xác nhận đang theo học khóa IELTS Intensive tại trung tâm.', attachmentUrl: null, status: 'APPROVED', adminResponse: 'Đã cấp giấy xác nhận, mời bạn nhận tại quầy lễ tân.', createdAt: new Date(utcDay(today).getTime() - 4 * DAY) }
+    { id: next('student_requests'), studentId: studentByCode.HE170005.id, classId: prj.id, requestType: 'ABSENCE', sessionDate: sessionDates(prj, cohortStart)[1], reason: 'Em bị ốm có giấy khám, xin phép nghỉ buổi học Live này và sẽ xem lại tài liệu.', attachmentUrl: null, status: 'PENDING', adminResponse: null, createdAt: daysAgo(3) },
+    { id: next('student_requests'), studentId: studentByCode.HE170006.id, classId: toeic.id, requestType: 'CLASS_TRANSFER', sessionDate: null, reason: 'Em mới đổi ca làm thêm, xin chuyển sang lớp TOEIC buổi tối khác (nếu còn chỗ).', attachmentUrl: null, status: 'PENDING', adminResponse: null, createdAt: daysAgo(1) },
+    { id: next('student_requests'), studentId: studentByCode.HE170003.id, classId: ccnaVideo.id, requestType: 'PAYMENT_ISSUE', sessionDate: null, reason: 'Em đã chuyển khoản lần 2 cho khóa CCNA video nhưng hệ thống vẫn báo thanh toán một phần.', attachmentUrl: null, status: 'PENDING', adminResponse: null, createdAt: daysAgo(1) },
+    { id: next('student_requests'), studentId: studentByCode.HE170002.id, classId: ielts.id, requestType: 'CONFIRMATION', sessionDate: null, reason: 'Xin giấy xác nhận đang theo học khóa IELTS Intensive tại trung tâm để bổ sung hồ sơ.', attachmentUrl: null, status: 'APPROVED', adminResponse: 'Đã cấp giấy xác nhận, mời bạn nhận tại quầy lễ tân.', createdAt: daysAgo(4) },
+    { id: next('student_requests'), studentId: studentByCode.HE170008.id, classId: null, requestType: 'FEEDBACK', sessionDate: null, reason: 'Góp ý: mong trung tâm gửi lại link record sau mỗi buổi Live để học viên ôn tập.', attachmentUrl: null, status: 'APPROVED', adminResponse: 'Cảm ơn bạn, trung tâm sẽ đăng video record trong vòng 24h sau mỗi buổi.', createdAt: daysAgo(5) }
   );
 
   data.notifications.push({ id: next('notifications'), userId: null, title: `Khai giảng đợt ${upcomingSemester}`, message: 'Trung tâm mở đăng ký các lớp Live đợt mới: PRF192, PRJ301, CCNA, IELTS. Đăng ký sớm để giữ chỗ!', type: 'SYSTEM', isRead: false, createdAt: utcDay(today) });
