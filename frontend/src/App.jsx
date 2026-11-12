@@ -32,6 +32,8 @@ import PaymentOperationsPage from './pages/grades-tuition/PaymentOperationsPage'
 // Cụm 5: Tương tác, Đơn từ & Báo cáo
 import RequestsPage from './pages/notifications-analytics/RequestsPage';
 import NotificationsPage from './pages/notifications-analytics/NotificationsPage';
+import TeacherContentPage from './pages/teacher/TeacherContentPage';
+import CourseQuestionsPage from './pages/teacher/CourseQuestionsPage';
 
 const TuitionReportRoute = () => {
   const { user } = useAuth();
@@ -40,7 +42,21 @@ const TuitionReportRoute = () => {
 
 const GradesRoute = () => {
   const { user } = useAuth();
-  return user?.role === 'TEACHER' ? <Navigate to="/dashboard" replace /> : <GradesPage />;
+  return ['ADMIN', 'TEACHER', 'STUDENT'].includes(user?.role)
+    ? <GradesPage />
+    : <Navigate to="/dashboard" replace />;
+};
+
+const TeacherContentRoute = () => {
+  const { user } = useAuth();
+  return user?.role === 'TEACHER' ? <TeacherContentPage /> : <Navigate to="/dashboard" replace />;
+};
+
+const CourseQuestionsRoute = () => {
+  const { user } = useAuth();
+  return ['TEACHER', 'STUDENT'].includes(user?.role)
+    ? <CourseQuestionsPage />
+    : <Navigate to="/dashboard" replace />;
 };
 
 const App = () => {
@@ -74,6 +90,8 @@ const App = () => {
               {/* Cụm 2 */}
               <Route path="classes" element={<ClassesPage />} />
               <Route path="schedule" element={<SchedulePage />} />
+              <Route path="teacher-content" element={<TeacherContentRoute />} />
+              <Route path="questions" element={<CourseQuestionsRoute />} />
 
               {/* Cụm 3 */}
               <Route path="attendance" element={<AttendancePage />} />

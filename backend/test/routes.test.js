@@ -60,6 +60,17 @@ test('accountant RBAC, webhook authentication, removal of manual "mark paid" end
   assert.equal((await call('/accountant/reconcile', 'ACCOUNTANT', 'POST', { providerId: 1 })).status, 503);
 });
 
+test('student and course filters ignore object-shaped query values', async () => {
+  await seedBasic();
+  const students = await call('/students?status%5B%24ne%5D=ACTIVE', ['ADMIN', 2]);
+  assert.equal(students.status, 200);
+  assert.equal(students.body.data.items.length, 2);
+
+  const courses = await call('/courses?status%5B%24ne%5D=ACTIVE', ['ADMIN', 2]);
+  assert.equal(courses.status, 200);
+  assert.equal(courses.body.data.length, 3);
+});
+
 test('enrollment via API creates grade + UNPAID invoice; curriculum rules enforced; force only bypasses prerequisites', async () => {
   await seedBasic();
   const ok = await call('/classes/1/enrollments', ['ADMIN', 2], 'POST', { studentId: 10 });
@@ -161,21 +172,25 @@ test('reconciliation compares independent SePay evidence and never changes debt;
     global.fetch = nativeFetch;
   }
 });
-test('teacher dashboard, attendance, and assignment grading are limited to assigned classes', async () => {
+test('teacher workflow scopes dashboard, content, attendance, grading, and Q&A to assigned courses', async () => {
   await seedBasic();
   await M.User.create([
     { id: 3, code: 'TEA003', email: 'tea3@x', passwordHash: 'h', fullName: 'Teacher A', role: 'TEACHER' },
     { id: 4, code: 'TEA004', email: 'tea4@x', passwordHash: 'h', fullName: 'Teacher B', role: 'TEACHER' }
   ]);
   await M.Course.create([
-    { id: 4, courseCode: 'NET201', name: 'Networking', totalSessions: 10 },
-    { id: 5, courseCode: 'NET101', name: 'Networking', totalSessions: 10 }
+    { id: 4, courseCode: 'NET201', name: 'Networking', totalSessions: 10, deliveryMode: 'LIVE_ONLINE', instructorId: 3 },
+    { id: 5, courseCode: 'NET101', name: 'Networking', totalSessions: 10, deliveryMode: 'LIVE_ONLINE', instructorId: 4 },
+    { id: 6, courseCode: 'REC101', name: 'Recorded networking', deliveryMode: 'RECORDED', instructorId: 3 }
   ]);
   await M.Class.create([
-    { id: 4, classCode: 'NET201-SP26-01', courseId: 4, teacherId: 3, semester: 'SP26', status: 'ONGOING' },
+    { id: 4, classCode: 'NET201-SP26-01', courseId: 4, teacherId: 3, semester: 'SP26', status: 'ONGOING', meetUrl: 'https://meet.google.com/example' },
     { id: 5, classCode: 'NET101-SP26-01', courseId: 5, teacherId: 4, semester: 'SP26', status: 'ONGOING' }
   ]);
   await M.Schedule.create({ id: 4, classId: 4, dayOfWeek: 2, shift: 1, startTime: '07:30', endTime: '09:50', room: 'P101' });
+  const lesson = await M.CourseLesson.create({
+    id: 4, courseId: 4, sectionTitle: 'Chapter 1', title: 'Routing basics', orderIndex: 1
+  });
   await M.Enrollment.create([
     { id: 4, classId: 4, studentId: 10, status: 'ACTIVE' },
     { id: 5, classId: 4, studentId: 11, status: 'ACTIVE' }
@@ -196,10 +211,24 @@ test('teacher dashboard, attendance, and assignment grading are limited to assig
   assert.equal(dashboard.status, 200, JSON.stringify(dashboard.body));
   assert.deepEqual(dashboard.body.data.classes.map(item => item.classCode), ['NET201-SP26-01']);
   assert.equal(dashboard.body.data.schedules.length, 1);
-  assert.equal(dashboard.body.data.summary.assignmentCount, 1);
-  assert.equal(dashboard.body.data.summary.submissionCount, 1);
+  assert.equal(dashboard.body.data.schedules[0].meetUrl, 'https://meet.google.com/example');
+  assert.equal(dashboard.body.data.summary.recordedCourseCount, 1);
+  assert.equal(dashboard.body.data.summary.liveClassCount, 1);
+  assert.equal(dashboard.body.data.summary.activeLearnerCount, 2);
+  assert.equal(dashboard.body.data.summary.pendingGradingCount, 1);
+  assert.equal(dashboard.body.data.summary.newQuestionCount, 0);
   assert.deepEqual(dashboard.body.data.attendanceWarnings.map(item => item.studentId), [10]);
   assert.deepEqual((await call('/classes?teacherId=4', ['TEACHER', 3])).body.data.map(item => item.id), [4]);
+
+  assert.equal((await call('/teacher/classes/4', ['TEACHER', 3], 'PATCH', {
+    meetUrl: 'https://zoom.us/j/123'
+  })).status, 200);
+  assert.equal((await call('/teacher/classes/4', ['TEACHER', 3], 'PATCH', {
+    meetUrl: 'javascript:alert(1)'
+  })).status, 400);
+  assert.equal((await call('/teacher/classes/5', ['TEACHER', 3], 'PATCH', {
+    meetUrl: 'https://zoom.us/j/123'
+  })).status, 404);
 
   assert.equal((await call('/classes/5/attendances', ['TEACHER', 3])).status, 404);
   assert.equal((await call('/classes/5/attendances', ['TEACHER', 3], 'POST', {
@@ -208,10 +237,65 @@ test('teacher dashboard, attendance, and assignment grading are limited to assig
   assert.equal((await call('/classes/5/assignments', ['TEACHER', 3], 'POST', {
     title: 'Not assigned', dueDate: '2026-12-01'
   })).status, 404);
+  const createdAssignment = await call('/classes/4/assignments', ['TEACHER', 3], 'POST', {
+    title: 'Lab exercise 2', description: 'Configure and test routing', dueDate: '2026-12-15'
+  });
+  assert.equal(createdAssignment.status, 201, JSON.stringify(createdAssignment.body));
+  const assignmentDetail = await call(`/assignments/${assignment.id}`, ['TEACHER', 3]);
+  assert.equal(assignmentDetail.status, 200);
+  assert.equal(assignmentDetail.body.data.submissions.length, 1);
+  assert.equal((await call(`/assignments/${assignment.id}`, ['TEACHER', 4])).status, 403);
+  assert.equal((await call('/courses/4/lessons', ['TEACHER', 3])).status, 200);
+  assert.equal((await call('/courses/5/lessons', ['TEACHER', 3])).status, 403);
+  const createdLesson = await call('/courses/4/lessons', ['TEACHER', 3], 'POST', {
+    sectionTitle: 'Chapter 1',
+    title: 'Routing practice',
+    materialUrl: 'https://example.com/routing.pdf'
+  });
+  assert.equal(createdLesson.status, 201, JSON.stringify(createdLesson.body));
+  assert.equal(createdLesson.body.data.title, 'Routing practice');
+  assert.equal((await call('/courses/5/lessons', ['TEACHER', 3], 'POST', {
+    title: 'Unauthorized lesson'
+  })).status, 403);
+  assert.equal((await call(`/lessons/${lesson.id}`, ['TEACHER', 3], 'PUT', {
+    title: 'Updated routing basics'
+  })).status, 200);
+  assert.equal((await call(`/lessons/${lesson.id}`, ['TEACHER', 4], 'PUT', {
+    title: 'Unauthorized edit'
+  })).status, 403);
   assert.equal((await call(`/submissions/${submission.id}/grade`, ['TEACHER', 4], 'PATCH', { score: 9 })).status, 403);
   assert.equal((await call(`/submissions/${submission.id}/grade`, ['TEACHER', 3], 'PATCH', {
     score: 9, teacherFeedback: 'Good work'
   })).status, 200);
+
+  const grades = await call('/classes/4/grades', ['TEACHER', 3]);
+  assert.equal(grades.status, 200);
+  assert.equal(grades.body.data.grades.length, 2);
+  const gradeUpdate = await call('/classes/4/grades', ['TEACHER', 3], 'PUT', {
+    gradesList: [{ enrollmentId: 4, attendanceScore: 8, midtermScore: 7, finalScore: 9 }]
+  });
+  assert.equal(gradeUpdate.status, 200, JSON.stringify(gradeUpdate.body));
+  assert.equal(gradeUpdate.body.data[0].totalScore, 8.3);
+  assert.equal((await call('/classes/4/grades', ['TEACHER', 4])).status, 404);
+
+  const question = await call('/questions', ['STUDENT', 10], 'POST', {
+    classId: 4,
+    questionTitle: 'Routing question',
+    questionContent: 'How does this route work?'
+  });
+  assert.equal(question.status, 201, JSON.stringify(question.body));
+  const teacherQuestions = await call('/questions', ['TEACHER', 3]);
+  assert.equal(teacherQuestions.status, 200);
+  assert.equal(teacherQuestions.body.data.length, 1);
+  assert.equal((await call('/teacher/dashboard', ['TEACHER', 3])).body.data.summary.newQuestionCount, 1);
+  assert.equal((await call(`/questions/${question.body.data.id}/answer`, ['TEACHER', 4], 'PATCH', {
+    teacherAnswer: 'Not your class'
+  })).status, 404);
+  const answer = await call(`/questions/${question.body.data.id}/answer`, ['TEACHER', 3], 'PATCH', {
+    teacherAnswer: 'Check the route table.'
+  });
+  assert.equal(answer.status, 200, JSON.stringify(answer.body));
+  assert.equal((await call('/questions', ['STUDENT', 10])).body.data[0].status, 'ANSWERED');
 });
 
 test('UC1.3: export-excel and template routes respond with spreadsheet', async () => {

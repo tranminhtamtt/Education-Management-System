@@ -13,7 +13,9 @@ const byStudentCode = (a, b) => String(a.student?.code || '').localeCompare(Stri
 const teacherOwnsClass = async (classId, user) => {
   const filter = { id: classId };
   if (user.role === 'TEACHER') filter.teacherId = user.id;
-  return Class.findOne(filter).select('id');
+  const classItem = await Class.findOne(filter).populate({ path: 'course', select: 'deliveryMode' });
+  if (user.role === 'TEACHER' && classItem?.course?.deliveryMode !== 'LIVE_ONLINE') return null;
+  return classItem;
 };
 const canAccessClass = async (classId, user) => {
   if (user.role === 'ADMIN') return Boolean(await Class.exists({ id: classId }));

@@ -11,6 +11,20 @@ const xlsx = require('xlsx');
 const fs = require('fs');
 const upload = require('../../config/upload');
 
+const stringQueryValue = value => (typeof value === 'string' ? value : undefined);
+
+const teacherCanManageCourse = async (courseId, user) => {
+  if (user.role === 'ADMIN') return true;
+  if (!Number.isSafeInteger(courseId)) return false;
+  return Boolean(await Course.exists({
+    id: courseId,
+    $or: [
+      { instructorId: user.id },
+      { id: { $in: (await Class.find({ teacherId: user.id }).distinct('courseId')) } }
+    ]
+  }));
+};
+
 // ==========================================
 // 1. AUTH ROUTES
 // ==========================================
@@ -26,8 +40,8 @@ router.get('/students', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), asy
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const pageSize = Math.max(1, parseInt(req.query.pageSize) || 10);
-    const search = (req.query.search || '').trim();
-    const status = req.query.status;
+    const search = (stringQueryValue(req.query.search) || '').trim();
+    const status = stringQueryValue(req.query.status);
 
     const where = {
       role: 'STUDENT',
@@ -609,7 +623,10 @@ router.put('/teachers/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req
 // UC3.1: Lấy danh sách môn học & khóa học
 router.get('/courses', authenticateJWT, async (req, res) => {
   try {
-    const { status, category, deliveryMode, search } = req.query;
+    const status = stringQueryValue(req.query.status);
+    const category = stringQueryValue(req.query.category);
+    const deliveryMode = stringQueryValue(req.query.deliveryMode);
+    const search = stringQueryValue(req.query.search);
     const where = {
       ...(status ? { status } : {}),
       ...(category ? { category } : {}),
@@ -773,6 +790,9 @@ router.get('/courses/:id/lessons', authenticateJWT, async (req, res) => {
 
     const course = await Course.findOne({ id: courseId });
     if (!course) return errorResponse(res, 'Không tìm thấy khóa học', 404);
+    if (req.user.role === 'TEACHER' && !await teacherCanManageCourse(courseId, req.user)) {
+      return errorResponse(res, 'Bạn không được phân công khóa học này', 403);
+    }
 
     const lessons = await CourseLesson.find({ courseId }).sort({ orderIndex: 1, createdAt: 1 });
     return successResponse(res, lessons.map(plain), 'Lấy danh sách bài giảng thành công');
@@ -790,6 +810,9 @@ router.post('/courses/:id/lessons', authenticateJWT, authorizeRoles('ADMIN', 'TE
 
     const course = await Course.findOne({ id: courseId });
     if (!course) return errorResponse(res, 'Không tìm thấy khóa học', 404);
+    if (req.user.role === 'TEACHER' && !await teacherCanManageCourse(courseId, req.user)) {
+      return errorResponse(res, 'Bạn không được phân công khóa học này', 403);
+    }
 
     const { sectionTitle, title, orderIndex, videoUrl, materialUrl, durationMinutes, isPreview } = req.body;
     if (!title || !String(title).trim()) {
@@ -825,6 +848,11 @@ router.put('/lessons/:lessonId', authenticateJWT, authorizeRoles('ADMIN', 'TEACH
   try {
     const lessonId = Number.parseInt(req.params.lessonId, 10);
     if (Number.isNaN(lessonId)) return errorResponse(res, 'ID bài giảng không hợp lệ', 400);
+    const lesson = await CourseLesson.findOne({ id: lessonId }).select('courseId');
+    if (!lesson) return errorResponse(res, 'Không tìm thấy bài giảng', 404);
+    if (req.user.role === 'TEACHER' && !await teacherCanManageCourse(lesson.courseId, req.user)) {
+      return errorResponse(res, 'Bạn không được phân công bài giảng này', 403);
+    }
 
     const { sectionTitle, title, orderIndex, videoUrl, materialUrl, durationMinutes, isPreview } = req.body;
 
@@ -857,6 +885,11 @@ router.delete('/lessons/:lessonId', authenticateJWT, authorizeRoles('ADMIN', 'TE
   try {
     const lessonId = Number.parseInt(req.params.lessonId, 10);
     if (Number.isNaN(lessonId)) return errorResponse(res, 'ID bài giảng không hợp lệ', 400);
+    const lesson = await CourseLesson.findOne({ id: lessonId }).select('courseId');
+    if (!lesson) return errorResponse(res, 'Không tìm thấy bài giảng', 404);
+    if (req.user.role === 'TEACHER' && !await teacherCanManageCourse(lesson.courseId, req.user)) {
+      return errorResponse(res, 'Bạn không được phân công bài giảng này', 403);
+    }
 
     const deleted = await CourseLesson.deleteOne({ id: lessonId });
     if (!deleted.deletedCount) return errorResponse(res, 'Không tìm thấy bài giảng', 404);
