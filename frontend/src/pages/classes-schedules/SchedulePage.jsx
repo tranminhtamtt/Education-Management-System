@@ -36,6 +36,7 @@ const SchedulePage = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
   const isStudent = user?.role === 'STUDENT';
+  const isTeacher = user?.role === 'TEACHER';
 
   const [schedules, setSchedules] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -201,6 +202,41 @@ const SchedulePage = () => {
   ];
 
   const uniqueClassesCount = new Set(schedules.map(s => s.classId)).size;
+
+  if (isTeacher) {
+    return (
+      <Card title="Thời khóa biểu giảng dạy hàng tuần" bordered={false} loading={loading}>
+        <Alert
+          type="info"
+          showIcon
+          message="Lịch dạy lặp lại theo thứ và ca học"
+          description="Sử dụng nút Zoom / Google Meet để vào lớp trực tuyến. Nếu lớp chưa có đường dẫn, cập nhật tại mục Nội dung & lớp học."
+          style={{ marginBottom: 16 }}
+        />
+        <Table
+          rowKey="id"
+          dataSource={schedules}
+          pagination={{ pageSize: 10 }}
+          locale={{ emptyText: 'Bạn chưa có lịch giảng dạy được phân công' }}
+          columns={[
+            { title: 'Ngày', dataIndex: 'dayOfWeek', render: day => day === 8 ? 'Chủ Nhật' : `Thứ ${day}` },
+            { title: 'Ca', dataIndex: 'shift', render: shift => <Tag color="orange">Slot {shift}</Tag> },
+            { title: 'Thời gian', render: (_, item) => `${item.startTime} – ${item.endTime}` },
+            { title: 'Khóa học', render: (_, item) => <><Text strong>{item.courseCode}</Text><br />{item.courseName}</> },
+            { title: 'Lớp', dataIndex: 'classCode' },
+            { title: 'Phòng', dataIndex: 'room' },
+            {
+              title: 'Lớp trực tuyến',
+              dataIndex: 'meetUrl',
+              render: url => url
+                ? <Button type="primary" size="small" href={url} target="_blank" rel="noreferrer">Zoom / Meet</Button>
+                : <Text type="secondary">Chưa có link</Text>
+            }
+          ]}
+        />
+      </Card>
+    );
+  }
 
   return (
     <div>

@@ -10,6 +10,7 @@ const { Text, Title } = Typography;
 const AttendancePage = () => {
   const { user } = useAuth();
   const isStudent = user?.role === 'STUDENT';
+  const isTeacher = user?.role === 'TEACHER';
 
   const [classes, setClasses] = useState([]);
   const [selectedClassId, setSelectedClassId] = useState(null);
@@ -31,22 +32,21 @@ const AttendancePage = () => {
     } else {
       fetchClasses();
     }
-  }, [isStudent]);
+  }, [isStudent, isTeacher]);
 
   const fetchClasses = async () => {
     try {
-      const res = await apiClient.get('/classes', { params: { status: 'ONGOING' } });
-      if (res.success && res.data.length > 0) {
-        setClasses(res.data);
-        const firstClass = res.data[0];
-        setSelectedClassId(firstClass.id);
-        if (firstClass.schedules && firstClass.schedules.length > 0) {
-          const firstDay = firstClass.schedules[0].dayOfWeek;
-          setSessionDate(`2026-11-${String(2 + (firstDay - 2)).padStart(2, '0')}`);
-        }
+      const params = isTeacher
+        ? { status: 'ONGOING', deliveryMode: 'LIVE_ONLINE' }
+        : { status: 'ONGOING' };
+      const res = await apiClient.get('/classes', { params });
+      if (res.success) {
+        const nextClasses = res.data || [];
+        setClasses(nextClasses);
+        setSelectedClassId(nextClasses[0]?.id || null);
       }
     } catch (err) {
-      console.error('Error fetching classes:', err);
+      message.error(err.response?.data?.message || 'Lỗi khi tải danh sách lớp học');
     }
   };
 
@@ -365,23 +365,10 @@ const AttendancePage = () => {
     );
   }
 
-  // Tính 6 ngày học trong 2 tuần của lớp đang chọn cho Giảng viên/Admin chọn nhanh
-  const currentClassObj = classes.find(c => c.id === selectedClassId);
-  const classSessionDates = [];
-  if (currentClassObj?.schedules?.length > 0) {
-    const days = [...new Set(currentClassObj.schedules.map(s => s.dayOfWeek))].sort((a, b) => a - b);
-    days.forEach(d => {
-      classSessionDates.push({ week: 1, date: `2026-11-${String(2 + (d - 2)).padStart(2, '0')}`, dayOfWeek: d });
-    });
-    days.forEach(d => {
-      classSessionDates.push({ week: 2, date: `2026-11-${String(9 + (d - 2)).padStart(2, '0')}`, dayOfWeek: d });
-    });
-  }
-
   return (
     <div>
       <Card
-        title="Quản lý Điểm danh Lớp học"
+        title={isTeacher ? 'Điểm danh lớp học trực tuyến' : 'Quản lý điểm danh lớp học'}
         extra={
           <Button
             type="primary"
@@ -394,51 +381,34 @@ const AttendancePage = () => {
           </Button>
         }
       >
+        {isTeacher && (
+          <Alert
+            type="info"
+            showIcon
+            message="Chỉ các lớp LIVE_ONLINE được phân công cho bạn hiển thị tại đây."
+            style={{ marginBottom: 16 }}
+          />
+        )}
         <Space style={{ marginBottom: 20 }} wrap>
           <Text strong>Chọn Lớp Học:</Text>
           <Select
             style={{ width: 300 }}
             value={selectedClassId}
-            onChange={(val) => {
-              setSelectedClassId(val);
-              const cls = classes.find(c => c.id === val);
-              if (cls?.schedules?.length > 0) {
-                const firstDay = cls.schedules[0].dayOfWeek;
-                setSessionDate(`2026-11-${String(2 + (firstDay - 2)).padStart(2, '0')}`);
-              }
-            }}
+            onChange={setSelectedClassId}
+            placeholder="Chọn lớp"
             options={classes.map(c => ({
-              label: `${c.classCode} - ${c.course.name} (${c.semester})`,
+              label: `${c.classCode} - ${c.course?.name || ''} (${c.semester})`,
               value: c.id
             }))}
           />
 
-          <Text strong style={{ marginLeft: 16 }}>Ngày học:</Text>
+          <Text strong style={{ marginLeft: 16 }}>Ngày buổi học:</Text>
           <DatePicker
             value={dayjs(sessionDate)}
             onChange={(d, str) => setSessionDate(str)}
             allowClear={false}
           />
         </Space>
-
-        {classSessionDates.length > 0 && (
-          <div style={{ marginBottom: 16 }}>
-            <Space wrap size={[6, 6]}>
-              <Text type="secondary" style={{ fontSize: 12 }}>Chọn nhanh buổi học (Kỳ 2 tuần):</Text>
-              {classSessionDates.map((item, idx) => (
-                <Button
-                  key={item.date}
-                  size="small"
-                  type={sessionDate === item.date ? 'primary' : 'default'}
-                  style={sessionDate === item.date ? { backgroundColor: '#F26F21', borderColor: '#F26F21' } : {}}
-                  onClick={() => setSessionDate(item.date)}
-                >
-                  Buổi {idx + 1} - T{item.week} ({dayjs(item.date).format('DD/MM')})
-                </Button>
-              ))}
-            </Space>
-          </div>
-        )}
 
         <Tabs
           defaultActiveKey="takeAttendance"

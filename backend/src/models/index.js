@@ -371,7 +371,7 @@ const Notification = define('Notification', 'notifications', {
   userId: { type: Number, default: null, index: true }, // null = toàn trường
   title: { type: String, required: true, maxlength: 200 },
   message: { type: String, required: true },
-  type: { type: String, enum: ['ASSIGNMENT', 'GRADE', 'TUITION', 'REQUEST', 'SYSTEM'], default: 'SYSTEM' },
+  type: { type: String, enum: ['ASSIGNMENT', 'GRADE', 'TUITION', 'REQUEST', 'QA', 'SYSTEM'], default: 'SYSTEM' },
   isRead: { type: Boolean, default: false },
   ...ts
 });
@@ -392,6 +392,30 @@ const StudentRequest = define('StudentRequest', 'student_requests', {
 }, {}, s => {
   s.virtual('student', ref('User', 'studentId'));
   s.virtual('class', ref('Class', 'classId'));
+});
+
+// ---------------------------------------------------------------------------
+// 19. course_questions (Q&A per live class or recorded lesson)
+// ---------------------------------------------------------------------------
+const CourseQuestion = define('CourseQuestion', 'course_questions', {
+  studentId: { type: Number, required: true, index: true },
+  classId: { type: Number, default: null, index: true },
+  lessonId: { type: Number, default: null, index: true },
+  questionTitle: { type: String, required: true, maxlength: 200 },
+  questionContent: { type: String, required: true, maxlength: 10000 },
+  attachmentUrl: { type: String, default: null },
+  status: { type: String, enum: ['PENDING', 'ANSWERED', 'RESOLVED'], default: 'PENDING', index: true },
+  teacherAnswer: { type: String, default: null, maxlength: 10000 },
+  answeredById: { type: Number, default: null },
+  answeredAt: { type: Date, default: null },
+  ...ts
+}, {}, s => {
+  s.virtual('student', ref('User', 'studentId'));
+  s.virtual('class', ref('Class', 'classId'));
+  s.virtual('lesson', ref('CourseLesson', 'lessonId'));
+  s.virtual('answeredBy', ref('User', 'answeredById'));
+  s.index({ classId: 1, status: 1 });
+  s.index({ lessonId: 1, status: 1 });
 });
 
 module.exports = {
@@ -415,6 +439,7 @@ module.exports = {
   PaymentAuditLog,
   Notification,
   StudentRequest,
+  CourseQuestion,
   TRANSACTION_STATUSES,
   DISCREPANCY_REASONS,
   nextIds

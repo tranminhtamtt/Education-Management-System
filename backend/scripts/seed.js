@@ -71,12 +71,13 @@ function buildSeed({ passwordHash, now = new Date(), fullTwoWeekSchedule = false
   // Môn học + 1 giảng viên phụ trách mỗi môn (không trùng lịch giảng viên)
   const courseByCode = new Map(), teacherByCourse = new Map();
   SE_CURRICULUM.forEach((c, i) => {
-    const course = { id: next('courses'), courseCode: c.courseCode, name: c.name, credits: c.credits, description: c.description, totalSessions: c.credits >= 10 ? 60 : 30, baseTuitionFee: c.credits * FEE_PER_CREDIT, status: 'ACTIVE' };
+    const course = { id: next('courses'), courseCode: c.courseCode, name: c.name, deliveryMode: 'LIVE_ONLINE', credits: c.credits, description: c.description, totalSessions: c.credits >= 10 ? 60 : 30, baseTuitionFee: c.credits * FEE_PER_CREDIT, status: 'ACTIVE' };
     data.courses.push(course);
     courseByCode.set(c.courseCode, course);
     const female = i % 3 === 1;
     const t = { id: next('users'), code: `GV${String(i + 1).padStart(3, '0')}`, email: `gv${String(i + 1).padStart(3, '0')}@fpt.edu.vn`, fullName: personName(i + 50, female), role: 'TEACHER', passwordHash, teacherProfile: { degree: i % 4 === 0 ? 'Tiến sĩ' : 'Thạc sĩ', specialty: c.name, bio: `Giảng viên phụ trách môn ${c.courseCode}` } };
     data.users.push(t);
+    course.instructorId = t.id;
     teacherByCourse.set(c.courseCode, t);
   });
 
@@ -921,4 +922,3 @@ if (require.main === module) {
 }
 
 module.exports = { calendarTerm, currentCalendarIndex, buildSeed, buildLegacyTiDBSeed, describe };
-

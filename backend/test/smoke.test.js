@@ -79,7 +79,7 @@ test('seeded data is consistent through the API: term placement, schedules, debt
   assert.ok(revenue.body.data.kpi.debtAmount > 0);
 });
 
-test('core write flows still work and teachers cannot edit course grades', async () => {
+test('core write flows still work and teachers can edit assigned course grades', async () => {
   const course = seed.data.courses[0];
   const created = await call('/classes', 'ADMIN', 'POST', { classCode: 'TEST-NEW', courseId: course.id, semester: 'SP27' });
   assert.equal(created.status, 201, created.body.message);
@@ -96,7 +96,7 @@ test('core write flows still work and teachers cannot edit course grades', async
   assert.equal((await call(`/classes/${cls.id}/attendances`, 'TEACHER', 'POST', { sessionDate: '2026-11-04', records: [{ studentId: first.studentId, status: 'LATE' }] })).status, 200);
   assert.equal((await call(`/classes/${cls.id}/grades`, 'TEACHER', 'PUT', {
     gradesList: [{ enrollmentId: first.enrollmentId, attendanceScore: 9, midtermScore: 7, finalScore: 8 }]
-  })).status, 403);
+  })).status, 200);
 
   const n = await call('/notifications', 'STUDENT');
   assert.equal((await call(`/notifications/${n.body.data.notifications[0].id}/read`, 'STUDENT', 'PATCH')).status, 200);
