@@ -44,7 +44,10 @@ const num = v => (v !== null && v !== undefined ? Number(v) : null);
 // UC8.1: Lấy bảng điểm đầy đủ của lớp học phần
 router.get('/classes/:id/grades', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
   try {
-    const classId = parseInt(req.params.id);
+    const classId = Number(req.params.id);
+    if (!/^[1-9]\d*$/.test(req.params.id) || !Number.isSafeInteger(classId)) {
+      return errorResponse(res, 'ID lớp học không hợp lệ', 400);
+    }
     const classFilter = { id: classId };
     if (req.user.role === 'TEACHER') classFilter.teacherId = req.user.id;
 
@@ -96,7 +99,10 @@ router.get('/classes/:id/grades', authenticateJWT, authorizeRoles('ADMIN', 'TEAC
 // UC8.2: Cập nhật điểm thành phần hàng loạt & Tự động xét qua môn
 router.put('/classes/:id/grades', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
   try {
-    const classId = parseInt(req.params.id);
+    const classId = Number(req.params.id);
+    if (!/^[1-9]\d*$/.test(req.params.id) || !Number.isSafeInteger(classId)) {
+      return errorResponse(res, 'ID lớp học không hợp lệ', 400);
+    }
     const { gradesList } = req.body;
 
     if (!Array.isArray(gradesList)) {

@@ -96,7 +96,10 @@ router.get('/classes', authenticateJWT, async (req, res) => {
 // UC4.1: Chi tiết 1 lớp học phần
 router.get('/classes/:id', authenticateJWT, async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = Number(req.params.id);
+    if (!/^[1-9]\d*$/.test(req.params.id) || !Number.isSafeInteger(id)) {
+      return errorResponse(res, 'ID lớp học không hợp lệ', 400);
+    }
     const classFilter = { id };
     if (req.user.role === 'TEACHER') classFilter.teacherId = req.user.id;
 
