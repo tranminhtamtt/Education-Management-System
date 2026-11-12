@@ -5,7 +5,7 @@ const authorizeRoles = require('../../middlewares/role.middleware');
 const { withTransaction } = require('../../config/db');
 const {
   Class, Course, User, Enrollment, Schedule, Grade, TuitionInvoice, Attendance,
-  PaymentOrder, PaymentTransaction, TuitionPayment, Assignment, Submission
+  PaymentOrder, PaymentTransaction, TuitionPayment
 } = require('../../models');
 const { plain } = require('../../utils/query');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
@@ -28,113 +28,20 @@ const TEACHER_FIELDS = 'id code fullName email';
 // 1. CLASSES MANAGEMENT (UC4.1 - UC4.2)
 // ==========================================
 
-// Teacher dashboard for all classes assigned to the current teacher.
-router.get('/teacher/dashboard', authenticateJWT, authorizeRoles('TEACHER'), async (req, res) => {
-  try {
-    const classes = (await Class.find({ teacherId: req.user.id })
-      .sort({ semester: -1, classCode: 1 })
-      .populate(['course', 'schedules'])).map(plain);
-    const classIds = classes.map(item => item.id);
-    const enrollments = await Enrollment.find({ classId: { $in: classIds }, status: 'ACTIVE' })
-      .populate({ path: 'student', select: 'id code fullName' });
-    const attendance = await Attendance.find({
-      classId: { $in: classIds },
-      status: 'ABSENT_UNEXCUSED'
-    });
-    const assignments = await Assignment.find({ classId: { $in: classIds } }).select('id classId');
-    const submissionCounts = await Submission.aggregate([
-      { $match: { assignmentId: { $in: assignments.map(item => item.id) } } },
-      { $group: { _id: null, count: { $sum: 1 } } }
-    ]);
-
-    const enrollmentCounts = new Map();
-    enrollments.forEach(enrollment => {
-      enrollmentCounts.set(enrollment.classId, (enrollmentCounts.get(enrollment.classId) || 0) + 1);
-    });
-    const assignmentCounts = new Map();
-    assignments.forEach(assignment => {
-      assignmentCounts.set(assignment.classId, (assignmentCounts.get(assignment.classId) || 0) + 1);
-    });
-    const absencesByStudent = new Map();
-    attendance.forEach(record => {
-      const key = `${record.classId}:${record.studentId}`;
-      absencesByStudent.set(key, (absencesByStudent.get(key) || 0) + 1);
-    });
-
-    const attendanceWarnings = enrollments.flatMap(enrollment => {
-      const classItem = classes.find(item => item.id === enrollment.classId);
-      if (!classItem || !enrollment.student) return [];
-      const totalSessions = classItem.course?.totalSessions || 30;
-      const absentUnexcused = absencesByStudent.get(`${enrollment.classId}:${enrollment.studentId}`) || 0;
-      const rawAbsentRate = (absentUnexcused / totalSessions) * 100;
-      const absentRate = Number(rawAbsentRate.toFixed(1));
-      if (rawAbsentRate <= 20) return [];
-      return [{
-        classId: enrollment.classId,
-        classCode: classItem.classCode,
-        courseCode: classItem.course?.courseCode,
-        studentId: enrollment.student.id,
-        code: enrollment.student.code,
-        fullName: enrollment.student.fullName,
-        absentUnexcused,
-        totalSessions,
-        absentRate
-      }];
-    }).sort((a, b) => b.absentRate - a.absentRate);
-
-    const schedules = classes.flatMap(classItem => (classItem.schedules || []).map(schedule => ({
-      id: schedule.id,
-      classId: classItem.id,
-      classCode: classItem.classCode,
-      courseCode: classItem.course?.courseCode,
-      courseName: classItem.course?.name,
-      semester: classItem.semester,
-      dayOfWeek: schedule.dayOfWeek,
-      shift: schedule.shift,
-      startTime: schedule.startTime,
-      endTime: schedule.endTime,
-      room: schedule.room
-    }))).sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.shift - b.shift);
-
-    const classData = classes.map(classItem => ({
-      id: classItem.id,
-      classCode: classItem.classCode,
-      courseCode: classItem.course?.courseCode,
-      courseName: classItem.course?.name,
-      semester: classItem.semester,
-      status: classItem.status,
-      studentCount: enrollmentCounts.get(classItem.id) || 0,
-      assignmentCount: assignmentCounts.get(classItem.id) || 0
-    }));
-
-    return successResponse(res, {
-      classes: classData,
-      schedules,
-      attendanceWarnings,
-      summary: {
-        classCount: classData.length,
-        weeklySessionCount: schedules.length,
-        assignmentCount: assignments.length,
-        submissionCount: submissionCounts[0]?.count || 0,
-        warningCount: attendanceWarnings.length
-      }
-    }, 'Lấy Teacher Dashboard thành công');
-  } catch (error) {
-    console.error('Error fetching teacher dashboard:', error);
-    return errorResponse(res, 'Lỗi lấy Teacher Dashboard', 500);
-  }
-});
-
 // UC4.1: Danh sách lớp học phần
 router.get('/classes', authenticateJWT, async (req, res) => {
   try {
     const { semester, courseId, teacherId, status } = req.query;
     const role = req.user.role;
     const userId = req.user.id;
+    const deliveryCourseIds = req.query.deliveryMode
+      ? (await Course.find({ deliveryMode: String(req.query.deliveryMode).toUpperCase() }).select('id')).map(item => item.id)
+      : null;
 
     const where = {
       ...(semester ? { semester: String(semester) } : {}),
       ...(courseId ? { courseId: parseInt(courseId) } : {}),
+      ...(deliveryCourseIds ? { courseId: { $in: deliveryCourseIds } } : {}),
       ...(req.user.role === 'TEACHER' ? { teacherId: req.user.id } : (teacherId ? { teacherId: parseInt(teacherId) } : {})),
       ...(status ? { status: String(status) } : {})
     };
@@ -171,6 +78,9 @@ router.get('/classes', authenticateJWT, async (req, res) => {
         maxStudents: c.maxStudents,
         currentStudents: countMap.get(c.id) || 0,
         status: c.status,
+        meetUrl: c.meetUrl || null,
+        startDate: c.startDate || null,
+        endDate: c.endDate || null,
         course: c.course,
         teacher: c.teacher || null,
         schedules: c.schedules,
@@ -187,17 +97,19 @@ router.get('/classes', authenticateJWT, async (req, res) => {
 // UC4.1: Chi tiết 1 lớp học phần
 router.get('/classes/:id', authenticateJWT, async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = Number(req.params.id);
+    if (!/^[1-9]\d*$/.test(req.params.id) || !Number.isSafeInteger(id)) {
+      return errorResponse(res, 'ID lớp học không hợp lệ', 400);
+    }
+    const classFilter = { id };
+    if (req.user.role === 'TEACHER') classFilter.teacherId = req.user.id;
 
     if (req.user.role === 'STUDENT' && !await Enrollment.exists({ classId: id, studentId: req.user.id, status: 'ACTIVE' })) {
       return errorResponse(res, 'Bạn không có quyền xem lớp này', 403);
     }
-    if (req.user.role === 'TEACHER' && !await Class.exists({ id, teacherId: req.user.id })) {
-      return errorResponse(res, 'Bạn không có quyền xem lớp này', 403);
-    }
     if (!['ADMIN', 'TEACHER', 'STUDENT'].includes(req.user.role)) return errorResponse(res, 'Không có quyền xem lớp', 403);
 
-    const doc = await Class.findOne({ id }).populate([
+    const doc = await Class.findOne(classFilter).populate([
       'course',
       { path: 'teacher', select: 'id code fullName email phone' },
       'schedules',
@@ -232,7 +144,7 @@ router.get('/classes/:id', authenticateJWT, async (req, res) => {
 // UC4.1: Mở lớp học phần mới
 router.post('/classes', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
   try {
-    const { classCode, courseId, teacherId, semester, maxStudents } = req.body;
+    const { classCode, courseId, teacherId, semester, maxStudents, meetUrl, startDate, endDate } = req.body;
 
     if (!classCode || !courseId || !semester) {
       return errorResponse(res, 'Mã lớp, Môn học và Học kỳ là bắt buộc', 400);
@@ -256,7 +168,9 @@ router.post('/classes', authenticateJWT, authorizeRoles('ADMIN'), async (req, re
       teacherId: teacherId ? parseInt(teacherId) : null,
       semester: semester.trim().toUpperCase(),
       maxStudents: maxStudents ? parseInt(maxStudents) : 30,
-      meetUrl: req.body.meetUrl || null,
+      meetUrl: meetUrl || null,
+      startDate: startDate ? new Date(startDate) : null,
+      endDate: endDate ? new Date(endDate) : null,
       status: 'UPCOMING'
     });
     const newClass = await Class.findOne({ id: created.id }).populate(['course', { path: 'teacher', select: 'fullName code' }]);
@@ -268,21 +182,23 @@ router.post('/classes', authenticateJWT, authorizeRoles('ADMIN'), async (req, re
   }
 });
 
-// Cập nhật thông tin lớp (Đổi GV, Trạng thái)
+// Cập nhật thông tin lớp (Đổi GV, Trạng thái, MeetUrl)
 router.put('/classes/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const { teacherId, status, maxStudents, semester } = req.body;
+    const { teacherId, status, maxStudents, semester, meetUrl, startDate, endDate } = req.body;
 
     const updated = await Class.findOneAndUpdate(
       { id },
       {
         $set: {
           ...(teacherId !== undefined ? { teacherId: teacherId ? parseInt(teacherId) : null } : {}),
-          ...(req.body.meetUrl !== undefined ? { meetUrl: req.body.meetUrl || null } : {}),
           ...(status ? { status } : {}),
           ...(maxStudents ? { maxStudents: parseInt(maxStudents) } : {}),
-          ...(semester ? { semester: semester.trim().toUpperCase() } : {})
+          ...(semester ? { semester: semester.trim().toUpperCase() } : {}),
+          ...(meetUrl !== undefined ? { meetUrl: meetUrl || null } : {}),
+          ...(startDate !== undefined ? { startDate: startDate ? new Date(startDate) : null } : {}),
+          ...(endDate !== undefined ? { endDate: endDate ? new Date(endDate) : null } : {})
         }
       },
       { new: true, runValidators: true }
@@ -514,8 +430,8 @@ router.get('/schedules/my-schedule', authenticateJWT, async (req, res) => {
           startTime: s.startTime || slotTime.start,
           endTime: s.endTime || slotTime.end,
           room: s.room,
-          semester: s.class?.semester,
           meetUrl: s.class?.meetUrl || null,
+          semester: s.class?.semester,
           week1Session: {
             week: 1,
             date: w1Date,

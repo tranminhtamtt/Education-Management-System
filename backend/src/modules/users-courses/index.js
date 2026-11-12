@@ -4,12 +4,20 @@ const bcrypt = require('bcryptjs');
 const { login, getMe } = require('./auth.controller');
 const authenticateJWT = require('../../middlewares/auth.middleware');
 const authorizeRoles = require('../../middlewares/role.middleware');
-const { User, Course, Class, Enrollment } = require('../../models');
-const { like, plain } = require('../../utils/query');
+const { User, Course, CourseLesson, Class, Enrollment, LessonProgress } = require('../../models');
+const { withTransaction, lockDoc } = require('../../config/db');
+const { like, plain, httpError } = require('../../utils/query');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
 const xlsx = require('xlsx');
 const fs = require('fs');
 const upload = require('../../config/upload');
+
+const stringQueryValue = value => (typeof value === 'string' ? value : undefined);
+
+async function teacherCanManageCourse(course, user, session = null) {
+  return user.role === 'ADMIN' || course.instructorId === user.id ||
+    Boolean(await Class.exists({ courseId: course.id, teacherId: user.id }).session(session));
+}
 
 // ==========================================
 // 1. AUTH ROUTES
@@ -26,8 +34,8 @@ router.get('/students', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), asy
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const pageSize = Math.max(1, parseInt(req.query.pageSize) || 10);
-    const search = (req.query.search || '').trim();
-    const status = req.query.status;
+    const search = (stringQueryValue(req.query.search) || '').trim();
+    const status = stringQueryValue(req.query.status);
 
     const where = {
       role: 'STUDENT',
@@ -568,25 +576,79 @@ router.post('/teachers', authenticateJWT, authorizeRoles('ADMIN'), async (req, r
   }
 });
 
+// UC2.2: Cập nhật thông tin giảng viên (chuyên môn, học vị, tiểu sử, số điện thoại)
+router.put('/teachers/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return errorResponse(res, 'ID giảng viên không hợp lệ', 400);
+    const { fullName, phone, degree, specialty, bio, status } = req.body;
+
+    const teacher = await User.findOne({ id, role: 'TEACHER' });
+    if (!teacher) return errorResponse(res, 'Không tìm thấy giảng viên', 404);
+
+    const updated = await User.findOneAndUpdate(
+      { id, role: 'TEACHER' },
+      {
+        $set: {
+          ...(fullName ? { fullName: fullName.trim() } : {}),
+          ...(phone !== undefined ? { phone } : {}),
+          ...(status ? { status } : {}),
+          'teacherProfile.degree': degree || teacher.teacherProfile?.degree || 'Thạc sĩ',
+          'teacherProfile.specialty': specialty || teacher.teacherProfile?.specialty || 'Chưa cập nhật',
+          'teacherProfile.bio': bio !== undefined ? bio : (teacher.teacherProfile?.bio || '')
+        }
+      },
+      { new: true, runValidators: true }
+    );
+
+    const data = plain(updated);
+    delete data.passwordHash;
+    return successResponse(res, data, 'Cập nhật thông tin giảng viên thành công');
+  } catch (error) {
+    console.error('Error updating teacher:', error);
+    return errorResponse(res, 'Lỗi cập nhật giảng viên', 500);
+  }
+});
+
 // ==========================================
-// 4. COURSES MANAGEMENT (UC3.1)
+// 4. COURSES MANAGEMENT (UC3.1 - UC3.3)
 // ==========================================
 
-// UC3.1: Lấy danh sách môn học
+// UC3.1: Lấy danh sách môn học & khóa học
 router.get('/courses', authenticateJWT, async (req, res) => {
   try {
-    const { status } = req.query;
-    const where = status ? { status } : {};
+    const status = stringQueryValue(req.query.status);
+    const category = stringQueryValue(req.query.category);
+    const deliveryMode = stringQueryValue(req.query.deliveryMode);
+    const search = stringQueryValue(req.query.search);
+    const where = {
+      ...(status ? { status } : {}),
+      ...(category ? { category } : {}),
+      ...(deliveryMode ? { deliveryMode } : {}),
+      ...(search
+        ? {
+            $or: [
+              { courseCode: like(search) },
+              { name: like(search) }
+            ]
+          }
+        : {})
+    };
 
     const courses = await Course.find(where).sort({ courseCode: 1 });
-    const counts = await Class.aggregate([{ $group: { _id: '$courseId', n: { $sum: 1 } } }]);
-    const countMap = new Map(counts.map(c => [c._id, c.n]));
+    const [classCounts, lessonCounts] = await Promise.all([
+      Class.aggregate([{ $group: { _id: '$courseId', n: { $sum: 1 } } }]),
+      CourseLesson.aggregate([{ $group: { _id: '$courseId', n: { $sum: 1 } } }])
+    ]);
+    const classCountMap = new Map(classCounts.map(c => [c._id, c.n]));
+    const lessonCountMap = new Map(lessonCounts.map(l => [l._id, l.n]));
 
     return successResponse(
       res,
       courses.map(c => ({
         ...plain(c),
-        totalClasses: countMap.get(c.id) || 0
+        totalClasses: classCountMap.get(c.id) || 0,
+        totalLessons: lessonCountMap.get(c.id) || 0
       })),
       'Lấy danh sách môn học thành công'
     );
@@ -596,13 +658,27 @@ router.get('/courses', authenticateJWT, async (req, res) => {
   }
 });
 
-// UC3.1: Tạo môn học mới
+// UC3.1: Tạo môn học / khóa học mới
 router.post('/courses', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
   try {
-    const { courseCode, name, credits, totalSessions, baseTuitionFee, description, syllabusUrl, status } = req.body;
+    const {
+      courseCode,
+      name,
+      category,
+      deliveryMode,
+      level,
+      instructorId,
+      thumbnailUrl,
+      credits,
+      totalSessions,
+      baseTuitionFee,
+      description,
+      syllabusUrl,
+      status
+    } = req.body;
 
-    if (!courseCode || !name || !credits) {
-      return errorResponse(res, 'Mã môn, Tên môn và Số tín chỉ là bắt buộc', 400);
+    if (!courseCode || !name) {
+      return errorResponse(res, 'Mã khóa học và Tên khóa học là bắt buộc', 400);
     }
 
     const existing = await Course.findOne({ courseCode: String(courseCode).toUpperCase().trim() });
@@ -611,15 +687,15 @@ router.post('/courses', authenticateJWT, authorizeRoles('ADMIN'), async (req, re
     }
 
     const course = await Course.create({
-      category: req.body.category || 'FPT_SUBJECT',
-      deliveryMode: req.body.deliveryMode || 'LIVE_ONLINE',
-      level: req.body.level || 'BEGINNER',
-      instructorId: req.body.instructorId ? Number(req.body.instructorId) : null,
-      thumbnailUrl: req.body.thumbnailUrl || null,
       courseCode: courseCode.toUpperCase().trim(),
       name: name.trim(),
-      credits: parseInt(credits),
-      totalSessions: parseInt(totalSessions) || 30,
+      category: category || 'FPT_SUBJECT',
+      deliveryMode: deliveryMode || 'LIVE_ONLINE',
+      level: level || 'BEGINNER',
+      instructorId: instructorId ? Number.parseInt(instructorId, 10) : null,
+      thumbnailUrl: thumbnailUrl || null,
+      credits: credits !== undefined ? Number.parseInt(credits, 10) : 3,
+      totalSessions: Number.parseInt(totalSessions, 10) || 30,
       baseTuitionFee: baseTuitionFee === undefined ? 5000000 : Number(baseTuitionFee),
       description: description || null,
       syllabusUrl: syllabusUrl || null,
@@ -633,29 +709,33 @@ router.post('/courses', authenticateJWT, authorizeRoles('ADMIN'), async (req, re
   }
 });
 
-// UC3.1: Cập nhật môn học
+function extractCourseUpdates(body) {
+  const updates = {};
+  const strKeys = ['name', 'category', 'deliveryMode', 'level', 'description', 'syllabusUrl', 'thumbnailUrl', 'status'];
+  for (const k of strKeys) {
+    if (body[k] !== undefined) {
+      updates[k] = typeof body[k] === 'string' ? body[k].trim() : body[k];
+    }
+  }
+  if (body.credits !== undefined) updates.credits = Number.parseInt(body.credits, 10);
+  if (body.totalSessions !== undefined) updates.totalSessions = Number.parseInt(body.totalSessions, 10);
+  if (body.baseTuitionFee !== undefined) updates.baseTuitionFee = Number.parseFloat(body.baseTuitionFee);
+  if (body.instructorId !== undefined) {
+    updates.instructorId = body.instructorId ? Number.parseInt(body.instructorId, 10) : null;
+  }
+  return updates;
+}
+
+// UC3.1: Cập nhật môn học / khóa học
 router.put('/courses/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
-    const { name, credits, totalSessions, baseTuitionFee, description, syllabusUrl, status } = req.body;
-    const portalFields = {};
-    for (const key of ['category', 'deliveryMode', 'level', 'thumbnailUrl']) if (req.body[key] !== undefined) portalFields[key] = req.body[key];
-    if (req.body.instructorId !== undefined) portalFields.instructorId = req.body.instructorId ? Number(req.body.instructorId) : null;
+    const id = Number.parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return errorResponse(res, 'ID môn học không hợp lệ', 400);
 
+    const updateDoc = extractCourseUpdates(req.body);
     const updated = await Course.findOneAndUpdate(
       { id },
-      {
-        $set: {
-          ...(name ? { name: name.trim() } : {}),
-          ...(credits ? { credits: parseInt(credits) } : {}),
-          ...(totalSessions ? { totalSessions: parseInt(totalSessions) } : {}),
-          ...portalFields,
-          ...(baseTuitionFee !== undefined ? { baseTuitionFee: parseFloat(baseTuitionFee) } : {}),
-          ...(description !== undefined ? { description } : {}),
-          ...(syllabusUrl !== undefined ? { syllabusUrl } : {}),
-          ...(status ? { status } : {})
-        }
-      },
+      { $set: updateDoc },
       { new: true, runValidators: true }
     );
     if (!updated) return errorResponse(res, 'Không tìm thấy môn học', 404);
@@ -670,11 +750,11 @@ router.put('/courses/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req,
 // UC3.1: Xóa môn học (Nếu đã có lớp thì Soft-delete chuyển sang INACTIVE, nếu chưa có thì xóa cứng)
 router.delete('/courses/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = Number.parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return errorResponse(res, 'ID môn học không hợp lệ', 400);
     const countClasses = await Class.countDocuments({ courseId: id });
 
     if (countClasses > 0) {
-      // Soft-delete chuyển trạng thái sang INACTIVE
       const deactivated = await Course.findOneAndUpdate({ id }, { $set: { status: 'INACTIVE' } }, { new: true });
       return successResponse(
         res,
@@ -692,5 +772,154 @@ router.delete('/courses/:id', authenticateJWT, authorizeRoles('ADMIN'), async (r
   }
 });
 
+// ==========================================
+// 5. COURSE LESSONS MANAGEMENT (UC3.2)
+// ==========================================
+
+function lessonValues(body) {
+  const values = {};
+  for (const key of ['title', 'sectionTitle']) {
+    if (body[key] === undefined) continue;
+    if (typeof body[key] !== 'string' || !body[key].trim() || body[key].trim().length > 200) {
+      throw httpError('Tiêu đề bài học hoặc tên chương không hợp lệ');
+    }
+    values[key] = body[key].trim();
+  }
+  for (const key of ['videoUrl', 'materialUrl']) {
+    if (body[key] === undefined) continue;
+    if (!body[key]) {
+      values[key] = null;
+      continue;
+    }
+    try {
+      const url = new URL(body[key]);
+      if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) throw new Error();
+      values[key] = url.href;
+    } catch {
+      throw httpError('Đường dẫn bài giảng phải là URL http/https hợp lệ');
+    }
+  }
+  if (body.orderIndex !== undefined && body.orderIndex !== null) {
+    values.orderIndex = positiveId(body.orderIndex);
+  }
+  if (body.durationMinutes !== undefined) {
+    const duration = Number(body.durationMinutes);
+    if (!Number.isFinite(duration) || duration < 0) throw httpError('Thời lượng không hợp lệ');
+    values.durationMinutes = duration;
+  }
+  if (body.isPreview !== undefined) values.isPreview = body.isPreview === true;
+  return values;
+}
+
+function positiveId(value) {
+  const id = Number(value);
+  if (!Number.isSafeInteger(id) || id <= 0) throw httpError('Mã dữ liệu không hợp lệ');
+  return id;
+}
+
+async function findManagedCourse(courseId, user, session = null) {
+  const course = session
+    ? await lockDoc(Course, { id: courseId }, session)
+    : await Course.findOne({ id: courseId });
+  if (!course) throw httpError('Không tìm thấy khóa học', 404);
+  if (!await teacherCanManageCourse(course, user, session)) {
+    throw httpError('Bạn không được phân công khóa học này', 403);
+  }
+  return course;
+}
+
+async function refreshCourseProgress(courseId, session) {
+  const lessons = await CourseLesson.find({ courseId }).select('id').session(session);
+  const classes = await Class.find({ courseId }).select('id').session(session);
+  const enrollments = await Enrollment.find({ classId: { $in: classes.map(item => item.id) } })
+    .select('id').session(session);
+  if (!enrollments.length) return;
+
+  const completed = await LessonProgress.aggregate([
+    { $match: { enrollmentId: { $in: enrollments.map(item => item.id) }, lessonId: { $in: lessons.map(item => item.id) }, isCompleted: true } },
+    { $group: { _id: '$enrollmentId', count: { $sum: 1 } } }
+  ]).session(session);
+  const counts = new Map(completed.map(item => [item._id, item.count]));
+
+  await Enrollment.bulkWrite(enrollments.map(enrollment => {
+    const count = counts.get(enrollment.id) || 0;
+    return {
+      updateOne: {
+        filter: { id: enrollment.id },
+        update: { $set: {
+          completedLessonsCount: count,
+          progressPercent: lessons.length ? Math.round(count * 100 / lessons.length) : 0
+        } }
+      }
+    };
+  }), { session });
+}
+
+const manageLessons = authorizeRoles('ADMIN', 'TEACHER');
+const lessonEndpoint = handler => async (req, res) => {
+  try {
+    await handler(req, res);
+  } catch (error) {
+    if (error.code === 11000) return errorResponse(res, 'Thứ tự bài giảng đã được sử dụng', 409);
+    if (!error.status) console.error('Error managing course lesson:', error);
+    return errorResponse(res, error.status ? error.message : 'Không thể xử lý bài giảng', error.status || 500);
+  }
+};
+
+router.get('/courses/:id/lessons', authenticateJWT, manageLessons, lessonEndpoint(async (req, res) => {
+  const course = await findManagedCourse(positiveId(req.params.id), req.user);
+  const lessons = await CourseLesson.find({ courseId: course.id }).sort({ orderIndex: 1 });
+  successResponse(res, lessons.map(plain), 'Lấy danh sách bài giảng thành công');
+}));
+
+router.post('/courses/:id/lessons', authenticateJWT, manageLessons, lessonEndpoint(async (req, res) => {
+  const courseId = positiveId(req.params.id);
+  const result = await withTransaction(async session => {
+    await findManagedCourse(courseId, req.user, session);
+    const values = lessonValues(req.body);
+    if (!values.title) throw httpError('Tiêu đề bài học là bắt buộc');
+
+    if (values.orderIndex !== undefined) {
+      const existing = await CourseLesson.findOne({ courseId, orderIndex: values.orderIndex }).session(session);
+      if (existing) {
+        existing.set(values);
+        await existing.save({ session });
+        return { lesson: existing, created: false };
+      }
+    } else {
+      const last = await CourseLesson.findOne({ courseId }).sort({ orderIndex: -1 }).session(session);
+      values.orderIndex = (last?.orderIndex || 0) + 1;
+    }
+
+    const [lesson] = await CourseLesson.create([{ courseId, ...values }], { session });
+    await refreshCourseProgress(courseId, session);
+    return { lesson, created: true };
+  });
+  successResponse(res, plain(result.lesson), 'Đã lưu bài giảng', result.created ? 201 : 200);
+}));
+
+router.put('/lessons/:lessonId', authenticateJWT, manageLessons, lessonEndpoint(async (req, res) => {
+  const id = positiveId(req.params.lessonId);
+  const updated = await withTransaction(async session => {
+    const lesson = await CourseLesson.findOne({ id }).session(session);
+    if (!lesson) throw httpError('Không tìm thấy bài giảng', 404);
+    await findManagedCourse(lesson.courseId, req.user, session);
+    lesson.set(lessonValues(req.body));
+    return lesson.save({ session });
+  });
+  successResponse(res, plain(updated), 'Cập nhật bài giảng thành công');
+}));
+
+router.delete('/lessons/:lessonId', authenticateJWT, manageLessons, lessonEndpoint(async (req, res) => {
+  const id = positiveId(req.params.lessonId);
+  await withTransaction(async session => {
+    const lesson = await CourseLesson.findOne({ id }).session(session);
+    if (!lesson) throw httpError('Không tìm thấy bài giảng', 404);
+    await findManagedCourse(lesson.courseId, req.user, session);
+    await lesson.deleteOne({ session });
+    await refreshCourseProgress(lesson.courseId, session);
+  });
+  successResponse(res, null, 'Xóa bài giảng thành công');
+}));
 
 module.exports = router;

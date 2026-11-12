@@ -171,9 +171,12 @@ test('lesson publishing validates ownership and updates the progress denominator
   const lesson = { title: 'New lesson', orderIndex: 2, videoUrl: 'https://example.com/new.mp4' };
   assert.equal((await call('/courses/4/lessons', 3, 'POST', lesson)).status, 403);
   assert.equal((await call('/courses/4/lessons', 5, 'POST', { ...lesson, videoUrl: 'javascript:alert(1)' })).status, 400);
-  assert.equal((await call('/courses/4/lessons', 5, 'POST', lesson)).status, 200);
+  const created = await call('/courses/4/lessons', 5, 'POST', lesson);
+  assert.equal(created.status, 201);
   assert.equal((await M.Enrollment.findOne({ id: enrollmentId })).progressPercent, 50);
   assert.equal((await call('/courses/4/lessons', 5, 'POST', { ...lesson, title: 'Updated lesson' })).status, 200);
   assert.equal(await M.CourseLesson.countDocuments({ courseId: 4 }), 2);
   assert.equal((await call('/courses/4/lessons', 1)).status, 403);
+  assert.equal((await call(`/lessons/${created.body.data.id}`, 5, 'DELETE')).status, 200);
+  assert.equal((await M.Enrollment.findOne({ id: enrollmentId })).progressPercent, 100);
 });

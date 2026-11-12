@@ -129,7 +129,7 @@ graph TD
 * Xem **Teacher Dashboard (`UC12.2`)**: Thống kê số khóa học `RECORDED` và số lớp `LIVE_ONLINE` đang phụ trách, tổng số học viên đang theo học, số bài tập chờ chấm, số câu hỏi Q&A mới từ học viên và lịch dạy trong tuần.
 * Xem **Thời khóa biểu giảng dạy hàng tuần (`UC5.3`)** kèm đường dẫn vào lớp học trực tuyến (`Zoom / Google Meet`).
 * **Quản lý Nội dung Bài giảng & Lớp học phụ trách (`UC6.1`..`UC8.3`):**
-  * Cập nhật tài liệu bài giảng, video record lại buổi học hoặc link phòng học trực tuyến cho lớp mình dạy.
+  * Cập nhật tài liệu bài giảng hoặc link phòng học trực tuyến cho lớp mình dạy.
   * Điểm danh học viên trong các buổi học `LIVE_ONLINE` (`UC6.1`) và theo dõi thống kê chuyên cần (`UC6.2`).
   * Giao bài tập thực hành / bài kiểm tra định kỳ (`Assignments` - `UC7.1`), xem danh sách bài nộp của học viên, chấm điểm và viết nhận xét chi tiết (`UC7.3`).
   * Nhập điểm đánh giá cuối khóa (`Grades` - `UC8.1`..`UC8.3`) để hệ thống xét hoàn thành khóa học (`isPassed`) cho học viên.
@@ -535,14 +535,17 @@ Mọi API tuân thủ tiền tố `/api/v1` và trả về cấu trúc JSON đ�
 * `GET /api/v1/analytics/tuition-revenue` & `GET /api/v1/accountant/summary` — Xem học phí đã thu theo khoảng thời gian và số hóa đơn đã hoặc chưa thanh toán đủ theo `UC9.7`.
 
 ### 4. Cụm API của TEACHER / Giảng viên Trung tâm (Phụ trách: Người 4)
-* `GET /api/v1/teacher/dashboard` — Dashboard Giảng viên: Danh sách khóa/lớp đang dạy, lịch dạy, số bài nộp mới và câu hỏi học viên.
-* `GET /api/v1/schedules/my-schedule` — Xem Thời khóa biểu giảng dạy hàng tuần của Giảng viên.
-* `GET /api/v1/classes/:id/attendances?date=YYYY-MM-DD` & `POST /api/v1/classes/:id/attendances` — Điểm danh học viên trong các buổi học `LIVE_ONLINE`.
+* `GET /api/v1/teacher/dashboard` — Dashboard Giảng viên: số khóa `RECORDED`, số lớp `LIVE_ONLINE`, học viên đang học, bài tập chờ chấm, Q&A mới, cảnh báo chuyên cần và lịch dạy tuần.
+* `GET /api/v1/schedules/my-schedule` — Xem thời khóa biểu giảng dạy hàng tuần kèm `meetUrl` của lớp `LIVE_ONLINE`.
+* `PATCH /api/v1/teacher/classes/:id` — Cập nhật hoặc xóa `meetUrl` cho lớp `LIVE_ONLINE` được phân công.
+* `GET /api/v1/classes?deliveryMode=LIVE_ONLINE` — Lọc lớp trực tuyến được phân công để điểm danh và quản lý bài tập.
+* `GET /api/v1/classes/:id/attendances?date=YYYY-MM-DD` & `POST /api/v1/classes/:id/attendances` — Điểm danh học viên trong các buổi học `LIVE_ONLINE` được phân công.
 * `GET /api/v1/classes/:id/attendance-summary` — Xem thống kê chuyên cần của lớp phụ trách.
 * `POST /api/v1/classes/:id/assignments` — Giao bài tập thực hành / đề thi thử mới cho lớp.
 * `GET /api/v1/assignments/:id/submissions` & `PATCH /api/v1/submissions/:id/grade` — Xem bài nộp của học viên, chấm điểm và gửi nhận xét `teacherFeedback`.
-* `GET /api/v1/classes/:id/grades` & `PUT /api/v1/classes/:id/grades` — Xem và cập nhật điểm tổng kết khóa học cho học viên.
-* `GET /api/v1/questions` & `PATCH /api/v1/questions/:id/answer` *(hoặc `/requests`)* — Xem câu hỏi thắc mắc của học viên trong lớp/khóa học và gửi câu trả lời giải đáp.
+* `GET /api/v1/courses/:id/lessons`, `POST /api/v1/courses/:id/lessons` & `PUT /api/v1/lessons/:id` — Xem và cập nhật bài giảng/tài liệu của khóa học được phân công.
+* `GET /api/v1/classes/:id/grades` & `PUT /api/v1/classes/:id/grades` — Xem và nhập điểm cuối khóa; backend tự tính `totalScore`, `isPassed` và giữ nguyên trạng thái cấm thi do hệ thống quản lý.
+* `GET /api/v1/questions` & `PATCH /api/v1/questions/:id/answer` — Xem câu hỏi trong lớp/khóa học được phân công và trả lời học viên.
 
 ### 5. Cụm API của STUDENT / Học viên (Phụ trách: Người 5)
 * `GET /api/v1/subjects?category=FPT_SUBJECT|CERTIFICATE` — Danh sách gọn Môn FPT (sắp theo kỳ) / Chứng chỉ, kèm số khóa học, giá thấp nhất và hình thức đang có.

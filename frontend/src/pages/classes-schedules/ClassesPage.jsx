@@ -30,7 +30,8 @@ import {
   CloseCircleOutlined,
   ThunderboltOutlined,
   ReloadOutlined,
-  BookOutlined
+  BookOutlined,
+  LinkOutlined
 } from '@ant-design/icons';
 import apiClient from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
@@ -282,6 +283,15 @@ const ClassesPage = () => {
       }
     },
     {
+      title: 'Phòng / Meet Live',
+      dataIndex: 'meetUrl',
+      render: (url) => url ? (
+        <a href={url} target="_blank" rel="noopener noreferrer">
+          <Tag color="cyan" icon={<LinkOutlined />}>Link Meet</Tag>
+        </a>
+      ) : <Tag color="default">Chưa có</Tag>
+    },
+    {
       title: 'Hành động',
       render: (_, record) => (
         <Space>
@@ -391,6 +401,10 @@ const ClassesPage = () => {
             rules={[{ required: true, message: 'Vui lòng nhập sĩ số tối đa' }]}
           >
             <Input type="number" min={1} max={100} />
+          </Form.Item>
+
+          <Form.Item name="meetUrl" label="Đường dẫn Google Meet / Zoom phòng học">
+            <Input placeholder="https://meet.google.com/..." />
           </Form.Item>
 
           <div style={{ textAlign: 'right', marginTop: 16 }}>

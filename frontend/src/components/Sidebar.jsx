@@ -14,9 +14,17 @@ import {
   DollarCircleOutlined,
   AuditOutlined,
   NotificationOutlined,
-  BarChartOutlined
+  BarChartOutlined,
+  ReadOutlined,
+  MessageOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../context/AuthContext';
+
+const getRoleLabel = (role, studentLabel, teacherLabel, defaultLabel) => {
+  if (role === 'STUDENT') return studentLabel;
+  if (role === 'TEACHER') return teacherLabel;
+  return defaultLabel;
+};
 
 const Sidebar = () => {
   const navigate = useNavigate();
@@ -80,6 +88,13 @@ const Sidebar = () => {
           }
         ]
       : []),
+    ...(role === 'TEACHER'
+      ? [{
+          key: '/teacher-content',
+          icon: <ReadOutlined />,
+          label: 'Nội dung & lớp học'
+        }]
+      : []),
     // All roles: Thời khóa biểu
     {
       key: '/schedule',
@@ -90,20 +105,27 @@ const Sidebar = () => {
     {
       key: '/attendance',
       icon: <CheckSquareOutlined />,
-      label: role === 'STUDENT' ? 'Báo cáo Chuyên cần' : 'Quản lý Điểm danh'
+      label: getRoleLabel(role, 'Báo cáo Chuyên cần', 'Điểm danh lớp trực tuyến', 'Quản lý Điểm danh')
     },
     // Bài tập
     {
       key: '/assignments',
       icon: <FileTextOutlined />,
-      label: role === 'STUDENT' ? 'Bài tập & Nộp bài' : 'Quản lý Bài tập'
+      label: getRoleLabel(role, 'Bài tập & Nộp bài', 'Bài tập & chấm bài', 'Quản lý Bài tập')
     },
-    // Bảng điểm chỉ dành cho học viên và quản trị; teacher chỉ chấm bài tập.
-    ...(['ADMIN', 'STUDENT'].includes(role)
+    // Quản trị và giảng viên quản lý điểm cuối khóa.
+    ...(['ADMIN', 'TEACHER'].includes(role)
       ? [{
           key: '/grades',
           icon: <TrophyOutlined />,
-          label: role === 'STUDENT' ? 'Bảng điểm & GPA' : 'Quản lý Điểm số'
+          label: 'Đánh giá cuối khóa'
+        }]
+      : []),
+    ...(['TEACHER', 'ADMIN'].includes(role)
+      ? [{
+          key: '/questions',
+          icon: <MessageOutlined />,
+          label: 'Hỏi đáp học viên'
         }]
       : []),
     // Khung chương trình (FAP Curriculum)
@@ -126,13 +148,14 @@ const Sidebar = () => {
           }
         ]
       : []),
-    // Đơn từ học vụ
-    { key: '/questions', icon: <AuditOutlined />, label: 'Hỏi đáp khóa học' },
-    {
-      key: '/requests',
-      icon: <AuditOutlined />,
-      label: role === 'ADMIN' ? 'Xét duyệt Đơn từ' : 'Đơn từ Học vụ'
-    },
+    // Đơn từ học vụ không thuộc luồng giảng viên.
+    ...(['ADMIN', 'STUDENT'].includes(role)
+      ? [{
+          key: '/requests',
+          icon: <AuditOutlined />,
+          label: role === 'ADMIN' ? 'Xét duyệt Đơn từ' : 'Đơn từ Học vụ'
+        }]
+      : []),
     // Thông báo
     {
       key: '/notifications',

@@ -32,6 +32,8 @@ import PaymentOperationsPage from './pages/grades-tuition/PaymentOperationsPage'
 // Cụm 5: Tương tác, Đơn từ & Báo cáo
 import RequestsPage from './pages/notifications-analytics/RequestsPage';
 import NotificationsPage from './pages/notifications-analytics/NotificationsPage';
+import TeacherContentPage from './pages/teacher/TeacherContentPage';
+import CourseQuestionsPage from './pages/teacher/CourseQuestionsPage';
 import { CatalogPage, SubjectDetailPage, MyLearningPage, CoursePlayerPage, QuestionsPage, StudentDashboard } from './pages/student/StudentPortal';
 
 const RoleRoute = ({ allowed, children }) => {
@@ -50,13 +52,17 @@ const TuitionReportRoute = () => {
 
 const GradesRoute = () => {
   const { user } = useAuth();
-  // Học viên trung tâm không có trang kết quả học tập; giảng viên chỉ chấm bài tập.
-  return ['TEACHER', 'STUDENT'].includes(user?.role) ? <Navigate to="/dashboard" replace /> : <GradesPage />;
+  return ['ADMIN', 'TEACHER'].includes(user?.role) ? <GradesPage /> : <Navigate to="/dashboard" replace />;
 };
 
 const CurriculumRoute = () => {
   const { user } = useAuth();
   return user?.role === 'STUDENT' ? <Navigate to="/catalog" replace /> : <CurriculumPage />;
+};
+
+const CourseQuestionsRoute = () => {
+  const { user } = useAuth();
+  return user?.role === 'TEACHER' ? <CourseQuestionsPage /> : <QuestionsPage />;
 };
 
 const App = () => {
@@ -84,7 +90,7 @@ const App = () => {
               <Route path="catalog/subjects/:subjectId" element={<RoleRoute allowed={['STUDENT']}><SubjectDetailPage /></RoleRoute>} />
               <Route path="my-courses" element={<RoleRoute allowed={['STUDENT']}><MyLearningPage /></RoleRoute>} />
               <Route path="my-courses/:id" element={<RoleRoute allowed={['STUDENT']}><CoursePlayerPage /></RoleRoute>} />
-              <Route path="questions" element={<RoleRoute allowed={['STUDENT', 'TEACHER', 'ADMIN']}><QuestionsPage /></RoleRoute>} />
+              <Route path="questions" element={<RoleRoute allowed={['STUDENT', 'TEACHER', 'ADMIN']}><CourseQuestionsRoute /></RoleRoute>} />
 
               {/* Cụm 1 */}
               <Route path="students" element={<RoleRoute allowed={['ADMIN']}><StudentsPage /></RoleRoute>} />
@@ -95,6 +101,7 @@ const App = () => {
               {/* Cụm 2 */}
               <Route path="classes" element={<RoleRoute allowed={['ADMIN', 'TEACHER']}><ClassesPage /></RoleRoute>} />
               <Route path="schedule" element={<SchedulePage />} />
+              <Route path="teacher-content" element={<RoleRoute allowed={['TEACHER']}><TeacherContentPage /></RoleRoute>} />
 
               {/* Cụm 3 */}
               <Route path="attendance" element={<AttendancePage />} />

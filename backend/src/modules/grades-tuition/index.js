@@ -44,7 +44,10 @@ const num = v => (v !== null && v !== undefined ? Number(v) : null);
 // UC8.1: Lấy bảng điểm đầy đủ của lớp học phần
 router.get('/classes/:id/grades', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
   try {
-    const classId = parseInt(req.params.id);
+    const classId = Number(req.params.id);
+    if (!/^[1-9]\d*$/.test(req.params.id) || !Number.isSafeInteger(classId)) {
+      return errorResponse(res, 'ID lớp học không hợp lệ', 400);
+    }
     const classFilter = { id: classId };
     if (req.user.role === 'TEACHER') classFilter.teacherId = req.user.id;
 
@@ -94,26 +97,51 @@ router.get('/classes/:id/grades', authenticateJWT, authorizeRoles('ADMIN', 'TEAC
 });
 
 // UC8.2: Cập nhật điểm thành phần hàng loạt & Tự động xét qua môn
-router.put('/classes/:id/grades', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
+router.put('/classes/:id/grades', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
   try {
-    const classId = parseInt(req.params.id);
+    const classId = Number(req.params.id);
+    if (!/^[1-9]\d*$/.test(req.params.id) || !Number.isSafeInteger(classId)) {
+      return errorResponse(res, 'ID lớp học không hợp lệ', 400);
+    }
     const { gradesList } = req.body;
 
     if (!Array.isArray(gradesList)) {
       return errorResponse(res, 'Dữ liệu gradesList phải là một mảng', 400);
+    }
+    const classFilter = { id: classId };
+    if (req.user.role === 'TEACHER') classFilter.teacherId = req.user.id;
+    if (!await Class.exists(classFilter)) {
+      return errorResponse(res, 'Không tìm thấy lớp được phân công', 404);
+    }
+
+    const enrollmentIds = gradesList.map(item => Number(item.enrollmentId));
+    if (enrollmentIds.some(id => !Number.isSafeInteger(id)) || new Set(enrollmentIds).size !== enrollmentIds.length) {
+      return errorResponse(res, 'Danh sách ghi danh không hợp lệ', 400);
+    }
+    const ownedEnrollmentCount = await Enrollment.countDocuments({
+      classId,
+      id: { $in: enrollmentIds }
+    });
+    if (ownedEnrollmentCount !== enrollmentIds.length) {
+      return errorResponse(res, 'Có học viên không thuộc lớp này', 400);
+    }
+    const scoreFields = ['attendanceScore', 'midtermScore', 'finalScore'];
+    for (const item of gradesList) {
+      for (const field of scoreFields) {
+        const value = item[field];
+        if (value !== null && value !== undefined && value !== '' &&
+          (!Number.isFinite(Number(value)) || Number(value) < 0 || Number(value) > 10)) {
+          return errorResponse(res, `${field} phải nằm trong khoảng 0 đến 10`, 400);
+        }
+      }
     }
 
     const updatedResults = await withTransaction(async session => {
       const results = [];
       for (const item of gradesList) {
         const enrollmentId = parseInt(item.enrollmentId);
-        // Chỉ cập nhật ghi danh thuộc lớp đang thao tác
-        if (!(await Enrollment.exists({ id: enrollmentId, classId }).session(session))) continue;
-
-        // Lấy grade hiện tại để giữ trạng thái isBanned nếu có
         const currentGrade = await Grade.findOne({ enrollmentId }).session(session);
-
-        const isBanned = item.isBanned !== undefined ? !!item.isBanned : (currentGrade?.isBanned || false);
+        const isBanned = currentGrade?.isBanned || false;
         const att = item.attendanceScore !== undefined && item.attendanceScore !== null && item.attendanceScore !== '' ? parseFloat(item.attendanceScore) : null;
         const mid = item.midtermScore !== undefined && item.midtermScore !== null && item.midtermScore !== '' ? parseFloat(item.midtermScore) : null;
         const fin = item.finalScore !== undefined && item.finalScore !== null && item.finalScore !== '' ? parseFloat(item.finalScore) : null;
@@ -136,6 +164,7 @@ router.put('/classes/:id/grades', authenticateJWT, authorizeRoles('ADMIN'), asyn
     return successResponse(res, updatedResults, 'Cập nhật điểm và tính kết quả qua môn thành công');
   } catch (error) {
     console.error('Error updating grades:', error);
+    if (error.status) return errorResponse(res, error.message, error.status);
     return errorResponse(res, 'Lỗi cập nhật bảng điểm', 500);
   }
 });

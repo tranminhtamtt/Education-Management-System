@@ -6,6 +6,7 @@ const { withTransaction, lockDoc } = require('../../config/db');
 const M = require('../../models');
 const { plain, like, httpError } = require('../../utils/query');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
+const { teacherQuestionScope } = require('./questionScope');
 
 const id = value => {
   const number = Number(value);
@@ -151,38 +152,6 @@ router.get('/courses/catalog/:id', roles('STUDENT', 'ADMIN'), endpoint(async (re
   })) });
 }));
 
-// Content owners can publish real lesson URLs; student catalog only exposes previews.
-router.get('/courses/:id/lessons', roles('ADMIN', 'TEACHER'), endpoint(async (req, res) => {
-  const course = await M.Course.findOne({ id: id(req.params.id) });
-  if (!course) throw httpError('Không tìm thấy khóa học', 404);
-  if (req.user.role === 'TEACHER' && course.instructorId !== req.user.id) throw httpError('Không được phân công khóa học', 403);
-  successResponse(res, (await M.CourseLesson.find({ courseId: course.id }).sort({ orderIndex: 1 })).map(plain));
-}));
-router.post('/courses/:id/lessons', roles('ADMIN', 'TEACHER'), endpoint(async (req, res) => {
-  const courseId = id(req.params.id), orderIndex = id(req.body.orderIndex);
-  const values = {
-    title: text(req.body.title, 200), sectionTitle: req.body.sectionTitle ? text(req.body.sectionTitle, 200) : 'Nội dung khóa học',
-    videoUrl: optionalUrl(req.body.videoUrl), materialUrl: optionalUrl(req.body.materialUrl),
-    isPreview: req.body.isPreview === true, durationMinutes: Number(req.body.durationMinutes || 0)
-  };
-  if (!Number.isFinite(values.durationMinutes) || values.durationMinutes < 0) throw httpError('Thời lượng không hợp lệ');
-  const lesson = await withTransaction(async session => {
-    const course = await lockDoc(M.Course, { id: courseId }, session);
-    if (!course) throw httpError('Không tìm thấy khóa học', 404);
-    if (req.user.role === 'TEACHER' && course.instructorId !== req.user.id) throw httpError('Không được phân công khóa học', 403);
-    let lesson = await M.CourseLesson.findOne({ courseId, orderIndex }).session(session);
-    if (lesson) { Object.assign(lesson, values); await lesson.save({ session }); }
-    else [lesson] = await M.CourseLesson.create([{ courseId, orderIndex, ...values }], { session });
-    const total = await M.CourseLesson.countDocuments({ courseId }).session(session);
-    const classes = await M.Class.find({ courseId }).select('id').session(session);
-    await M.Enrollment.updateMany({ classId: { $in: classes.map(c => c.id) } }, [
-      { $set: { progressPercent: { $round: [{ $multiply: [{ $divide: [{ $ifNull: ['$completedLessonsCount', 0] }, total] }, 100] }, 0] } } }
-    ], { session });
-    return plain(lesson);
-  });
-  successResponse(res, lesson, 'Đã lưu bài giảng');
-}));
-
 router.post('/courses/:id/purchase', roles('STUDENT'), endpoint(async (req, res) => {
   const courseId = id(req.params.id);
   const result = await withTransaction(async session => {
@@ -295,9 +264,9 @@ router.get('/analytics/student-overview', roles('STUDENT'), endpoint(async (req,
 // Giảng viên mà học viên được phép hỏi: chỉ giảng viên đang dạy khóa học viên đã mở khóa.
 // Lớp Live → giảng viên của lớp; khóa video → giảng viên phụ trách khóa.
 async function teacherOf(classItem) {
-  if (classItem.teacherId) return classItem.teacherId;
-  const course = await M.Course.findOne({ id: classItem.courseId }).select('instructorId');
-  return course?.instructorId || null;
+  const course = classItem.course || await M.Course.findOne({ id: classItem.courseId });
+  if (course?.deliveryMode === 'RECORDED' && course.instructorId) return course.instructorId;
+  return classItem.teacherId || null;
 }
 
 router.get('/questions/my-teachers', roles('STUDENT'), endpoint(async (req, res) => {
@@ -317,10 +286,14 @@ router.get('/questions/my-teachers', roles('STUDENT'), endpoint(async (req, res)
 
 router.get('/questions', roles('STUDENT', 'TEACHER', 'ADMIN'), endpoint(async (req, res) => {
   const filter = {};
+  if (req.query.status) {
+    const status = String(req.query.status).toUpperCase();
+    if (!['PENDING', 'ANSWERED', 'RESOLVED'].includes(status)) throw httpError('Trạng thái Q&A không hợp lệ');
+    filter.status = status;
+  }
   if (req.user.role === 'STUDENT') filter.studentId = req.user.id;
   if (req.user.role === 'TEACHER') {
-    const classIds = (await M.Class.find({ teacherId: req.user.id }).select('id')).map(c => c.id);
-    filter.$or = [{ teacherId: req.user.id }, { teacherId: null, classId: { $in: classIds } }];
+    Object.assign(filter, await teacherQuestionScope(req.user.id));
   }
   if (req.query.classId) {
     const classId = id(req.query.classId);
@@ -330,40 +303,61 @@ router.get('/questions', roles('STUDENT', 'TEACHER', 'ADMIN'), endpoint(async (r
     filter.classId = classId;
   }
   const rows = await M.CourseQuestion.find(filter).sort({ createdAt: -1 }).limit(200)
-    .populate([{ path: 'class', select: 'id classCode courseId', populate: { path: 'course', select: 'id name' } }, { path: 'student', select: 'id fullName code' }, { path: 'teacher', select: 'id fullName' }]);
+    .populate([
+      { path: 'class', select: 'id classCode courseId', populate: { path: 'course', select: 'id courseCode name' } },
+      { path: 'student', select: 'id fullName code' },
+      { path: 'teacher', select: 'id fullName' },
+      { path: 'lesson', select: 'id title courseId', populate: { path: 'course', select: 'id courseCode name' } },
+      { path: 'answeredBy', select: 'id fullName' }
+    ]);
   successResponse(res, rows.map(plain));
 }));
 
 router.post('/questions', roles('STUDENT'), endpoint(async (req, res) => {
-  const classId = id(req.body.classId);
-  if (!await M.Enrollment.exists({ classId, studentId: req.user.id, status: 'ACTIVE' })) throw httpError('Bạn chưa có quyền học khóa này', 403);
-  const classItem = await M.Class.findOne({ id: classId });
+  const classId = req.body.classId == null ? null : id(req.body.classId);
+  const lessonId = req.body.lessonId == null ? null : id(req.body.lessonId);
+  if (!classId && !lessonId) throw httpError('Câu hỏi cần gắn với lớp hoặc bài giảng');
+
+  const lesson = lessonId ? await M.CourseLesson.findOne({ id: lessonId }) : null;
+  if (lessonId && !lesson) throw httpError('Không tìm thấy bài giảng', 404);
+  const candidateClasses = classId ? [classId] : await M.Class.find({ courseId: lesson.courseId }).distinct('id');
+  const enrollment = await M.Enrollment.findOne({
+    classId: { $in: candidateClasses }, studentId: req.user.id, status: 'ACTIVE'
+  }).sort({ enrolledAt: -1 }).populate({ path: 'class', populate: 'course' });
+  const classItem = enrollment?.class;
+  if (!classItem) throw httpError('Bạn chưa có quyền học khóa này', 403);
+  if (lesson && lesson.courseId !== classItem.courseId) throw httpError('Bài học không thuộc khóa học');
+
   const teacherId = await teacherOf(classItem);
   if (!teacherId) throw httpError('Khóa học chưa có giảng viên phụ trách để nhận câu hỏi', 409);
-  const lessonId = req.body.lessonId ? id(req.body.lessonId) : null;
-  if (lessonId && !await M.CourseLesson.exists({ id: lessonId, courseId: classItem.courseId })) throw httpError('Bài học không thuộc khóa học');
-  const question = await M.CourseQuestion.create({
-    classId, studentId: req.user.id, teacherId, lessonId,
+  const values = {
+    classId: classItem.id, studentId: req.user.id, teacherId, lessonId,
     attachmentUrl: optionalUrl(req.body.attachmentUrl),
     questionTitle: text(req.body.questionTitle, 200), questionContent: text(req.body.questionContent, 10000)
+  };
+  const question = await withTransaction(async session => {
+    const [created] = await M.CourseQuestion.create([values], { session });
+    await M.Notification.create([{
+      userId: teacherId, title: 'Học viên gửi câu hỏi mới', message: values.questionTitle, type: 'QA'
+    }], { session });
+    return created;
   });
-  await M.Notification.create({ userId: teacherId, title: 'Học viên gửi câu hỏi mới', message: question.questionTitle, type: 'SYSTEM' });
   successResponse(res, plain(question), 'Đã gửi câu hỏi tới giảng viên', 201);
 }));
 
-router.patch('/questions/:id/answer', roles('TEACHER', 'ADMIN'), endpoint(async (req, res) => {
+router.patch('/questions/:id/answer', roles('TEACHER'), endpoint(async (req, res) => {
   const answer = text(req.body.teacherAnswer, 10000);
   const result = await withTransaction(async session => {
     const question = await M.CourseQuestion.findOne({ id: id(req.params.id) }).session(session);
     if (!question) throw httpError('Không tìm thấy câu hỏi', 404);
-    // Chỉ giảng viên nhận câu hỏi (đang dạy khóa của học viên) mới được trả lời.
-    const ownsQuestion = question.teacherId
-      ? question.teacherId === req.user.id
-      : !!await M.Class.exists({ id: question.classId, teacherId: req.user.id }).session(session);
-    if (req.user.role !== 'TEACHER' || !ownsQuestion) throw httpError('Chỉ giảng viên phụ trách khóa học mới được trả lời câu hỏi này', 403);
+    const scope = await teacherQuestionScope(req.user.id, session);
+    if (!await M.CourseQuestion.exists({ id: question.id, ...scope }).session(session)) {
+      throw httpError('Chỉ giảng viên phụ trách khóa học mới được trả lời câu hỏi này', 403);
+    }
+    if (question.status === 'RESOLVED') throw httpError('Câu hỏi đã được đóng', 409);
     question.teacherAnswer = answer; question.status = 'ANSWERED'; question.answeredById = req.user.id; question.answeredAt = new Date();
     await question.save({ session });
-    await M.Notification.create([{ userId: question.studentId, title: 'Giảng viên đã trả lời câu hỏi', message: question.questionTitle, type: 'SYSTEM' }], { session });
+    await M.Notification.create([{ userId: question.studentId, title: 'Giảng viên đã trả lời câu hỏi', message: question.questionTitle, type: 'QA' }], { session });
     return plain(question);
   });
   successResponse(res, result, 'Đã gửi câu trả lời');
