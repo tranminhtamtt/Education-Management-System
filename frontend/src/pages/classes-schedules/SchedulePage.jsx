@@ -1,20 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Table, Tag, Typography, Button, Space, Modal, Form, Select, Input, message, Row, Col, Radio, Alert, Badge } from 'antd';
+import { Card, Table, Tag, Typography, Button, Space, Modal, Form, Select, Input, message, Row, Col, Radio, Alert, Badge, Grid, Empty } from 'antd';
 import { PlusOutlined, CalendarOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import apiClient from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
+import dayjs from 'dayjs';
 
 const { Text } = Typography;
-
-const DAYS = [
-  { label: 'Thứ Hai', value: 2, w1Date: '02/11', w2Date: '09/11' },
-  { label: 'Thứ Ba', value: 3, w1Date: '03/11', w2Date: '10/11' },
-  { label: 'Thứ Tư', value: 4, w1Date: '04/11', w2Date: '11/11' },
-  { label: 'Thứ Năm', value: 5, w1Date: '05/11', w2Date: '12/11' },
-  { label: 'Thứ Sáu', value: 6, w1Date: '06/11', w2Date: '13/11' },
-  { label: 'Thứ Bảy', value: 7, w1Date: '07/11', w2Date: '14/11' },
-  { label: 'Chủ Nhật', value: 8, w1Date: '08/11', w2Date: '15/11' }
-];
 
 const SLOTS = [
   { shift: 1, time: '07:30 – 09:50' },
@@ -42,6 +33,10 @@ const SchedulePage = () => {
   const [loading, setLoading] = useState(false);
   const [classes, setClasses] = useState([]);
   const [selectedWeek, setSelectedWeek] = useState('BOTH'); // 'WEEK1', 'WEEK2', 'BOTH'
+  const [weekStart, setWeekStart] = useState(() => dayjs().subtract((dayjs().day() + 6) % 7, 'day').format('YYYY-MM-DD'));
+  const DAYS = ['Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy', 'Chủ Nhật'].map((label, index) => ({
+    label, value: index + 2, w1Date: dayjs(weekStart).add(index, 'day').format('DD/MM/YYYY'), w2Date: dayjs(weekStart).add(index + 7, 'day').format('DD/MM/YYYY')
+  }));
 
   // Modal Xếp Lịch
   const [modalOpen, setModalOpen] = useState(false);
@@ -51,7 +46,7 @@ const SchedulePage = () => {
   const fetchSchedules = async () => {
     try {
       setLoading(true);
-      const res = await apiClient.get('/schedules/my-schedule');
+      const res = await apiClient.get('/schedules/my-schedule', { params: { weekStart } });
       if (res.success) {
         setSchedules(res.data);
       }
@@ -78,7 +73,14 @@ const SchedulePage = () => {
     if (isAdmin) {
       fetchClasses();
     }
-  }, [isAdmin]);
+  }, [isAdmin, weekStart]);
+
+  // Học viên: biết khóa nào không nằm trên thời khóa biểu và vì sao (video tự học, chờ thanh toán, sắp khai giảng).
+  const screens = Grid.useBreakpoint();
+  const [myCourses, setMyCourses] = useState([]);
+  useEffect(() => {
+    if (isStudent) apiClient.get('/my-courses').then(res => setMyCourses(res.data || [])).catch(() => setMyCourses([]));
+  }, [isStudent]);
 
   // Xếp lịch học mới (Admin)
   const handleCreateSchedule = async (values) => {
@@ -106,7 +108,7 @@ const SchedulePage = () => {
     if (!isStudent || !session) return null;
     const statusInfo = session.status ? ATTENDANCE_BADGE[session.status] : null;
     const shortDate = session.date ? session.date.slice(8, 10) + '/' + session.date.slice(5, 7) : '';
-    const isFutureDate = session.date && session.date > '2026-11-09';
+    const isFutureDate = session.date && session.date > dayjs().format('YYYY-MM-DD');
 
     return (
       <div style={{ marginTop: 4, fontSize: 11 }}>
@@ -154,8 +156,8 @@ const SchedulePage = () => {
         <div>
           <div>{day.label}</div>
           <div style={{ fontSize: 11, fontWeight: 400, color: '#8c8c8c' }}>
-            {selectedWeek === 'WEEK1' && `Ngày ${day.w1Date}/2026`}
-            {selectedWeek === 'WEEK2' && `Ngày ${day.w2Date}/2026`}
+            {selectedWeek === 'WEEK1' && `Ngày ${day.w1Date}`}
+            {selectedWeek === 'WEEK2' && `Ngày ${day.w2Date}`}
             {selectedWeek === 'BOTH' && `T1: ${day.w1Date} • T2: ${day.w2Date}`}
           </div>
         </div>
@@ -189,6 +191,7 @@ const SchedulePage = () => {
                 <div style={{ fontSize: 11, color: '#8c8c8c' }}>
                   GV: {item.teacherName}
                 </div>
+                {item.meetUrl && /^https?:\/\//i.test(item.meetUrl) && <Button type="link" href={item.meetUrl} target="_blank" rel="noreferrer" size="small">Vào phòng học Online</Button>}
                 {(selectedWeek === 'WEEK1' || selectedWeek === 'BOTH') &&
                   renderSessionBadge(item.week1Session, 'Tuần 1')}
                 {(selectedWeek === 'WEEK2' || selectedWeek === 'BOTH') &&
@@ -202,6 +205,20 @@ const SchedulePage = () => {
   ];
 
   const uniqueClassesCount = new Set(schedules.map(s => s.classId)).size;
+  const scheduledClassIds = new Set(schedules.map(s => s.classId));
+  const offTimetable = myCourses.filter(e => !scheduledClassIds.has(e.classId));
+  const offReason = e => e.class?.course?.deliveryMode === 'RECORDED'
+    ? 'Khóa video – tự học, không có lịch'
+    : e.status === 'PENDING_PAYMENT' ? 'Chờ thanh toán – lịch hiện sau khi thanh toán'
+    : e.class?.status === 'UPCOMING' ? 'Sắp khai giảng' : 'Lớp đã kết thúc';
+  // Danh sách theo ngày cho điện thoại (thay cho bảng 7 cột phải cuộn ngang)
+  const mobileList = isStudent && !screens.md;
+  const weeks = selectedWeek === 'BOTH' ? [0, 1] : selectedWeek === 'WEEK1' ? [0] : [1];
+  const dayGroups = weeks.flatMap(w => DAYS.map(day => ({
+    key: `${w}-${day.value}`,
+    label: `${day.label} ${w === 0 ? day.w1Date : day.w2Date}`,
+    items: schedules.filter(s => s.dayOfWeek === day.value).sort((a, b) => a.shift - b.shift).map(s => ({ ...s, session: w === 0 ? s.week1Session : s.week2Session }))
+  }))).filter(g => g.items.length);
 
   if (isTeacher) {
     return (
@@ -241,34 +258,45 @@ const SchedulePage = () => {
   return (
     <div>
       <Alert
-        message="Thời khóa biểu Học kỳ SP26 (Kỳ học chuẩn 2 tuần: 02/11/2026 – 15/11/2026)"
+        message={`Lịch học từ ${dayjs(weekStart).format('DD/MM/YYYY')} đến ${dayjs(weekStart).add(13, 'day').format('DD/MM/YYYY')}`}
         description={
           isStudent
-            ? `Bạn đang theo học ${uniqueClassesCount} môn trong học kỳ SP26 (${schedules.length} buổi/tuần • Tổng ${schedules.length * 2} buổi trong 2 tuần). Trạng thái điểm danh từng buổi được đồng bộ trực tiếp với Báo cáo chuyên cần.`
-            : 'Lịch học cố định theo tuần trong kỳ học 2 tuần (Tuần 1: 02/11 - 08/11/2026 & Tuần 2: 09/11 - 15/11/2026).'
+            ? `Bạn có ${uniqueClassesCount} lớp Live (${schedules.length} buổi/tuần). Trạng thái điểm danh được lấy từ dữ liệu của bạn.`
+            : 'Xem lịch giảng dạy và phòng học theo tuần.'
         }
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
       />
+      {isStudent && offTimetable.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={`${offTimetable.length} khóa học không có trên thời khóa biểu`}
+          description={<div>{offTimetable.map(e => <div key={e.id}>• <b>{e.class.course.name}</b> — {offReason(e)}</div>)}</div>}
+        />
+      )}
 
       <Card
         title={
           <Space wrap>
             <CalendarOutlined style={{ color: '#F26F21' }} />
-            <span>Thời khóa biểu Kỳ học 2 Tuần (Chuẩn 6 Slot FAP FPT)</span>
+            <span>Thời khóa biểu</span>
           </Space>
         }
         extra={
           <Space wrap>
+            <Button onClick={() => setWeekStart(dayjs(weekStart).subtract(7, 'day').format('YYYY-MM-DD'))}>Tuần trước</Button>
+            <Button onClick={() => setWeekStart(dayjs(weekStart).add(7, 'day').format('YYYY-MM-DD'))}>Tuần sau</Button>
             <Radio.Group
               value={selectedWeek}
               onChange={(e) => setSelectedWeek(e.target.value)}
               buttonStyle="solid"
             >
-              <Radio.Button value="BOTH">Cả kỳ (2 Tuần)</Radio.Button>
-              <Radio.Button value="WEEK1">Tuần 1 (02/11 – 08/11)</Radio.Button>
-              <Radio.Button value="WEEK2">Tuần 2 (09/11 – 15/11)</Radio.Button>
+              <Radio.Button value="BOTH">Hai tuần</Radio.Button>
+              <Radio.Button value="WEEK1">Tuần đã chọn</Radio.Button>
+              <Radio.Button value="WEEK2">Tuần kế tiếp</Radio.Button>
             </Radio.Group>
             {isAdmin && (
               <Button
@@ -283,6 +311,27 @@ const SchedulePage = () => {
           </Space>
         }
       >
+        {mobileList ? (
+          dayGroups.length === 0 ? <Empty description="Không có buổi học Live trong khoảng thời gian này" /> : (
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              {dayGroups.map(g => (
+                <div key={g.key}>
+                  <Text strong style={{ color: '#F26F21' }}>{g.label}</Text>
+                  {g.items.map(item => (
+                    <div key={item.id} style={{ background: '#FFF7E6', border: '1px solid #FFD591', borderRadius: 8, padding: '8px 10px', marginTop: 6 }}>
+                      <div style={{ fontWeight: 700, color: '#D46B08' }}>{item.startTime}–{item.endTime} · {item.courseName}</div>
+                      <div style={{ fontSize: 12, color: '#595959' }}>{item.classCode} · GV: {item.teacherName}</div>
+                      <Space wrap size={4} style={{ marginTop: 4 }}>
+                        {renderSessionBadge(item.session, 'Buổi')}
+                        {item.meetUrl && /^https?:\/\//i.test(item.meetUrl) && <Button type="link" size="small" href={item.meetUrl} target="_blank" rel="noreferrer" style={{ padding: 0 }}>Vào phòng học Online</Button>}
+                      </Space>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </Space>
+          )
+        ) : (
         <Table
           rowKey="key"
           bordered
@@ -292,6 +341,7 @@ const SchedulePage = () => {
           pagination={false}
           scroll={{ x: 1100 }}
         />
+        )}
       </Card>
 
       {/* Modal Xếp Lịch Học Mới Cho Admin */}

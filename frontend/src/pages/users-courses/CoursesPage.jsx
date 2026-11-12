@@ -149,7 +149,7 @@ const CoursesPage = () => {
     lessonForm.resetFields();
     lessonForm.setFieldsValue({
       sectionTitle: 'Chương 1',
-      orderIndex: lessons.length + 1,
+      orderIndex: Math.max(0, ...lessons.map(lesson => lesson.orderIndex || 0)) + 1,
       durationMinutes: 30,
       isPreview: false
     });

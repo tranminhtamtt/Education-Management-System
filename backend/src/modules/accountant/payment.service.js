@@ -74,6 +74,9 @@ async function applyPayment(session, transactionId, invoiceId, actorId = null) {
     await TuitionInvoice.updateOne({ id: invoiceId }, {
       $set: { paidAmount, status, paidAt: status === 'PAID' ? transaction.occurredAt : null }
     }, { session });
+    if (status === 'PAID') {
+      await Enrollment.updateOne({ id: inv.enrollmentId, studentId: inv.studentId, status: 'PENDING_PAYMENT' }, { $set: { status: 'ACTIVE' } }, { session });
+    }
     await TuitionPayment.create([{
       invoiceId,
       transactionId: transaction.id,

@@ -19,6 +19,7 @@ const authenticateJWT = async (req, res, next) => {
         dbUser = await User.findOne({ email: decoded.email }).lean();
       }
       if (dbUser) {
+        if (dbUser.status !== 'ACTIVE') return errorResponse(res, 'Tài khoản đã bị khóa.', 403);
         req.user = {
           id: dbUser.id,
           code: dbUser.code,
@@ -28,6 +29,7 @@ const authenticateJWT = async (req, res, next) => {
         };
         return next();
       }
+      return errorResponse(res, 'Tài khoản không còn tồn tại.', 403);
     }
     req.user = decoded; // { id, code, email, role }
     next();

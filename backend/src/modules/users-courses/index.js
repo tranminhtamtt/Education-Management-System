@@ -1,11 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
-const { login, getMe } = require('./auth.controller');
+const { register, login, getMe } = require('./auth.controller');
 const authenticateJWT = require('../../middlewares/auth.middleware');
 const authorizeRoles = require('../../middlewares/role.middleware');
-const { User, Course, CourseLesson, Class, Enrollment } = require('../../models');
-const { like, plain } = require('../../utils/query');
+const { User, Course, CourseLesson, Class, Enrollment, LessonProgress } = require('../../models');
+const { withTransaction, lockDoc } = require('../../config/db');
+const { like, plain, httpError } = require('../../utils/query');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
 const xlsx = require('xlsx');
 const fs = require('fs');
@@ -13,22 +14,15 @@ const upload = require('../../config/upload');
 
 const stringQueryValue = value => (typeof value === 'string' ? value : undefined);
 
-const teacherCanManageCourse = async (courseId, user) => {
-  if (user.role === 'ADMIN') return true;
-  if (!Number.isSafeInteger(courseId)) return false;
-  const assignedCourseIds = await Class.find({ teacherId: user.id }).distinct('courseId');
-  const manageableCourseIds = await Course.find({
-    $or: [
-      { instructorId: user.id },
-      { id: { $in: assignedCourseIds } }
-    ]
-  }).distinct('id');
-  return manageableCourseIds.includes(courseId);
-};
+async function teacherCanManageCourse(course, user, session = null) {
+  return user.role === 'ADMIN' || course.instructorId === user.id ||
+    Boolean(await Class.exists({ courseId: course.id, teacherId: user.id }).session(session));
+}
 
 // ==========================================
 // 1. AUTH ROUTES
 // ==========================================
+router.post('/auth/register', register);
 router.post('/auth/login', login);
 router.get('/auth/me', authenticateJWT, getMe);
 
@@ -697,13 +691,13 @@ router.post('/courses', authenticateJWT, authorizeRoles('ADMIN'), async (req, re
       courseCode: courseCode.toUpperCase().trim(),
       name: name.trim(),
       category: category || 'FPT_SUBJECT',
-      deliveryMode: deliveryMode || 'RECORDED',
+      deliveryMode: deliveryMode || 'LIVE_ONLINE',
       level: level || 'BEGINNER',
       instructorId: instructorId ? Number.parseInt(instructorId, 10) : null,
       thumbnailUrl: thumbnailUrl || null,
       credits: credits !== undefined ? Number.parseInt(credits, 10) : 3,
       totalSessions: Number.parseInt(totalSessions, 10) || 30,
-      baseTuitionFee: Number.parseFloat(baseTuitionFee) || 5000000.0,
+      baseTuitionFee: baseTuitionFee === undefined ? 5000000 : Number(baseTuitionFee),
       description: description || null,
       syllabusUrl: syllabusUrl || null,
       status: status || 'ACTIVE'
@@ -783,129 +777,150 @@ router.delete('/courses/:id', authenticateJWT, authorizeRoles('ADMIN'), async (r
 // 5. COURSE LESSONS MANAGEMENT (UC3.2)
 // ==========================================
 
-// UC3.2: Lấy danh sách bài giảng của khóa học
-router.get('/courses/:id/lessons', authenticateJWT, async (req, res) => {
-  try {
-    const courseId = Number.parseInt(req.params.id, 10);
-    if (Number.isNaN(courseId)) return errorResponse(res, 'ID khóa học không hợp lệ', 400);
-
-    const course = await Course.findOne({ id: courseId });
-    if (!course) return errorResponse(res, 'Không tìm thấy khóa học', 404);
-    if (req.user.role === 'TEACHER' && !await teacherCanManageCourse(courseId, req.user)) {
-      return errorResponse(res, 'Bạn không được phân công khóa học này', 403);
+function lessonValues(body) {
+  const values = {};
+  for (const key of ['title', 'sectionTitle']) {
+    if (body[key] === undefined) continue;
+    if (typeof body[key] !== 'string' || !body[key].trim() || body[key].trim().length > 200) {
+      throw httpError('Tiêu đề bài học hoặc tên chương không hợp lệ');
     }
-
-    const filter = { courseId };
-    if (req.user.role === 'STUDENT') {
-      const classIds = await Class.distinct('id', { courseId });
-      const enrolled = await Enrollment.exists({ classId: { $in: classIds }, studentId: req.user.id, status: 'ACTIVE' });
-      if (!enrolled) filter.isPreview = true;
-    }
-    const lessons = await CourseLesson.find(filter).sort({ orderIndex: 1, createdAt: 1 });
-    return successResponse(res, lessons.map(plain), 'Lấy danh sách bài giảng thành công');
-  } catch (error) {
-    console.error('Error fetching course lessons:', error);
-    return errorResponse(res, 'Lỗi khi lấy danh sách bài giảng', 500);
+    values[key] = body[key].trim();
   }
-});
-
-// UC3.2: Thêm bài giảng mới vào khóa học
-router.post('/courses/:id/lessons', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
-  try {
-    const courseId = Number.parseInt(req.params.id, 10);
-    if (Number.isNaN(courseId)) return errorResponse(res, 'ID khóa học không hợp lệ', 400);
-
-    const course = await Course.findOne({ id: courseId });
-    if (!course) return errorResponse(res, 'Không tìm thấy khóa học', 404);
-    if (req.user.role === 'TEACHER' && !await teacherCanManageCourse(courseId, req.user)) {
-      return errorResponse(res, 'Bạn không được phân công khóa học này', 403);
+  for (const key of ['videoUrl', 'materialUrl']) {
+    if (body[key] === undefined) continue;
+    if (!body[key]) {
+      values[key] = null;
+      continue;
     }
-
-    const { sectionTitle, title, orderIndex, videoUrl, materialUrl, durationMinutes, isPreview } = req.body;
-    if (!title || !String(title).trim()) {
-      return errorResponse(res, 'Tiêu đề bài học là bắt buộc', 400);
+    try {
+      const url = new URL(body[key]);
+      if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) throw new Error();
+      values[key] = url.href;
+    } catch {
+      throw httpError('Đường dẫn bài giảng phải là URL http/https hợp lệ');
     }
-
-    let lessonOrder = orderIndex ? Number.parseInt(orderIndex, 10) : null;
-    if (!lessonOrder) {
-      const count = await CourseLesson.countDocuments({ courseId });
-      lessonOrder = count + 1;
-    }
-
-    const lesson = await CourseLesson.create({
-      courseId,
-      sectionTitle: (sectionTitle || 'Chương 1').trim(),
-      title: title.trim(),
-      orderIndex: lessonOrder,
-      videoUrl: videoUrl || null,
-      materialUrl: materialUrl || null,
-      durationMinutes: Number.parseInt(durationMinutes, 10) || 0,
-      isPreview: Boolean(isPreview)
-    });
-
-    return successResponse(res, plain(lesson), 'Thêm bài giảng mới thành công', 201);
-  } catch (error) {
-    console.error('Error creating course lesson:', error);
-    return errorResponse(res, 'Lỗi khi tạo bài giảng mới', 500);
   }
-});
+  if (body.orderIndex !== undefined && body.orderIndex !== null) {
+    values.orderIndex = positiveId(body.orderIndex);
+  }
+  if (body.durationMinutes !== undefined) {
+    const duration = Number(body.durationMinutes);
+    if (!Number.isFinite(duration) || duration < 0) throw httpError('Thời lượng không hợp lệ');
+    values.durationMinutes = duration;
+  }
+  if (body.isPreview !== undefined) values.isPreview = body.isPreview === true;
+  return values;
+}
 
-// UC3.2: Cập nhật bài giảng
-router.put('/lessons/:lessonId', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
+function positiveId(value) {
+  const id = Number(value);
+  if (!Number.isSafeInteger(id) || id <= 0) throw httpError('Mã dữ liệu không hợp lệ');
+  return id;
+}
+
+async function findManagedCourse(courseId, user, session = null) {
+  const course = session
+    ? await lockDoc(Course, { id: courseId }, session)
+    : await Course.findOne({ id: courseId });
+  if (!course) throw httpError('Không tìm thấy khóa học', 404);
+  if (!await teacherCanManageCourse(course, user, session)) {
+    throw httpError('Bạn không được phân công khóa học này', 403);
+  }
+  return course;
+}
+
+async function refreshCourseProgress(courseId, session) {
+  const lessons = await CourseLesson.find({ courseId }).select('id').session(session);
+  const classes = await Class.find({ courseId }).select('id').session(session);
+  const enrollments = await Enrollment.find({ classId: { $in: classes.map(item => item.id) } })
+    .select('id').session(session);
+  if (!enrollments.length) return;
+
+  const completed = await LessonProgress.aggregate([
+    { $match: { enrollmentId: { $in: enrollments.map(item => item.id) }, lessonId: { $in: lessons.map(item => item.id) }, isCompleted: true } },
+    { $group: { _id: '$enrollmentId', count: { $sum: 1 } } }
+  ]).session(session);
+  const counts = new Map(completed.map(item => [item._id, item.count]));
+
+  await Enrollment.bulkWrite(enrollments.map(enrollment => {
+    const count = counts.get(enrollment.id) || 0;
+    return {
+      updateOne: {
+        filter: { id: enrollment.id },
+        update: { $set: {
+          completedLessonsCount: count,
+          progressPercent: lessons.length ? Math.round(count * 100 / lessons.length) : 0
+        } }
+      }
+    };
+  }), { session });
+}
+
+const manageLessons = authorizeRoles('ADMIN', 'TEACHER');
+const lessonEndpoint = handler => async (req, res) => {
   try {
-    const lessonId = Number.parseInt(req.params.lessonId, 10);
-    if (Number.isNaN(lessonId)) return errorResponse(res, 'ID bài giảng không hợp lệ', 400);
-    const lesson = await CourseLesson.findOne({ id: lessonId }).select('courseId');
-    if (!lesson) return errorResponse(res, 'Không tìm thấy bài giảng', 404);
-    if (req.user.role === 'TEACHER' && !await teacherCanManageCourse(lesson.courseId, req.user)) {
-      return errorResponse(res, 'Bạn không được phân công bài giảng này', 403);
+    await handler(req, res);
+  } catch (error) {
+    if (error.code === 11000) return errorResponse(res, 'Thứ tự bài giảng đã được sử dụng', 409);
+    if (!error.status) console.error('Error managing course lesson:', error);
+    return errorResponse(res, error.status ? error.message : 'Không thể xử lý bài giảng', error.status || 500);
+  }
+};
+
+router.get('/courses/:id/lessons', authenticateJWT, manageLessons, lessonEndpoint(async (req, res) => {
+  const course = await findManagedCourse(positiveId(req.params.id), req.user);
+  const lessons = await CourseLesson.find({ courseId: course.id }).sort({ orderIndex: 1 });
+  successResponse(res, lessons.map(plain), 'Lấy danh sách bài giảng thành công');
+}));
+
+router.post('/courses/:id/lessons', authenticateJWT, manageLessons, lessonEndpoint(async (req, res) => {
+  const courseId = positiveId(req.params.id);
+  const result = await withTransaction(async session => {
+    await findManagedCourse(courseId, req.user, session);
+    const values = lessonValues(req.body);
+    if (!values.title) throw httpError('Tiêu đề bài học là bắt buộc');
+
+    if (values.orderIndex !== undefined) {
+      const existing = await CourseLesson.findOne({ courseId, orderIndex: values.orderIndex }).session(session);
+      if (existing) {
+        existing.set(values);
+        await existing.save({ session });
+        return { lesson: existing, created: false };
+      }
+    } else {
+      const last = await CourseLesson.findOne({ courseId }).sort({ orderIndex: -1 }).session(session);
+      values.orderIndex = (last?.orderIndex || 0) + 1;
     }
 
-    const { sectionTitle, title, orderIndex, videoUrl, materialUrl, durationMinutes, isPreview } = req.body;
+    const [lesson] = await CourseLesson.create([{ courseId, ...values }], { session });
+    await refreshCourseProgress(courseId, session);
+    return { lesson, created: true };
+  });
+  successResponse(res, plain(result.lesson), 'Đã lưu bài giảng', result.created ? 201 : 200);
+}));
 
-    const updated = await CourseLesson.findOneAndUpdate(
-      { id: lessonId },
-      {
-        $set: {
-          ...(sectionTitle !== undefined ? { sectionTitle: sectionTitle.trim() } : {}),
-          ...(title !== undefined ? { title: title.trim() } : {}),
-          ...(orderIndex !== undefined ? { orderIndex: Number.parseInt(orderIndex, 10) } : {}),
-          ...(videoUrl !== undefined ? { videoUrl } : {}),
-          ...(materialUrl !== undefined ? { materialUrl } : {}),
-          ...(durationMinutes !== undefined ? { durationMinutes: Number.parseInt(durationMinutes, 10) } : {}),
-          ...(isPreview !== undefined ? { isPreview: Boolean(isPreview) } : {})
-        }
-      },
-      { new: true, runValidators: true }
-    );
+router.put('/lessons/:lessonId', authenticateJWT, manageLessons, lessonEndpoint(async (req, res) => {
+  const id = positiveId(req.params.lessonId);
+  const updated = await withTransaction(async session => {
+    const lesson = await CourseLesson.findOne({ id }).session(session);
+    if (!lesson) throw httpError('Không tìm thấy bài giảng', 404);
+    await findManagedCourse(lesson.courseId, req.user, session);
+    lesson.set(lessonValues(req.body));
+    return lesson.save({ session });
+  });
+  successResponse(res, plain(updated), 'Cập nhật bài giảng thành công');
+}));
 
-    if (!updated) return errorResponse(res, 'Không tìm thấy bài giảng', 404);
-    return successResponse(res, plain(updated), 'Cập nhật bài giảng thành công');
-  } catch (error) {
-    console.error('Error updating course lesson:', error);
-    return errorResponse(res, 'Lỗi khi cập nhật bài giảng', 500);
-  }
-});
-
-// UC3.2: Xóa bài giảng
-router.delete('/lessons/:lessonId', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), async (req, res) => {
-  try {
-    const lessonId = Number.parseInt(req.params.lessonId, 10);
-    if (Number.isNaN(lessonId)) return errorResponse(res, 'ID bài giảng không hợp lệ', 400);
-    const lesson = await CourseLesson.findOne({ id: lessonId }).select('courseId');
-    if (!lesson) return errorResponse(res, 'Không tìm thấy bài giảng', 404);
-    if (req.user.role === 'TEACHER' && !await teacherCanManageCourse(lesson.courseId, req.user)) {
-      return errorResponse(res, 'Bạn không được phân công bài giảng này', 403);
-    }
-
-    const deleted = await CourseLesson.deleteOne({ id: lessonId });
-    if (!deleted.deletedCount) return errorResponse(res, 'Không tìm thấy bài giảng', 404);
-    return successResponse(res, null, 'Xóa bài giảng thành công');
-  } catch (error) {
-    console.error('Error deleting course lesson:', error);
-    return errorResponse(res, 'Lỗi khi xóa bài giảng', 500);
-  }
-});
-
+router.delete('/lessons/:lessonId', authenticateJWT, manageLessons, lessonEndpoint(async (req, res) => {
+  const id = positiveId(req.params.lessonId);
+  await withTransaction(async session => {
+    const lesson = await CourseLesson.findOne({ id }).session(session);
+    if (!lesson) throw httpError('Không tìm thấy bài giảng', 404);
+    await findManagedCourse(lesson.courseId, req.user, session);
+    await lesson.deleteOne({ session });
+    await refreshCourseProgress(lesson.courseId, session);
+  });
+  successResponse(res, null, 'Xóa bài giảng thành công');
+}));
 
 module.exports = router;

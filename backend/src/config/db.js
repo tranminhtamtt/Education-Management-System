@@ -22,29 +22,9 @@ async function connectDB(uri = process.env.MONGODB_URI) {
   });
   // Đảm bảo collection + index tồn tại trước khi dùng trong transaction.
   const models = require('../models');
-  await Promise.all(Object.values(models).filter(m => m.modelName).map(m => m.createCollection().then(() => m.syncIndexes())));
+  await Promise.all(Object.values(models).filter(m => m.modelName).map(m => m.createCollection().then(() => m.createIndexes())));
 
-  if (process.env.NODE_ENV === 'development' && !(await models.User.exists({ code: 'HE170001' }))) {
-    const bcrypt = require('bcryptjs');
-    const { buildLegacyTiDBSeed } = require('../../scripts/seed');
-    for (const m of Object.values(models).filter(m => m && m.modelName)) await m.deleteMany({});
-    const passwordHash = await bcrypt.hash('123456', 10);
-    const seed = buildLegacyTiDBSeed({ passwordHash });
-    const COLLECTION_MODELS = {
-      users: models.User, courses: models.Course, course_lessons: models.CourseLesson, classes: models.Class, schedules: models.Schedule, enrollments: models.Enrollment,
-      grades: models.Grade, tuition_invoices: models.TuitionInvoice, tuition_payments: models.TuitionPayment, notifications: models.Notification,
-      attendances: models.Attendance, assignments: models.Assignment, submissions: models.Submission, student_requests: models.StudentRequest
-    };
-    for (const [collection, rows] of Object.entries(seed.data)) {
-      if (rows.length && COLLECTION_MODELS[collection]) {
-        await COLLECTION_MODELS[collection].insertMany(rows, { ordered: true });
-      }
-    }
-    for (const [name, seq] of Object.entries(seed.counters)) {
-      await models.Counter.updateOne({ _id: name }, { $set: { seq } }, { upsert: true });
-    }
-    console.log('✅ Đã chuyển toàn bộ dữ liệu gốc từ TiDB sang MongoDB Atlas (mật khẩu: 123456)');
-  }
+  // Khởi động không được xóa/seed dữ liệu. Chỉ seed bằng lệnh riêng có sao lưu.
   return mongoose.connection;
 }
 

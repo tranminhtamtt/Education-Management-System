@@ -10,6 +10,7 @@ const {
 const { plain } = require('../../utils/query');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
 const { enrollStudent } = require('../curriculum/enrollmentPolicy');
+const { studyWeek } = require('../../utils/studyWeek');
 
 // Khung giờ 6 Slot chuẩn FAP
 const SLOT_HOURS = {
@@ -106,6 +107,11 @@ router.get('/classes/:id', authenticateJWT, async (req, res) => {
     const classFilter = { id };
     if (req.user.role === 'TEACHER') classFilter.teacherId = req.user.id;
 
+    if (req.user.role === 'STUDENT' && !await Enrollment.exists({ classId: id, studentId: req.user.id, status: 'ACTIVE' })) {
+      return errorResponse(res, 'Bạn không có quyền xem lớp này', 403);
+    }
+    if (!['ADMIN', 'TEACHER', 'STUDENT'].includes(req.user.role)) return errorResponse(res, 'Không có quyền xem lớp', 403);
+
     const doc = await Class.findOne(classFilter).populate([
       'course',
       { path: 'teacher', select: 'id code fullName email phone' },
@@ -125,6 +131,7 @@ router.get('/classes/:id', authenticateJWT, async (req, res) => {
     }
 
     const classItem = plain(doc);
+    if (req.user.role === 'STUDENT') classItem.enrollments = classItem.enrollments.filter(e => e.studentId === req.user.id);
     classItem.teacher = classItem.teacher || null;
     classItem.enrollments = classItem.enrollments
       .map(e => ({ ...e, student: e.student ? { ...e.student, studentProfile: e.student.studentProfile || null } : null, grade: e.grade || null, tuitionInvoice: e.tuitionInvoice || null }))
@@ -378,6 +385,7 @@ router.get('/schedules/my-schedule', authenticateJWT, async (req, res) => {
     const userId = req.user.id;
     const role = req.user.role;
     const { semester } = req.query;
+    const sessionDate = studyWeek(req.query.weekStart);
 
     const classWhere = {
       ...(semester ? { semester: String(semester) } : { status: 'ONGOING' })
@@ -403,8 +411,8 @@ router.get('/schedules/my-schedule', authenticateJWT, async (req, res) => {
       res,
       schedules.map(s => {
         const slotTime = SLOT_HOURS[s.shift] || { start: '07:30', end: '09:50' };
-        const w1Date = `2026-11-${String(2 + (s.dayOfWeek - 2)).padStart(2, '0')}`;
-        const w2Date = `2026-11-${String(9 + (s.dayOfWeek - 2)).padStart(2, '0')}`;
+        const w1Date = sessionDate(s.dayOfWeek);
+        const w2Date = sessionDate(s.dayOfWeek, 1);
 
         const attendances = studentAttendances.filter(a => a.classId === s.classId);
         const findAttByDate = (dateStr) =>
@@ -445,7 +453,7 @@ router.get('/schedules/my-schedule', authenticateJWT, async (req, res) => {
     );
   } catch (error) {
     console.error('Error getting my-schedule:', error);
-    return errorResponse(res, 'Lỗi lấy thời khóa biểu tuần', 500);
+    return errorResponse(res, error.status ? error.message : 'Lỗi lấy thời khóa biểu tuần', error.status || 500);
   }
 });
 

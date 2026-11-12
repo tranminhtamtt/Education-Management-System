@@ -17,12 +17,17 @@ const STATUS = {
 };
 
 const renderExpandedQuestion = item => (
-  <Alert
-    type="info"
-    showIcon
-    message={item.teacherAnswer ? `Trả lời: ${item.answeredBy?.fullName || 'Giảng viên'}` : 'Chưa có câu trả lời'}
-    description={item.teacherAnswer || 'Giảng viên sẽ phản hồi tại đây.'}
-  />
+  <Space direction="vertical" style={{ width: '100%' }}>
+    <Alert
+      type="info"
+      showIcon
+      message={item.teacherAnswer ? `Trả lời: ${item.answeredBy?.fullName || 'Giảng viên'}` : 'Chưa có câu trả lời'}
+      description={item.teacherAnswer || 'Giảng viên sẽ phản hồi tại đây.'}
+    />
+    {item.attachmentUrl && /^https?:\/\//i.test(item.attachmentUrl) && (
+      <a href={item.attachmentUrl} target="_blank" rel="noreferrer">Tài liệu đính kèm của học viên</a>
+    )}
+  </Space>
 );
 
 const CourseQuestionsPage = () => {

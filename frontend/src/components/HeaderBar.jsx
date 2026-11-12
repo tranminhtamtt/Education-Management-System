@@ -1,14 +1,15 @@
 import React from 'react';
-import { Layout, Space, Avatar, Typography, Tag, Dropdown } from 'antd';
-import { UserOutlined, LogoutOutlined } from '@ant-design/icons';
+import { Layout, Space, Avatar, Typography, Tag, Dropdown, Button, Grid } from 'antd';
+import { UserOutlined, LogoutOutlined, MenuOutlined } from '@ant-design/icons';
 import { useAuth } from '../context/AuthContext';
 import NotificationBell from './NotificationBell';
 
 const { Header } = Layout;
 const { Text } = Typography;
 
-const HeaderBar = () => {
+const HeaderBar = ({ onMenuClick }) => {
   const { user, logout } = useAuth();
+  const screens = Grid.useBreakpoint();
 
   const getRoleTag = (role) => {
     switch (role) {
@@ -34,7 +35,7 @@ const HeaderBar = () => {
     <Header
       style={{
         background: '#fff',
-        padding: '0 24px',
+        padding: screens.md ? '0 24px' : '0 12px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -45,13 +46,14 @@ const HeaderBar = () => {
         zIndex: 100
       }}
     >
-      <div>
-        <Text strong style={{ fontSize: 16, color: '#262626' }}>
-          Hệ Thống Quản Lý Giáo Dục Đại Học
+      <Space style={{ minWidth: 0, overflow: 'hidden' }}>
+        {onMenuClick && <Button aria-label="Mở menu" type="text" icon={<MenuOutlined />} onClick={onMenuClick} />}
+        <Text strong ellipsis style={{ fontSize: screens.md ? 16 : 14, color: '#262626' }}>
+          {user?.role === 'STUDENT' ? 'EMS · Cổng học tập' : 'EMS · Quản lý giáo dục'}
         </Text>
-      </div>
+      </Space>
 
-      <Space size="large">
+      <Space size={screens.md ? 'large' : 'small'} style={{ flexShrink: 0 }}>
         <NotificationBell />
 
         <Dropdown menu={{ items: userMenuItems }} placement="bottomRight" arrow>
@@ -61,12 +63,12 @@ const HeaderBar = () => {
               icon={<UserOutlined />}
               src={user?.avatar}
             />
-            <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
+            {screens.md && <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
               <Text strong style={{ fontSize: 14 }}>
                 {user?.fullName || user?.code}
               </Text>
               <div style={{ marginTop: 2 }}>{getRoleTag(user?.role)}</div>
-            </div>
+            </div>}
           </Space>
         </Dropdown>
       </Space>

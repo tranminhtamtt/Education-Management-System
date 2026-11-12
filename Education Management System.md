@@ -309,35 +309,38 @@ sequenceDiagram
 ### PHÂN HỆ 5: CỔNG HỌC VIÊN — MUA KHÓA HỌC, HỌC VIDEO / LIVE, THEO DÕI TIẾN ĐỘ & HỎI ĐÁP (Actor: STUDENT — Phụ trách: Người 5)
 
 #### Module 9. Course Storefront & Instant Enrollment (Cửa hàng Khóa học & Đăng ký Mua khóa học)
-* **UC3.4 - Duyệt & Tìm kiếm Cửa hàng Khóa học (`Course Store / Catalog`):**
-  * Học viên khám phá kho khóa học của Trung tâm với bộ lọc trực quan:
-    * **Theo Danh mục:** *Ôn tập Môn chuyên ngành FPT (`PRF192`, `PRO192`, `CSD201`, `DBI202`, `PRJ301`, `SWP391`...)* hoặc *Luyện thi Chứng chỉ (`CCNA`, `IELTS`, `TOEIC`, `AWS`...)*.
-    * **Theo Hình thức học:** *Khóa học Quay sẵn (`RECORDED`)* hoặc *Lớp học Giảng viên dạy Online (`LIVE_ONLINE`)*.
-  * Xem chi tiết khóa học: Đề cương từng chương/bài học, thông tin Giảng viên phụ trách, các lớp Live đang mở đăng ký (kèm lịch học & sĩ số còn trống) và mức học phí.
+* **Nguyên tắc dữ liệu:** Một **Môn học FPT** hoặc một **Chứng chỉ** (`subjects`) có thể có **nhiều khóa học** (`courses`). Ví dụ môn `PRF192` có: *khóa video quay sẵn*, *lớp Live ôn tập & luyện đề*, *lớp kèm nhóm nhỏ*; chứng chỉ `IELTS` có: *IELTS Foundation (video)*, *IELTS Intensive 6.5+ (Live)*, *IELTS Speaking nhóm nhỏ (Live)*. Các môn FPT giữ nguyên **kỳ 1–9** của khung chương trình.
+* **UC3.4 - Khám phá khóa học theo Môn / Chứng chỉ (`Course Catalog`):**
+  * Trang chia **2 tab**: **Môn chuyên ngành FPT** và **Chứng chỉ quốc tế** (CCNA, IELTS, TOEIC, AWS, JLPT N3).
+  * Tab Môn FPT được **gom theo Kỳ 1 → Kỳ 9** (thu gọn / mở rộng từng kỳ). Mỗi môn chỉ hiện một **thẻ gọn**: mã môn, tên, hình thức đang có (🎥 Video / 👨‍🏫 Live), *"3 khóa học · từ 620.000 đ"*.
+  * Bấm vào thẻ → **trang chi tiết môn** liệt kê các khóa của môn đó, chia 2 nhóm *Khóa video quay sẵn* và *Khóa học cùng giảng viên (Live online)*; khóa đã đăng ký được đánh dấu.
+  * Bấm một khóa → xem chi tiết: giảng viên, danh sách bài học (khóa video, có bài học thử), các lớp Live đang mở (lịch học & số chỗ còn trống) và học phí.
 * **UC4.3 - Mua Khóa học (`RECORDED` hoặc `LIVE_ONLINE`) & Thanh toán VietQR:**
-  * **Nếu chọn khóa `RECORDED`:** Học viên bấm **"Mua khóa học Video"** → Hệ thống tạo đăng ký và hóa đơn học phí → Hiển thị mã **VietQR** để thanh toán.
-  * **Nếu chọn khóa `LIVE_ONLINE`:** Học viên chọn đợt lớp Live phù hợp lịch cá nhân (hệ thống tự động kiểm tra không trùng ca học với lớp Live khác mà học viên đang theo học) → Bấm **"Đăng ký lớp Live"** → Thanh toán qua **VietQR**.
-  * Với cả hai hình thức, hệ thống mở quyền học khi hóa đơn chuyển sang `PAID` theo `UC-PAY.2`.
+  * **Nếu chọn khóa `RECORDED`:** Học viên bấm **"Mua khóa học"** → Hệ thống tạo đăng ký và hóa đơn học phí → Thanh toán bằng **VietQR**.
+  * **Nếu chọn khóa `LIVE_ONLINE`:** Học viên chọn đợt lớp Live phù hợp lịch cá nhân (hệ thống tự động kiểm tra không trùng ca học với lớp Live khác mà học viên đang theo học, kể cả lượt đang chờ thanh toán) → Thanh toán qua **VietQR**.
+  * Với cả hai hình thức, đăng ký ở trạng thái `PENDING_PAYMENT` và chỉ mở quyền học (`ACTIVE`) khi hóa đơn chuyển sang `PAID` theo `UC-PAY.2`.
 
 #### Module 10. My Learning Portal, Video Lesson Player & Progress Tracking (Không gian Học tập & Tiến độ)
-* **UC12.3 - Student Dashboard (Tổng quan Học tập Cá nhân):**
-  * Hiển thị số khóa học đang theo học, tiến độ hoàn thành trung bình (`%`), lịch học Live sắp diễn ra trong tuần, danh sách bài tập sắp đến hạn và điểm trung bình các khóa học.
+* **UC12.3 - Student Dashboard (Không gian học tập):**
+  * Hiển thị: số khóa đang học, tiến độ trung bình các khóa video (`%`), số buổi Live mỗi tuần, số khóa chờ thanh toán (kèm nút thanh toán), lịch Live hôm nay, bài tập sắp đến hạn và danh sách "Tiếp tục học". **Không hiển thị điểm trung bình / GPA.**
 * **UC6.4 - Học Khóa Quay sẵn (`RECORDED`) & Theo dõi Tiến độ (`Lesson Progress`):**
   * Học viên mở trang **"Khóa học của tôi (`My Courses`)"**, vào trình phát bài giảng (`Course Player`):
     * Xem video bài giảng theo từng chương/bài (`course_lessons`) và tải tài liệu/source code đính kèm.
     * Bấm **"Hoàn thành bài học"** sau khi học xong mỗi bài → Hệ thống lưu vào `lesson_progress` và tự động cập nhật **Thanh tiến độ khóa học (`progressPercent`)**:
       $$\text{Tiến độ khóa học (\%)} = \frac{\text{Số bài học đã hoàn thành}}{\text{Tổng số bài học của khóa}} \times 100\%$$
-* **UC5.3 & UC6.3 - Học Lớp Trực tuyến (`LIVE_ONLINE`), Xem Thời khóa biểu & Báo cáo Chuyên cần:**
-  * Học viên xem **Thời khóa biểu các buổi học Live** hàng tuần, bấm nút **"Vào phòng học Online (Zoom / Google Meet)"** khi đến giờ học.
-  * Xem báo cáo điểm danh từng buổi học của mình (các buổi đã diễn ra hiển thị `Có mặt` / `Đi muộn` / `Vắng`; các buổi chưa đến ngày hiển thị `Chưa học`).
+* **UC5.3 & UC6.3 - Học Lớp Trực tuyến (`LIVE_ONLINE`), Lịch học & Chuyên cần nhẹ nhàng:**
+  * Học viên xem **Lịch học Live** hàng tuần, bấm **"Vào phòng học Online (Google Meet)"** khi đến giờ học.
+  * **Chuyên cần chỉ để học viên tự theo dõi, không xét cấm thi / điểm chuyên cần:** mỗi lớp Live đang học là một thẻ *"Đã tham gia X/Y buổi đã diễn ra"* kèm thanh tiến độ, các buổi sắp tới và lịch sử điểm danh thu gọn với 3 trạng thái: ✅ Có mặt · ⏰ Đi muộn · ➖ Vắng. Khóa video và lớp đã kết thúc không hiện ở đây.
 
-#### Module 11. Online Assignments, Grades & Interactive Q&A (Làm Bài tập, Xem Điểm & Hỏi đáp Online)
-* **UC7.2 & UC7.4 - Làm Bài tập Trực tuyến & Xem Nhận xét của Giảng viên:**
-  * Học viên xem danh sách bài tập của tất cả các khóa học đang tham gia, nộp link bài làm (GitHub / Google Drive / File đính kèm) và theo dõi điểm số cùng lời phê chi tiết từ Giảng viên.
-* **UC8.4 - Tra cứu Kết quả Học tập & Chứng nhận Hoàn thành:**
-  * Xem bảng điểm tổng hợp các khóa học đã và đang học (`Chuyên cần`, `Bài tập/Giữa kỳ`, `Thi cuối khóa`, `Tổng kết`, trạng thái `Hoàn thành / Đạt`).
-* **UC11.1 - Đặt câu hỏi & Trao đổi Trực tuyến với Giảng viên (`Course Q&A / Discussion`):**
-  * Trong bất kỳ khóa học nào (cả `RECORDED` và `LIVE_ONLINE`), học viên có thể gửi câu hỏi thắc mắc về nội dung bài học/bài tập (`course_questions`) và nhận thông báo ngay khi Giảng viên phản hồi giải đáp.
+#### Module 11. Online Assignments & Interactive Q&A (Làm Bài tập & Hỏi đáp Online)
+* **UC7.2 & UC7.4 - Làm Bài tập Trực tuyến & Xem Điểm, Nhận xét của Giảng viên:**
+  * Học viên xem danh sách bài tập của các khóa đang học, nộp link bài làm (GitHub / Google Drive) và xem **điểm bài tập kèm lời nhận xét** của giảng viên để biết mình làm tốt đến đâu.
+* **Không có mục "Kết quả học tập / Bảng điểm / GPA"** đối với học viên: trung tâm khóa học không ràng buộc điểm số tổng kết.
+* **UC11.1 - Hỏi đáp với Giảng viên (`Course Q&A`):**
+  * Học viên **chỉ được gửi câu hỏi cho giảng viên đang dạy khóa học mà mình đã mở khóa** (`ACTIVE`): lớp Live → giảng viên của lớp; khóa video → giảng viên phụ trách khóa. Khóa đang chờ thanh toán chưa được hỏi.
+  * Khi chọn khóa học, giao diện hiện rõ **"Gửi tới: <tên giảng viên>"**; học viên không chọn được giảng viên khác. Câu hỏi lưu kèm `teacherId`.
+  * Chỉ giảng viên nhận câu hỏi được xem và trả lời; học viên nhận thông báo khi có phản hồi.
+* **UC11.3 - Đơn từ (giữ nguyên):** Học viên gửi đơn xin nghỉ buổi Live, xác nhận đang theo học, phúc khảo… (`student_requests`) và theo dõi trạng thái duyệt.
 
 ---
 
@@ -421,12 +424,17 @@ flowchart LR
 
 ---
 
-## PHẦN 6: THIẾT KẾ CƠ SỞ DỮ LIỆU MONGODB ATLAS (DATABASE SCHEMA - 20 COLLECTIONS)
+## PHẦN 6: THIẾT KẾ CƠ SỞ DỮ LIỆU MONGODB ATLAS (DATABASE SCHEMA - 22 COLLECTIONS)
 
 Hệ thống sử dụng **MongoDB Atlas + Mongoose ODM**. Mỗi document đều có trường định danh số tự tăng `id` (`Number`, `unique`) thông qua collection `counters` để giữ URL và API thân thiện, đồng nhất.
 
+> **Cấu trúc danh mục:** `subjects` (Môn FPT theo kỳ / Chứng chỉ) **1 — n** `courses` (khóa video hoặc Live) **1 — n** `classes` (lớp tự học `VIDEO-<courseId>` cho khóa video; các đợt khai giảng cho khóa Live).
+>
+> **Dữ liệu hiện tại trên Atlas** (tạo bằng `npm run seed:reset`, file `backend/scripts/course-center-seed.js`; dữ liệu đại học cũ và danh mục môn theo kỳ đã được sao lưu ra `backend/backups/`): 25 môn FPT (kỳ 1–9) + 5 chứng chỉ, 48 khóa học (30 video, 18 Live), 22 lớp Live, 180 bài giảng, 6 giảng viên, 10 học viên. Không tạo bảng điểm và giao dịch SePay giả.
+
 ```mermaid
 erDiagram
+    subjects ||--o{ courses : has_many
     users ||--o{ courses : instructs
     users ||--o{ classes : teaches
     courses ||--o{ course_lessons : contains
@@ -440,7 +448,9 @@ erDiagram
     classes ||--o{ assignments : assigns
     assignments ||--o{ submissions : receives
     classes ||--o{ course_questions : discussions
-    enrollments ||--|| grades : evaluates
+    users ||--o{ course_questions : answers
+    users ||--o{ student_requests : requests
+    enrollments ||--o| grades : evaluates
     enrollments ||--|| tuition_invoices : bills
     tuition_invoices ||--o{ tuition_payments : receipts
     tuition_invoices ||--o{ payment_orders : qr_orders
@@ -455,20 +465,22 @@ erDiagram
 | Mã kho | Collection | Khóa / Index Unique | Tham chiếu (Logic) | Các trường dữ liệu cốt lõi | Phụ trách chính |
 | :---: | :--- | :--- | :--- | :--- | :--- |
 | **D1** (+D2, D3) | **`users`** | `id`, `code`, `email` | — | `passwordHash`, `fullName`, `role` (`ADMIN`, `TEACHER`, `STUDENT`, `ACCOUNTANT`), `phone`, `avatar`, `status` (`ACTIVE`, `INACTIVE`, `SUSPENDED`), `studentProfile` {`dob`, `gender`, `address`, `enrollmentYear`, `targetGoal`}, `teacherProfile` {`degree`, `specialty`, `certificates` (CCNA, IELTS 8.5...), `bio`} | **Người 1** *(Người 2 quản lý HV/GV)* |
-| **D4** | **`courses`** | `id`, `courseCode` | `instructorId` → `users` | `name`, `category` (`FPT_SUBJECT`, `CERTIFICATE`), `deliveryMode` (`RECORDED`, `LIVE_ONLINE`), `level` (`BEGINNER`, `INTERMEDIATE`, `ADVANCED`), `credits`, `totalSessions`, `baseTuitionFee` (VND), `thumbnailUrl`, `syllabusUrl`, `description`, `status` (`ACTIVE`, `INACTIVE`) | **Người 2** |
+| **D3b** | **`subjects`** | `id`, `code` | — | `name`, `category` (`FPT_SUBJECT`, `CERTIFICATE`), `term` (kỳ 1–9 của khung FPT, `null` với chứng chỉ), `credits`, `prerequisites`, `description`, `status`. Một môn / chứng chỉ có **nhiều khóa học**. | **Người 2** *(Người 5 khám phá)* |
+| **D4** | **`courses`** | `id`, `courseCode` | `subjectId` → `subjects`, `instructorId` → `users` | `name`, `category` (`FPT_SUBJECT`, `CERTIFICATE`), `deliveryMode` (`RECORDED`, `LIVE_ONLINE`), `level` (`BEGINNER`, `INTERMEDIATE`, `ADVANCED`), `credits`, `totalSessions`, `baseTuitionFee` (VND), `thumbnailUrl`, `syllabusUrl`, `description`, `status` (`ACTIVE`, `INACTIVE`) | **Người 2** |
 | **D4b** | **`course_lessons`** | `id`, (`courseId`, `orderIndex`) | `courseId` → `courses` | `sectionTitle` (Tên chương), `orderIndex` (Thứ tự bài), `title` (Tên bài giảng), `videoUrl` (Link video bài giảng), `materialUrl` (Slide/Code), `durationMinutes`, `isPreview` (`Boolean`) | **Người 2** & **Người 4** |
-| **D5** | **`classes`** | `id`, `classCode` | `courseId` → `courses`, `teacherId` → `users` | `semester` / đợt mở lớp (`SP26`, `SU26`, `FA26`), `maxStudents`, `meetUrl` (Link Zoom / Google Meet cho lớp `LIVE_ONLINE`), `status` (`UPCOMING`, `ONGOING`, `COMPLETED`) | **Người 2** |
-| **D6** | **`enrollments`** | `id`, (`classId`, `studentId`) | `classId` → `classes`, `studentId` → `users` | `enrolledAt`, `progressPercent` (`0..100`), `completedLessonsCount`, `status` (`ACTIVE`, `DROPPED` và trạng thái chờ thanh toán cho lượt mua mới). Backend chuyển sang `ACTIVE` khi hóa đơn thu đủ. | **Người 2** & **Người 5** (Mua khóa học) |
+| **D5** | **`classes`** | `id`, `classCode` | `courseId` → `courses`, `teacherId` → `users` | `semester` = đợt khai giảng (VD `KG-2026-11-02`; `SELF_PACED` với lớp tự học `VIDEO-<courseId>` của khóa video), `maxStudents`, `meetUrl` (Link Zoom / Google Meet cho lớp `LIVE_ONLINE`), `status` (`UPCOMING`, `ONGOING`, `COMPLETED`) | **Người 2** |
+| **D6** | **`enrollments`** | `id`, (`classId`, `studentId`) | `classId` → `classes`, `studentId` → `users` | `enrolledAt`, `progressPercent` (`0..100`), `completedLessonsCount`, `status` (`PENDING_PAYMENT`, `ACTIVE`, `DROPPED`). Backend chuyển sang `ACTIVE` khi hóa đơn thu đủ. | **Người 2** & **Người 5** (Mua khóa học) |
 | **D6b** | **`lesson_progress`** | `id`, (`enrollmentId`, `lessonId`) | `enrollmentId` → `enrollments`, `lessonId` → `course_lessons` | `studentId`, `courseId`, `isCompleted` (`Boolean`), `completedAt`, `lastWatchedSecond` | **Người 5** |
 | **D7** | **`schedules`** | `id` | `classId` → `classes` | `dayOfWeek` (`2..8`), `shift` (`Slot 1..6`), `startTime` (`HH:mm`), `endTime` (`HH:mm`), `room` (Phòng học / Kênh Online) | **Người 2** |
 | **D8** | **`attendances`** | `id`, (`classId`, `studentId`, `sessionDate`) | `classId` → `classes`, `studentId` → `users` | `sessionDate`, `status` (`PRESENT`, `ABSENT_EXCUSED`, `ABSENT_UNEXCUSED`, `LATE`), `note` | **Người 4** *(Người 5 xem)* |
 | **D9** | **`assignments`** | `id` | `classId` → `classes` | `title`, `description`, `fileUrl`, `dueDate`, `createdAt` | **Người 4** *(Người 5 xem)* |
 | **D10** | **`submissions`** | `id`, (`assignmentId`, `studentId`) | `assignmentId` → `assignments`, `studentId` → `users` | `fileUrl`, `content`, `submittedAt`, `status` (`SUBMITTED`, `LATE_SUBMITTED`), `score` (`0..10`), `teacherFeedback` | **Người 5** nộp & **Người 4** chấm |
-| **D11** | **`grades`** | `id`, `enrollmentId` | `enrollmentId` → `enrollments` | `attendanceScore`, `midtermScore`, `finalScore`, `totalScore`, `isPassed`, `isBanned` | **Người 4** nhập & **Người 5** xem |
+| **D11** | **`grades`** | `id`, `enrollmentId` | `enrollmentId` → `enrollments` | `attendanceScore`, `midtermScore`, `finalScore`, `totalScore`, `isPassed`, `isBanned`. **Không hiển thị cho học viên** (trung tâm không xét điểm tổng kết); dữ liệu mẫu không tạo bảng điểm. | **Người 4** *(quản trị)* |
 | **D12** | **`tuition_invoices`** | `id`, `enrollmentId` | `studentId` → `users`, `enrollmentId` → `enrollments` | `amount`, `paidAmount` (tổng tiền đã phân bổ), `status` (`UNPAID`, `PARTIAL`, `PAID`), `paidAt`, `createdAt`, `dueDate` (tương thích dữ liệu hiện có) | **Người 3** *(Người 5 thanh toán)* |
 | **D12b** | **`tuition_payments`** | `id`, `receiptNo` | `invoiceId` → `tuition_invoices`, `transactionId` → `payment_transactions` (có thể trống với phiếu thu lịch sử) | `amount` (số tiền đã phân bổ), `method` (`CASH`, `BANK_TRANSFER`, `VIETQR`), `note`, `collectedById`, `paidAt`. Biên lai SePay dùng `SEPAY-<providerId>`. | **Người 3** |
-| **D13** | **`notifications`** | `id` | `userId` → `users` (`null` = toàn hệ thống) | `title`, `message`, `type` (`ASSIGNMENT`, `GRADE`, `TUITION`, `QA`, `SYSTEM`), `isRead`, `createdAt` | **Người 1, 3, 4, 5** |
-| **D14** | **`course_questions`** *(hoặc `student_requests`)* | `id` | `studentId` → `users`, `classId` → `classes`, `lessonId` → `course_lessons` | `questionTitle`, `questionContent`, `attachmentUrl`, `status` (`PENDING`, `ANSWERED`, `RESOLVED`), `teacherAnswer`, `answeredById`, `answeredAt`, `createdAt` | **Người 5** hỏi & **Người 4 / Người 2** trả lời |
+| **D13** | **`notifications`** | `id` | `userId` → `users` (`null` = toàn hệ thống) | `title`, `message`, `type` (`ASSIGNMENT`, `GRADE`, `TUITION`, `REQUEST`, `SYSTEM` — thông báo Hỏi đáp dùng `SYSTEM`), `isRead`, `createdAt` | **Người 1, 3, 4, 5** |
+| **D14** | **`course_questions`** | `id` | `studentId` → `users`, `classId` → `classes`, `teacherId` → `users` (giảng viên đang dạy khóa của học viên), `lessonId` → `course_lessons` | `questionTitle`, `questionContent`, `attachmentUrl`, `status` (`PENDING`, `ANSWERED`, `RESOLVED`), `teacherAnswer`, `answeredById`, `answeredAt`, `createdAt` | **Người 5** hỏi & **Người 4** (đúng giảng viên) trả lời |
+| **D14b** | **`student_requests`** | `id` | `studentId` → `users`, `classId` → `classes` (có thể trống) | `requestType` (`ABSENCE`, `REMARK`, `CONFIRMATION`), `sessionDate`, `reason`, `attachmentUrl`, `status` (`PENDING`, `APPROVED`, `REJECTED`), `adminResponse`, `createdAt` | **Người 5** gửi & **Người 2** duyệt |
 | **D15** | **`payment_orders`** | `id`, `code` (`EMS` + 24 ký tự hex in hoa) | `invoiceId` → `tuition_invoices` (một hóa đơn có thể có nhiều lệnh) | `amount` (số còn thiếu lúc tạo QR), `createdById`, `createdAt` | **Người 3** & **Người 5** |
 | **D16** | **`payment_transactions`** | `id`, `providerId` (SePay transaction ID) | `orderId` → `payment_orders`, `invoiceId` → `tuition_invoices` (có thể trống với giao dịch chưa khớp) | `reference`, `amount` (tiền ngân hàng thực nhận), `appliedAmount` (tiền đã phân bổ), `status` (`MATCHED`, `UNMATCHED`, `DISCREPANCY`), `payload`, `occurredAt` | **Người 3** (SePay Webhook và khôi phục) |
 | **D17** | **`payment_discrepancies`** | `id`, `transactionId` | `transactionId` → `payment_transactions` | `reason` (`UNDERPAYMENT`, `OVERPAYMENT_OR_DUPLICATE`, `UNKNOWN_PAYMENT_CODE`), `status` (`OPEN`, `RESOLVED`), `note`. `OPEN`: cần kiểm tra; `RESOLVED`: đã xử lý hồ sơ, không xác nhận hoàn tiền. `note` bắt buộc khi đóng thủ công; audit log giữ người xử lý và thời gian. Backend tự cập nhật sai lệch thiếu tiền đủ căn cứ theo `UC9.4`. | **Người 3** |
@@ -536,16 +548,19 @@ Mọi API tuân thủ tiền tố `/api/v1` và trả về cấu trúc JSON đ�
 * `GET /api/v1/questions` & `PATCH /api/v1/questions/:id/answer` — Xem câu hỏi trong lớp/khóa học được phân công và trả lời học viên.
 
 ### 5. Cụm API của STUDENT / Học viên (Phụ trách: Người 5)
-* `GET /api/v1/courses/catalog` *(hoặc `GET /api/v1/courses`)* — Xem Cửa hàng Khóa học (lọc theo `category: FPT_SUBJECT | CERTIFICATE` và `deliveryMode: RECORDED | LIVE_ONLINE`).
+* `GET /api/v1/subjects?category=FPT_SUBJECT|CERTIFICATE` — Danh sách gọn Môn FPT (sắp theo kỳ) / Chứng chỉ, kèm số khóa học, giá thấp nhất và hình thức đang có.
+* `GET /api/v1/subjects/:id` — Chi tiết một môn / chứng chỉ và **tất cả khóa học** của nó (video / Live), số bài giảng, số lớp đang mở, đánh dấu khóa đã đăng ký.
+* `GET /api/v1/courses/catalog/:id` — Chi tiết một khóa học: bài học (chỉ lộ video học thử), các lớp Live đang mở và số chỗ còn trống.
 * `POST /api/v1/courses/:id/purchase` *(hoặc đăng ký vào lớp qua Enrollment + PaymentOrder)* — Đăng ký mua khóa học `RECORDED` hoặc chọn lớp `LIVE_ONLINE` và nhận hóa đơn thanh toán VietQR.
-* `GET /api/v1/analytics/student-overview` — Student Dashboard: Số khóa đang học, tiến độ trung bình, deadline bài tập sắp tới, điểm trung bình.
+* `GET /api/v1/analytics/student-overview` — Không gian học tập: số khóa đang học, tiến độ khóa video, số buổi Live mỗi tuần, số khóa chờ thanh toán, câu hỏi chờ trả lời, bài tập sắp đến hạn (không có GPA).
 * `GET /api/v1/my-courses` *(hoặc `GET /api/v1/classes?status=ONGOING`)* — Danh sách các khóa học `RECORDED` và lớp `LIVE_ONLINE` của học viên kèm tiến độ hoàn thành (`progressPercent`).
 * `POST /api/v1/lessons/:lessonId/complete` — Đánh dấu hoàn thành 1 bài giảng video và tự động tính lại `% tiến độ` khóa học.
 * `GET /api/v1/schedules/my-schedule` — Xem Thời khóa biểu học trực tuyến hàng tuần kèm link phòng học (`meetUrl`) và trạng thái điểm danh từng buổi.
-* `GET /api/v1/attendances/my-report` — Xem báo cáo chuyên cần chi tiết của các lớp `LIVE_ONLINE`.
+* `GET /api/v1/attendances/my-report` — Chuyên cần các lớp `LIVE_ONLINE` đang học: `attendedSessions`/`recordedSessions`, buổi sắp tới, lịch sử điểm danh (không xét cấm thi).
 * `GET /api/v1/classes/:id/assignments` & `POST /api/v1/assignments/:id/submit` — Xem danh sách bài tập, nộp bài trực tuyến và xem điểm/nhận xét của Giảng viên.
-* `GET /api/v1/students/my-grades` — Xem bảng điểm và kết quả hoàn thành các khóa học.
-* `GET /api/v1/questions` & `POST /api/v1/questions` — Đặt câu hỏi trong lớp/bài giảng đã ghi danh và xem câu trả lời.
+* `GET /api/v1/questions/my-teachers` — Danh sách khóa đã mở khóa kèm **giảng viên nhận câu hỏi** (giảng viên lớp Live / giảng viên phụ trách khóa video).
+* `GET /api/v1/questions` & `POST /api/v1/questions` — Xem câu hỏi của mình; gửi câu hỏi (chỉ cho khóa `ACTIVE`, backend tự gán `teacherId`). Chỉ đúng giảng viên đó được trả lời (`PATCH /questions/:id/answer`).
+* `GET /api/v1/requests` & `POST /api/v1/requests` — Gửi và theo dõi đơn từ.
 * `GET /api/v1/notifications` & `PATCH /api/v1/notifications/:id/read` — Xem và đánh dấu đã đọc thông báo.
 
 ---

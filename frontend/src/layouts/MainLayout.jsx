@@ -1,5 +1,5 @@
-import React from 'react';
-import { Layout } from 'antd';
+import React, { useState } from 'react';
+import { Layout, Drawer, Grid } from 'antd';
 import { Outlet, Navigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import HeaderBar from '../components/HeaderBar';
@@ -9,6 +9,9 @@ const { Sider, Content } = Layout;
 
 const MainLayout = () => {
   const { user, loading } = useAuth();
+  const screens = Grid.useBreakpoint();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const mobile = !screens.lg;
 
   if (loading) {
     return (
@@ -24,7 +27,7 @@ const MainLayout = () => {
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Sider
+      {mobile ? <Drawer title="EMS Portal" open={menuOpen} onClose={() => setMenuOpen(false)} placement="left" width={280} styles={{ body: { padding: 0 } }}><div onClick={() => setMenuOpen(false)}><Sidebar /></div></Drawer> : <Sider
         width={250}
         theme="light"
         style={{
@@ -36,11 +39,11 @@ const MainLayout = () => {
         }}
       >
         <Sidebar />
-      </Sider>
+      </Sider>}
 
-      <Layout>
-        <HeaderBar />
-        <Content style={{ margin: '24px', minHeight: 280 }}>
+      <Layout style={{ minWidth: 0 }}>
+        <HeaderBar onMenuClick={mobile ? () => setMenuOpen(true) : undefined} />
+        <Content style={{ margin: screens.md ? 24 : 12, minHeight: 280 }}>
           <Outlet />
         </Content>
       </Layout>

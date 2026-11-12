@@ -34,6 +34,16 @@ import RequestsPage from './pages/notifications-analytics/RequestsPage';
 import NotificationsPage from './pages/notifications-analytics/NotificationsPage';
 import TeacherContentPage from './pages/teacher/TeacherContentPage';
 import CourseQuestionsPage from './pages/teacher/CourseQuestionsPage';
+import { CatalogPage, SubjectDetailPage, MyLearningPage, CoursePlayerPage, QuestionsPage, StudentDashboard } from './pages/student/StudentPortal';
+
+const RoleRoute = ({ allowed, children }) => {
+  const { user } = useAuth();
+  return allowed.includes(user?.role) ? children : <Navigate to="/dashboard" replace />;
+};
+const DashboardRoute = () => {
+  const { user } = useAuth();
+  return user?.role === 'STUDENT' ? <StudentDashboard /> : <DashboardPage />;
+};
 
 const TuitionReportRoute = () => {
   const { user } = useAuth();
@@ -42,21 +52,17 @@ const TuitionReportRoute = () => {
 
 const GradesRoute = () => {
   const { user } = useAuth();
-  return ['ADMIN', 'TEACHER', 'STUDENT'].includes(user?.role)
-    ? <GradesPage />
-    : <Navigate to="/dashboard" replace />;
+  return ['ADMIN', 'TEACHER'].includes(user?.role) ? <GradesPage /> : <Navigate to="/dashboard" replace />;
 };
 
-const TeacherContentRoute = () => {
+const CurriculumRoute = () => {
   const { user } = useAuth();
-  return user?.role === 'TEACHER' ? <TeacherContentPage /> : <Navigate to="/dashboard" replace />;
+  return user?.role === 'STUDENT' ? <Navigate to="/catalog" replace /> : <CurriculumPage />;
 };
 
 const CourseQuestionsRoute = () => {
   const { user } = useAuth();
-  return ['TEACHER', 'STUDENT'].includes(user?.role)
-    ? <CourseQuestionsPage />
-    : <Navigate to="/dashboard" replace />;
+  return user?.role === 'TEACHER' ? <CourseQuestionsPage /> : <QuestionsPage />;
 };
 
 const App = () => {
@@ -79,19 +85,23 @@ const App = () => {
 
             <Route path="/" element={<MainLayout />}>
               <Route index element={<Navigate to="/dashboard" replace />} />
-              <Route path="dashboard" element={<DashboardPage />} />
+              <Route path="dashboard" element={<DashboardRoute />} />
+              <Route path="catalog" element={<RoleRoute allowed={['STUDENT']}><CatalogPage /></RoleRoute>} />
+              <Route path="catalog/subjects/:subjectId" element={<RoleRoute allowed={['STUDENT']}><SubjectDetailPage /></RoleRoute>} />
+              <Route path="my-courses" element={<RoleRoute allowed={['STUDENT']}><MyLearningPage /></RoleRoute>} />
+              <Route path="my-courses/:id" element={<RoleRoute allowed={['STUDENT']}><CoursePlayerPage /></RoleRoute>} />
+              <Route path="questions" element={<RoleRoute allowed={['STUDENT', 'TEACHER', 'ADMIN']}><CourseQuestionsRoute /></RoleRoute>} />
 
               {/* Cụm 1 */}
-              <Route path="students" element={<StudentsPage />} />
-              <Route path="teachers" element={<TeachersPage />} />
-              <Route path="courses" element={<CoursesPage />} />
-              <Route path="curriculum" element={<CurriculumPage />} />
+              <Route path="students" element={<RoleRoute allowed={['ADMIN']}><StudentsPage /></RoleRoute>} />
+              <Route path="teachers" element={<RoleRoute allowed={['ADMIN']}><TeachersPage /></RoleRoute>} />
+              <Route path="courses" element={<RoleRoute allowed={['ADMIN', 'TEACHER']}><CoursesPage /></RoleRoute>} />
+              <Route path="curriculum" element={<CurriculumRoute />} />
 
               {/* Cụm 2 */}
-              <Route path="classes" element={<ClassesPage />} />
+              <Route path="classes" element={<RoleRoute allowed={['ADMIN', 'TEACHER']}><ClassesPage /></RoleRoute>} />
               <Route path="schedule" element={<SchedulePage />} />
-              <Route path="teacher-content" element={<TeacherContentRoute />} />
-              <Route path="questions" element={<CourseQuestionsRoute />} />
+              <Route path="teacher-content" element={<RoleRoute allowed={['TEACHER']}><TeacherContentPage /></RoleRoute>} />
 
               {/* Cụm 3 */}
               <Route path="attendance" element={<AttendancePage />} />

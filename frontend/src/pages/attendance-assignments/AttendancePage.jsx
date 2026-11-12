@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Table, Select, DatePicker, Button, Radio, Tag, Progress, Typography, Space, message, Tabs, Alert, Input } from 'antd';
+import { Card, Table, Select, DatePicker, Button, Radio, Tag, Progress, Typography, Space, message, Tabs, Alert, Input, Row, Col, Empty, Collapse } from 'antd';
 import { CheckSquareOutlined, SaveOutlined, WarningOutlined } from '@ant-design/icons';
 import apiClient from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
@@ -240,128 +240,76 @@ const AttendancePage = () => {
   ];
 
   if (isStudent) {
-    const DAY_LABELS = {
-      2: 'Thứ 2',
-      3: 'Thứ 3',
-      4: 'Thứ 4',
-      5: 'Thứ 5',
-      6: 'Thứ 6',
-      7: 'Thứ 7',
-      8: 'Chủ Nhật'
+    // Trung tâm khóa học: chuyên cần chỉ để học viên tự theo dõi, không xét cấm thi / điểm chuyên cần.
+    const DAY_LABELS = { 2: 'Thứ 2', 3: 'Thứ 3', 4: 'Thứ 4', 5: 'Thứ 5', 6: 'Thứ 6', 7: 'Thứ 7', 8: 'Chủ nhật' };
+    const SIMPLE_STATUS = {
+      PRESENT: { color: 'success', text: '✅ Có mặt' },
+      LATE: { color: 'warning', text: '⏰ Đi muộn' },
+      ABSENT_EXCUSED: { color: 'default', text: '➖ Vắng' },
+      ABSENT_UNEXCUSED: { color: 'default', text: '➖ Vắng' },
+      UPCOMING: { color: 'blue', text: 'Sắp học' },
+      NOT_RECORDED: { color: 'default', text: 'Chưa điểm danh' }
     };
-
-    const STATUS_TAG = {
-      PRESENT: <Tag color="success">Có mặt</Tag>,
-      LATE: <Tag color="warning">Đi muộn</Tag>,
-      ABSENT_EXCUSED: <Tag color="purple">Nghỉ có phép</Tag>,
-      ABSENT_UNEXCUSED: <Tag color="error">Vắng không phép</Tag>,
-      UPCOMING: <Tag color="default">Chưa học (Chưa đến ngày)</Tag>
-    };
+    const today = dayjs().format('YYYY-MM-DD');
 
     return (
-      <Card title="Báo cáo Chuyên cần Kỳ học 2 Tuần & Cảnh báo Vắng mặt (Quy chế 20% FAP)">
-        <Alert
-          message="Quy định Chuyên cần FAP (Kỳ học 2 tuần - 6 buổi/môn): Sinh viên vắng không phép từ 20% tổng số buổi (tương đương >= 2/6 buổi) sẽ bị CẤM THI (is_banned = true) và nhận kết quả Không Đạt (NOT PASSED). Nhấn vào dấu (+) từng môn để xem chi tiết lịch sử 6 buổi học trong 2 tuần."
-          type="info"
-          showIcon
-          style={{ marginBottom: 20 }}
-        />
-        <Table
-          rowKey="classId"
-          dataSource={studentReport}
-          loading={loading}
-          pagination={false}
-          expandable={{
-            defaultExpandAllRows: true,
-            expandedRowRender: (record) => (
-              <Table
-                rowKey="sessionNo"
-                size="small"
-                pagination={false}
-                dataSource={record.sessions || []}
-                columns={[
-                  {
-                    title: 'Buổi học',
-                    dataIndex: 'sessionNo',
-                    width: 90,
-                    render: (n) => <Text strong>Buổi {n}</Text>
-                  },
-                  {
-                    title: 'Tuần',
-                    dataIndex: 'week',
-                    width: 90,
-                    render: (w) => <Tag color={w === 1 ? 'blue' : 'cyan'}>Tuần {w}</Tag>
-                  },
-                  {
-                    title: 'Ngày học',
-                    dataIndex: 'sessionDate',
-                    render: (d, s) => `${DAY_LABELS[s.dayOfWeek] || ''} - ${dayjs(d).format('DD/MM/YYYY')}`
-                  },
-                  {
-                    title: 'Ca học (Slot)',
-                    dataIndex: 'shift',
-                    render: (sh) => <Tag color="orange">Slot {sh}</Tag>
-                  },
-                  {
-                    title: 'Phòng',
-                    dataIndex: 'room',
-                    render: (rm) => <Tag color="geekblue">{rm}</Tag>
-                  },
-                  {
-                    title: 'Trạng thái điểm danh',
-                    dataIndex: 'status',
-                    render: (st) => STATUS_TAG[st] || <Tag>{st}</Tag>
-                  },
-                  {
-                    title: 'Ghi chú của GV / Hệ thống',
-                    dataIndex: 'note',
-                    render: (nt) => nt || <Text type="secondary">-</Text>
-                  }
-                ]}
-              />
-            )
-          }}
-          columns={[
-            { title: 'Lớp', dataIndex: 'classCode', render: (c) => <Text strong style={{ color: '#F26F21' }}>{c}</Text> },
-            { title: 'Môn học', render: (_, r) => `${r.courseCode} - ${r.courseName}` },
-            { title: 'Giảng viên', dataIndex: 'teacherName' },
-            { title: 'Tiến độ học', render: (_, r) => <Tag color="blue">{r.recordedSessions}/{r.totalSessions} buổi</Tag> },
-            { title: 'Có mặt', dataIndex: 'present', render: (p) => <Tag color="green">{p}</Tag> },
-            { title: 'Đi muộn', dataIndex: 'late', render: (l) => <Tag color="orange">{l || 0}</Tag> },
-            { title: 'Có phép', dataIndex: 'absentExcused', render: (ae) => <Tag color="purple">{ae}</Tag> },
-            { title: 'Không phép', dataIndex: 'absentUnexcused', render: (au) => <Tag color="red">{au}</Tag> },
-            {
-              title: 'Điểm CC (10%)',
-              dataIndex: 'attendanceScore',
-              align: 'center',
-              render: (sc) => <Text strong style={{ color: '#1890ff' }}>{sc ?? 10}/10</Text>
-            },
-            {
-              title: 'Tỷ lệ vắng',
-              render: (_, r) => (
-                <div style={{ width: 130 }}>
-                  <Progress
-                    percent={r.absentRate}
-                    strokeColor={r.isBanned ? '#ff4d4f' : r.absentRate > 10 ? '#fa8c16' : '#52c41a'}
-                    size="small"
-                    format={(p) => `${p}%`}
-                  />
-                </div>
-              )
-            },
-            {
-              title: 'Tình trạng thi',
-              render: (_, r) => (
-                r.isBanned
-                  ? <Tag color="error" icon={<WarningOutlined />}>CẤM THI (&gt;=20%)</Tag>
-                  : r.absentRate > 10
-                  ? <Tag color="warning">Cảnh báo vắng</Tag>
-                  : <Tag color="success">Đủ ĐK thi</Tag>
-              )
-            }
-          ]}
-        />
-      </Card>
+      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+        <div>
+          <Title level={3} style={{ marginBottom: 4 }}>Chuyên cần lớp Live</Title>
+          <Text type="secondary">Theo dõi các buổi bạn đã tham gia. Nếu lỡ buổi nào, hãy xem lại tài liệu hoặc hỏi giảng viên nhé.</Text>
+        </div>
+        {!loading && studentReport.length === 0 && (
+          <Card><Empty description="Bạn chưa có lớp Live nào đang học. Khóa video quay sẵn không cần điểm danh." /></Card>
+        )}
+        <Row gutter={[16, 16]}>
+          {studentReport.map(r => {
+            const held = r.recordedSessions || 0;
+            const attended = r.attendedSessions ?? ((r.present || 0) + (r.late || 0));
+            const pastSessions = (r.sessions || []).filter(s => s.status !== 'UPCOMING' && s.status !== 'NOT_RECORDED');
+            const nextSessions = (r.sessions || []).filter(s => s.status === 'UPCOMING' && s.sessionDate >= today).slice(0, 3);
+            return (
+              <Col xs={24} lg={12} key={r.classId}>
+                <Card
+                  loading={loading}
+                  title={<Space direction="vertical" size={0}><Text strong>{r.courseName}</Text><Text type="secondary" style={{ fontSize: 12 }}>{r.classCode} · {r.teacherName}</Text></Space>}
+                  extra={r.meetUrl && /^https?:\/\//i.test(r.meetUrl) ? <Button type="link" href={r.meetUrl} target="_blank" rel="noreferrer">Vào lớp</Button> : null}
+                >
+                  <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                    <div>
+                      <Text>Đã tham gia <Text strong>{attended}/{held}</Text> buổi đã diễn ra</Text>
+                      <Text type="secondary"> · Khóa có {r.totalSessions} buổi</Text>
+                      <Progress percent={Math.round((held / (r.totalSessions || 1)) * 100)} success={{ percent: Math.round((attended / (r.totalSessions || 1)) * 100) }} showInfo={false} />
+                      <Text type="secondary" style={{ fontSize: 12 }}>Màu xanh lá: buổi đã tham gia · Xanh dương: buổi đã diễn ra</Text>
+                    </div>
+                    {nextSessions.length > 0 && (
+                      <div>
+                        <Text strong>Buổi học sắp tới</Text>
+                        {nextSessions.map(s => (
+                          <div key={s.sessionDate}><Text type="secondary">{DAY_LABELS[s.dayOfWeek]} {dayjs(s.sessionDate).format('DD/MM')} {s.startTime ? `· ${s.startTime}–${s.endTime}` : ''}</Text></div>
+                        ))}
+                      </div>
+                    )}
+                    <Collapse ghost size="small" items={[{
+                      key: 'history',
+                      label: `Lịch sử điểm danh (${pastSessions.length} buổi)`,
+                      children: pastSessions.length === 0 ? <Text type="secondary">Chưa có buổi nào được điểm danh.</Text> : (
+                        <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                          {pastSessions.map(s => (
+                            <Space key={s.sessionDate} style={{ justifyContent: 'space-between', width: '100%' }}>
+                              <Text>{DAY_LABELS[s.dayOfWeek]} {dayjs(s.sessionDate).format('DD/MM/YYYY')}</Text>
+                              <Tag color={SIMPLE_STATUS[s.status]?.color}>{SIMPLE_STATUS[s.status]?.text || s.status}</Tag>
+                            </Space>
+                          ))}
+                        </Space>
+                      )
+                    }]} />
+                  </Space>
+                </Card>
+              </Col>
+            );
+          })}
+        </Row>
+      </Space>
     );
   }
 
