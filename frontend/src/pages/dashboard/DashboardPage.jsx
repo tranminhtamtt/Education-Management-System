@@ -6,8 +6,6 @@ import {
   ApartmentOutlined,
   DollarCircleOutlined,
   TrophyOutlined,
-  WarningOutlined,
-  CalendarOutlined,
   FileTextOutlined,
   MessageOutlined,
   ReadOutlined,

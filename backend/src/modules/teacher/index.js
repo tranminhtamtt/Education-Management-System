@@ -34,6 +34,57 @@ function questionScope({ classIds, lessonIds }) {
   ] };
 }
 
+function parseQuestionInput(body = {}) {
+  const questionTitle = String(body.questionTitle || '').trim();
+  const questionContent = String(body.questionContent || '').trim();
+  const classId = body.classId ? Number.parseInt(body.classId, 10) : null;
+  const lessonId = body.lessonId ? Number.parseInt(body.lessonId, 10) : null;
+
+  if (!questionTitle || !questionContent || questionTitle.length > 200 || questionContent.length > 10000) {
+    return { error: { status: 400, message: 'Vui lòng nhập tiêu đề và nội dung câu hỏi hợp lệ' } };
+  }
+  if (!classId && !lessonId) {
+    return { error: { status: 400, message: 'Câu hỏi cần gắn với lớp hoặc bài giảng' } };
+  }
+  if ((classId && !Number.isSafeInteger(classId)) || (lessonId && !Number.isSafeInteger(lessonId))) {
+    return { error: { status: 400, message: 'Lớp hoặc bài giảng không hợp lệ' } };
+  }
+
+  return { questionTitle, questionContent, classId, lessonId };
+}
+
+async function getStudentQuestionContext({ classId, lessonId, studentId }) {
+  const lesson = lessonId ? await CourseLesson.findOne({ id: lessonId }) : null;
+  if (lessonId && !lesson) {
+    return { error: { status: 404, message: 'Không tìm thấy bài giảng' } };
+  }
+
+  let classItem = classId ? await Class.findOne({ id: classId }).populate('course') : null;
+  if (classId && !classItem) {
+    return { error: { status: 404, message: 'Không tìm thấy lớp học' } };
+  }
+  if (classItem && !await Enrollment.exists({ classId, studentId, status: 'ACTIVE' })) {
+    return { error: { status: 403, message: 'Bạn chưa ghi danh lớp học này' } };
+  }
+  if (classItem && lesson && classItem.courseId !== lesson.courseId) {
+    return { error: { status: 400, message: 'Bài giảng không thuộc khóa học của lớp' } };
+  }
+  if (!classItem && lesson) {
+    const candidateClasses = await Class.find({ courseId: lesson.courseId }).select('id');
+    const enrollment = await Enrollment.findOne({
+      classId: { $in: candidateClasses.map(item => item.id) },
+      studentId,
+      status: 'ACTIVE'
+    }).sort({ enrolledAt: -1 });
+    if (!enrollment) {
+      return { error: { status: 403, message: 'Bạn chưa ghi danh khóa học này' } };
+    }
+    classItem = await Class.findOne({ id: enrollment.classId }).populate('course');
+  }
+
+  return { lesson, classItem };
+}
+
 router.get('/teacher/dashboard', authenticateJWT, authorizeRoles('TEACHER'), async (req, res) => {
   try {
     const scope = await getTeacherScope(req.user.id);
@@ -220,51 +271,24 @@ router.get('/questions', authenticateJWT, authorizeRoles('TEACHER', 'STUDENT'), 
 
 router.post('/questions', authenticateJWT, authorizeRoles('STUDENT'), async (req, res) => {
   try {
-    const questionTitle = String(req.body.questionTitle || '').trim();
-    const questionContent = String(req.body.questionContent || '').trim();
-    const classId = req.body.classId ? Number.parseInt(req.body.classId, 10) : null;
-    const lessonId = req.body.lessonId ? Number.parseInt(req.body.lessonId, 10) : null;
-    if (!questionTitle || !questionContent || questionTitle.length > 200 || questionContent.length > 10000) {
-      return errorResponse(res, 'Vui lòng nhập tiêu đề và nội dung câu hỏi hợp lệ', 400);
-    }
-    if (!classId && !lessonId) return errorResponse(res, 'Câu hỏi cần gắn với lớp hoặc bài giảng', 400);
-    if ((classId && !Number.isSafeInteger(classId)) || (lessonId && !Number.isSafeInteger(lessonId))) {
-      return errorResponse(res, 'Lớp hoặc bài giảng không hợp lệ', 400);
-    }
-
-    const lesson = lessonId ? await CourseLesson.findOne({ id: lessonId }) : null;
-    if (lessonId && !lesson) return errorResponse(res, 'Không tìm thấy bài giảng', 404);
-    let classItem = classId ? await Class.findOne({ id: classId }).populate('course') : null;
-    if (classId && !classItem) return errorResponse(res, 'Không tìm thấy lớp học', 404);
-    if (classItem && !await Enrollment.exists({ classId, studentId: req.user.id, status: 'ACTIVE' })) {
-      return errorResponse(res, 'Bạn chưa ghi danh lớp học này', 403);
-    }
-    if (classItem && lesson && classItem.courseId !== lesson.courseId) {
-      return errorResponse(res, 'Bài giảng không thuộc khóa học của lớp', 400);
-    }
-    if (!classItem && lesson) {
-      const candidateClasses = await Class.find({ courseId: lesson.courseId }).select('id');
-      const enrollment = await Enrollment.findOne({
-        classId: { $in: candidateClasses.map(item => item.id) },
-        studentId: req.user.id,
-        status: 'ACTIVE'
-      }).sort({ enrolledAt: -1 });
-      if (!enrollment) return errorResponse(res, 'Bạn chưa ghi danh khóa học này', 403);
-      classItem = await Class.findOne({ id: enrollment.classId }).populate('course');
-    }
+    const input = parseQuestionInput(req.body);
+    if (input.error) return errorResponse(res, input.error.message, input.error.status);
+    const context = await getStudentQuestionContext({ ...input, studentId: req.user.id });
+    if (context.error) return errorResponse(res, context.error.message, context.error.status);
+    const { classItem, lesson } = context;
 
     const question = await CourseQuestion.create({
       studentId: req.user.id,
       classId: classItem?.id || null,
       lessonId: lesson?.id || null,
-      questionTitle,
-      questionContent
+      questionTitle: input.questionTitle,
+      questionContent: input.questionContent
     });
     const teacherId = classItem?.teacherId || classItem?.course?.instructorId;
     if (teacherId) {
       await Notification.create({
         userId: teacherId,
-        title: `Câu hỏi mới: ${questionTitle}`,
+        title: `Câu hỏi mới: ${input.questionTitle}`,
         message: `Học viên vừa gửi câu hỏi trong lớp ${classItem?.classCode || classItem?.course?.courseCode}.`,
         type: 'QA'
       });

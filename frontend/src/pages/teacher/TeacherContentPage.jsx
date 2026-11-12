@@ -47,8 +47,8 @@ const TeacherContentPage = () => {
     }
   };
 
-  useEffect(() => { loadTeacherData(); }, []);
-  useEffect(() => { loadLessons(selectedCourseId); }, [selectedCourseId]);
+  useEffect(() => { void loadTeacherData(); }, []);
+  useEffect(() => { void loadLessons(selectedCourseId); }, [selectedCourseId]);
 
   const openLessonForm = lesson => {
     setEditingLesson(lesson || null);

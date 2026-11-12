@@ -11,8 +11,11 @@ const xlsx = require('xlsx');
 const fs = require('fs');
 const upload = require('../../config/upload');
 
+const stringQueryValue = value => (typeof value === 'string' ? value : undefined);
+
 const teacherCanManageCourse = async (courseId, user) => {
   if (user.role === 'ADMIN') return true;
+  if (!Number.isSafeInteger(courseId)) return false;
   return Boolean(await Course.exists({
     id: courseId,
     $or: [
@@ -37,8 +40,8 @@ router.get('/students', authenticateJWT, authorizeRoles('ADMIN', 'TEACHER'), asy
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const pageSize = Math.max(1, parseInt(req.query.pageSize) || 10);
-    const search = (req.query.search || '').trim();
-    const status = req.query.status;
+    const search = (stringQueryValue(req.query.search) || '').trim();
+    const status = stringQueryValue(req.query.status);
 
     const where = {
       role: 'STUDENT',
@@ -620,7 +623,10 @@ router.put('/teachers/:id', authenticateJWT, authorizeRoles('ADMIN'), async (req
 // UC3.1: Lấy danh sách môn học & khóa học
 router.get('/courses', authenticateJWT, async (req, res) => {
   try {
-    const { status, category, deliveryMode, search } = req.query;
+    const status = stringQueryValue(req.query.status);
+    const category = stringQueryValue(req.query.category);
+    const deliveryMode = stringQueryValue(req.query.deliveryMode);
+    const search = stringQueryValue(req.query.search);
     const where = {
       ...(status ? { status } : {}),
       ...(category ? { category } : {}),

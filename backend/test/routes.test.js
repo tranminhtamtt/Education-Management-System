@@ -60,6 +60,17 @@ test('accountant RBAC, webhook authentication, removal of manual "mark paid" end
   assert.equal((await call('/accountant/reconcile', 'ACCOUNTANT', 'POST', { providerId: 1 })).status, 503);
 });
 
+test('student and course filters ignore object-shaped query values', async () => {
+  await seedBasic();
+  const students = await call('/students?status%5B%24ne%5D=ACTIVE', ['ADMIN', 2]);
+  assert.equal(students.status, 200);
+  assert.equal(students.body.data.items.length, 2);
+
+  const courses = await call('/courses?status%5B%24ne%5D=ACTIVE', ['ADMIN', 2]);
+  assert.equal(courses.status, 200);
+  assert.equal(courses.body.data.length, 3);
+});
+
 test('enrollment via API creates grade + UNPAID invoice; curriculum rules enforced; force only bypasses prerequisites', async () => {
   await seedBasic();
   const ok = await call('/classes/1/enrollments', ['ADMIN', 2], 'POST', { studentId: 10 });

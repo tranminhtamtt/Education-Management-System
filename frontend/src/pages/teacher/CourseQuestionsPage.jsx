@@ -16,6 +16,15 @@ const STATUS = {
   RESOLVED: { color: 'default', label: 'Đã đóng' }
 };
 
+const renderExpandedQuestion = item => (
+  <Alert
+    type="info"
+    showIcon
+    message={item.teacherAnswer ? `Trả lời: ${item.answeredBy?.fullName || 'Giảng viên'}` : 'Chưa có câu trả lời'}
+    description={item.teacherAnswer || 'Giảng viên sẽ phản hồi tại đây.'}
+  />
+);
+
 const CourseQuestionsPage = () => {
   const { user } = useAuth();
   const isTeacher = user?.role === 'TEACHER';
@@ -42,7 +51,7 @@ const CourseQuestionsPage = () => {
   };
 
   useEffect(() => {
-    loadQuestions();
+    void loadQuestions();
     if (!isTeacher) {
       apiClient.get('/classes', { params: { status: 'ONGOING' } })
         .then(res => setClasses(res.data || []))
@@ -179,14 +188,7 @@ const CourseQuestionsPage = () => {
               dataSource={questions}
               columns={columns}
               expandable={{
-                expandedRowRender: item => (
-                  <Alert
-                    type="info"
-                    showIcon
-                    message={item.teacherAnswer ? `Trả lời: ${item.answeredBy?.fullName || 'Giảng viên'}` : 'Chưa có câu trả lời'}
-                    description={item.teacherAnswer || 'Giảng viên sẽ phản hồi tại đây.'}
-                  />
-                )
+                expandedRowRender: renderExpandedQuestion
               }}
               pagination={{ pageSize: 8, showSizeChanger: false }}
               scroll={{ x: 700 }}

@@ -20,6 +20,12 @@ import {
 } from '@ant-design/icons';
 import { useAuth } from '../context/AuthContext';
 
+const getRoleLabel = (role, studentLabel, teacherLabel, defaultLabel) => {
+  if (role === 'STUDENT') return studentLabel;
+  if (role === 'TEACHER') return teacherLabel;
+  return defaultLabel;
+};
+
 const Sidebar = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -87,15 +93,13 @@ const Sidebar = () => {
     {
       key: '/attendance',
       icon: <CheckSquareOutlined />,
-      label: role === 'STUDENT'
-        ? 'Báo cáo Chuyên cần'
-        : role === 'TEACHER' ? 'Điểm danh lớp trực tuyến' : 'Quản lý Điểm danh'
+      label: getRoleLabel(role, 'Báo cáo Chuyên cần', 'Điểm danh lớp trực tuyến', 'Quản lý Điểm danh')
     },
     // Bài tập
     {
       key: '/assignments',
       icon: <FileTextOutlined />,
-      label: role === 'STUDENT' ? 'Bài tập & Nộp bài' : role === 'TEACHER' ? 'Bài tập & chấm bài' : 'Quản lý Bài tập'
+      label: getRoleLabel(role, 'Bài tập & Nộp bài', 'Bài tập & chấm bài', 'Quản lý Bài tập')
     },
     // Giảng viên nhập điểm cuối khóa; học viên xem bảng điểm.
     ...(['ADMIN', 'STUDENT', 'TEACHER'].includes(role)
