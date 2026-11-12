@@ -27,6 +27,7 @@ import {
   FileDoneOutlined
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import { useLocation } from 'react-router-dom';
 import apiClient from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { VietQRModal, ReceiptModal, PaymentHistory } from '../../components/tuition/TuitionModals';
@@ -38,6 +39,7 @@ const EMPTY_SUMMARY = { totalAmount: 0, paidAmount: 0, remainingAmount: 0, UNPAI
 
 const TuitionPage = () => {
   const { user } = useAuth();
+  const { state } = useLocation();
   const role = user?.role;
   const isAccountant = role === 'ACCOUNTANT';
   const isStudent = role === 'STUDENT';
@@ -52,7 +54,9 @@ const TuitionPage = () => {
   const [filters, setFilters] = useState({ search: '', status: [], classId: undefined, overdue: false });
 
   // Modals
-  const [qrInvoiceId, setQrInvoiceId] = useState(null);
+  const [qrInvoiceId, setQrInvoiceId] = useState(() => (
+    isStudent && Number.isSafeInteger(state?.invoiceId) && state.invoiceId > 0 ? state.invoiceId : null
+  ));
   const [receiptPaymentId, setReceiptPaymentId] = useState(null);
 
   const fetchInvoices = useCallback(async (silent = false) => {

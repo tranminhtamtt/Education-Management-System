@@ -47,6 +47,24 @@ async function seedBasic() {
   ]);
 }
 
+test('self-registration creates an active student and supports login without admin approval', async () => {
+  await seedBasic();
+  const payload = { fullName: 'Học viên mới', email: ' Buyer@Example.com ', password: 'buyer-password', role: 'ADMIN' };
+  const results = await Promise.all([
+    call('/auth/register', null, 'POST', payload),
+    call('/auth/register', null, 'POST', payload)
+  ]);
+  assert.deepEqual(results.map(result => result.status).sort(), [201, 409]);
+  const account = results.find(result => result.status === 201).body.data;
+  assert.equal(account.role, 'STUDENT');
+  assert.match(account.code, /^HV\d{8,}$/);
+  assert.equal(account.email, 'buyer@example.com');
+  assert.equal(account.passwordHash, undefined);
+  const login = await call('/auth/login', null, 'POST', { email: account.email, password: payload.password });
+  assert.equal(login.status, 200);
+  assert.equal(login.body.data.user.id, account.id);
+});
+
 test('accountant RBAC, webhook authentication, removal of manual "mark paid" endpoint', async () => {
   await seedBasic();
   assert.equal((await call('/accountant/transactions')).status, 401);
@@ -103,12 +121,17 @@ test('student pays via SePay webhook end-to-end; student sees only own orders/in
   await seedBasic();
   await call('/classes/1/enrollments', ['ADMIN', 2], 'POST', { studentId: 10 });
   const invoiceId = (await M.TuitionInvoice.findOne({ studentId: 10 })).id;
+  const enrollment = await M.Enrollment.findOne({ classId: 1, studentId: 10 });
   await M.CourseLesson.create([
-    { courseId: 1, title: 'Xem thử', isPreview: true },
-    { courseId: 1, title: 'Bài học chính' }
+    { courseId: 1, title: 'Xem thử', orderIndex: 1, isPreview: true, videoUrl: 'https://example.com/preview.mp4' },
+    { courseId: 1, title: 'Bài học chính', orderIndex: 2, videoUrl: 'https://example.com/paid.mp4' }
   ]);
   assert.equal((await call('/classes/1', ['STUDENT', 10])).status, 403);
-  assert.deepEqual((await call('/courses/1/lessons', ['STUDENT', 10])).body.data.map(l => l.title), ['Xem thử']);
+  const catalog = await call('/courses/catalog?unclassified=true', ['STUDENT', 10]);
+  assert.ok(catalog.body.data.items.some(course => course.id === 1));
+  const preview = await call('/courses/catalog/1', ['STUDENT', 10]);
+  assert.deepEqual(preview.body.data.lessons.map(lesson => lesson.videoUrl), ['https://example.com/preview.mp4', null]);
+  assert.equal((await call(`/my-courses/${enrollment.id}`, ['STUDENT', 10])).status, 404);
   assert.equal((await call('/payment-orders', ['STUDENT', 11], 'POST', { invoiceId })).status, 403);
   const order = await call('/payment-orders', ['STUDENT', 10], 'POST', { invoiceId });
   assert.equal(order.status, 200, JSON.stringify(order.body));
@@ -124,7 +147,10 @@ test('student pays via SePay webhook end-to-end; student sees only own orders/in
   assert.equal((await call('/payments/sepay/webhook', null, 'POST', hook, { Authorization: 'Apikey test-webhook-key' })).body.data.duplicate, true);
   assert.equal((await M.Enrollment.findOne({ classId: 1, studentId: 10 })).status, 'ACTIVE');
   assert.equal((await call('/classes/1', ['STUDENT', 10])).status, 200);
-  assert.equal((await call('/courses/1/lessons', ['STUDENT', 10])).body.data.length, 2);
+  const learning = await call(`/my-courses/${enrollment.id}`, ['STUDENT', 10]);
+  assert.equal(learning.status, 200);
+  assert.equal(learning.body.data.lessons[1].videoUrl, 'https://example.com/paid.mp4');
+  assert.equal(await M.Notification.countDocuments({ userId: 10, message: /Bạn đã được cấp quyền học khóa học/ }), 1);
 
   const status = await call(`/payment-orders/${order.body.data.id}`, ['STUDENT', 10]);
   assert.equal(status.body.data.invoiceStatus, 'PAID');

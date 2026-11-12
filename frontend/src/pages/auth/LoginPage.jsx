@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Card, Form, Input, Button, Typography, Space, Alert, message, Divider } from 'antd';
 import { UserOutlined, LockOutlined, LoginOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 
 const { Title, Text, Paragraph } = Typography;
@@ -12,6 +12,7 @@ const LoginPage = () => {
   const [errorMsg, setErrorMsg] = useState('');
   const { login } = useAuth();
   const navigate = useNavigate();
+  const { state } = useLocation();
 
   const handleFinish = async (values) => {
     try {
@@ -87,7 +88,11 @@ const LoginPage = () => {
           />
         )}
 
-        <Form form={form} layout="vertical" onFinish={handleFinish} requiredMark={false}>
+        {state?.studentCode && !errorMsg && (
+          <Alert type="success" showIcon message={`Đăng ký thành công. Mã học viên: ${state.studentCode}`} style={{ marginBottom: 20 }} />
+        )}
+
+        <Form form={form} layout="vertical" onFinish={handleFinish} initialValues={{ email: state?.email }} requiredMark={false}>
           <Form.Item
             name="email"
             rules={[
@@ -132,6 +137,7 @@ const LoginPage = () => {
             </Button>
           </Form.Item>
         </Form>
+        <Link to="/register">Đăng ký tài khoản học viên</Link>
 
         <Divider plain style={{ margin: '18px 0', fontSize: 12, color: '#8c8c8c' }}>
           Tài khoản kiểm thử nhanh (Mật khẩu: 123456)

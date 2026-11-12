@@ -1,7 +1,44 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { User } = require('../../models');
+const { User, nextIds } = require('../../models');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
+
+const register = async (req, res) => {
+  const { fullName, email, password } = req.body || {};
+  const name = typeof fullName === 'string' ? fullName.trim() : '';
+  const address = typeof email === 'string' ? email.trim().toLowerCase() : '';
+  if (!name || name.length > 100 || address.length > 100 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) {
+    return errorResponse(res, 'Vui lòng nhập họ tên và email hợp lệ.', 400);
+  }
+  if (typeof password !== 'string' || password.trim().length < 8 || Buffer.byteLength(password, 'utf8') > 72) {
+    return errorResponse(res, 'Mật khẩu cần ít nhất 8 ký tự và tối đa 72 byte.', 400);
+  }
+
+  try {
+    if (await User.exists({ email: address }).collation({ locale: 'en', strength: 2 })) {
+      return errorResponse(res, 'Email đã được đăng ký.', 409);
+    }
+    const passwordHash = await bcrypt.hash(password, 10);
+    const year = Number(new Intl.DateTimeFormat('en', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric' }).format(new Date()));
+    let code;
+    do {
+      const sequence = await nextIds(`student_registration_${year}`);
+      code = `HV${year}${String(sequence).padStart(4, '0')}`;
+    } while (await User.exists({ code }));
+
+    const user = await User.create({
+      code, email: address, fullName: name, passwordHash, role: 'STUDENT', status: 'ACTIVE',
+      studentProfile: { enrollmentYear: year }
+    });
+    return successResponse(res, { id: user.id, code, email: address, fullName: name, role: user.role },
+      'Đăng ký tài khoản học viên thành công.', 201);
+  } catch (error) {
+    if (error.code === 11000 && error.keyPattern?.email) return errorResponse(res, 'Email đã được đăng ký.', 409);
+    if (error.code === 11000) return errorResponse(res, 'Mã học viên vừa được sử dụng. Vui lòng đăng ký lại.', 409);
+    console.error('Student registration failed:', error.name);
+    return errorResponse(res, 'Đã xảy ra lỗi khi đăng ký tài khoản.', 500);
+  }
+};
 
 const login = async (req, res) => {
   try {
@@ -83,6 +120,7 @@ const getMe = async (req, res) => {
 };
 
 module.exports = {
+  register,
   login,
   getMe
 };

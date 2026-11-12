@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Button, Card, Col, Collapse, Empty, Form, Input, List, Modal, Progress, Row, Select, Space, Spin, Statistic, Table, Tabs, Tag, Typography, message } from 'antd';
+import { Alert, Button, Card, Col, Collapse, Empty, Form, Input, List, Modal, Pagination, Progress, Row, Select, Space, Spin, Statistic, Table, Tabs, Tag, Typography, message } from 'antd';
 import { BookOutlined, PlayCircleOutlined, ShoppingCartOutlined, CheckCircleOutlined, CommentOutlined } from '@ant-design/icons';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -36,6 +36,9 @@ export function CatalogPage() {
   const certs = useData('/subjects?category=CERTIFICATE');
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState('FPT_SUBJECT');
+  const [page, setPage] = useState(1);
+  const [courseId, setCourseId] = useState(null);
+  const unclassified = useData(`/courses/catalog?unclassified=true&page=${page}&search=${encodeURIComponent(search.trim())}`);
   const keyword = search.trim().toLowerCase();
   const match = s => !keyword || s.code.toLowerCase().includes(keyword) || s.name.toLowerCase().includes(keyword);
   const fptList = (fpt.data || []).filter(match);
@@ -46,7 +49,7 @@ export function CatalogPage() {
 
   return <Space direction="vertical" size="large" style={{ width: '100%' }}>
     <div><Title level={3} style={{ marginBottom: 4 }}>Khám phá khóa học</Title><Text type="secondary">Chọn môn học hoặc chứng chỉ để xem các khóa học: video quay sẵn hoặc lớp học online cùng giảng viên.</Text></div>
-    <Input.Search placeholder="Tìm theo mã hoặc tên môn / chứng chỉ (VD: PRF192, IELTS)…" value={search} onChange={e => setSearch(e.target.value)} allowClear style={{ maxWidth: 460 }} />
+    <Input.Search placeholder="Tìm theo mã hoặc tên khóa học" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} allowClear style={{ maxWidth: 460 }} />
     <Tabs activeKey={tab} onChange={setTab} items={[
       {
         key: 'FPT_SUBJECT',
@@ -65,8 +68,26 @@ export function CatalogPage() {
         children: certs.error ? <LoadError reload={certs.reload} /> : <Spin spinning={certs.loading}>
           {!certs.loading && !certList.length ? <Empty description="Không tìm thấy chứng chỉ phù hợp" /> : grid(certList)}
         </Spin>
+      },
+      {
+        key: 'UNCLASSIFIED',
+        label: 'Khóa học khác',
+        children: unclassified.error ? <LoadError reload={unclassified.reload} /> : <Spin spinning={unclassified.loading}>
+          <List grid={{ gutter: 12, xs: 1, md: 2, xl: 3 }} dataSource={unclassified.data?.items || []} rowKey="id"
+            locale={{ emptyText: 'Không tìm thấy khóa học' }}
+            renderItem={item => <List.Item><Card size="small" title={item.name}>
+              <Space direction="vertical">
+                <CourseTags course={item} />
+                <Text strong>{money(item.baseTuitionFee)}</Text>
+                <Button type="primary" onClick={() => setCourseId(item.id)}>Xem chi tiết</Button>
+              </Space>
+            </Card></List.Item>} />
+          <Pagination current={page} pageSize={unclassified.data?.pageSize || 12} total={unclassified.data?.total || 0}
+            onChange={setPage} showSizeChanger={false} hideOnSinglePage />
+        </Spin>
       }
     ]} />
+    <CourseDetailModal courseId={courseId} onClose={() => setCourseId(null)} />
   </Space>;
 }
 
@@ -145,7 +166,14 @@ function CourseDetailModal({ courseId, onClose }) {
     try {
       const res = await api.post(`/courses/${detail.id}/purchase`, { classId });
       message.success(res.message);
-      navigate(res.data.enrollment.status === 'ACTIVE' ? `/my-courses/${res.data.enrollment.id}` : '/tuition');
+      const { enrollment, invoice } = res.data;
+      if (invoice && invoice.amount > invoice.paidAmount) {
+        navigate('/tuition', { state: { invoiceId: invoice.id } });
+      } else if (enrollment.status === 'ACTIVE') {
+        navigate(`/my-courses/${enrollment.id}`);
+      } else {
+        navigate('/tuition');
+      }
     } catch (error) { errorMessage(error); } finally { setBuying(false); }
   };
   return <Modal open={!!courseId} onCancel={() => !buying && onClose()} width={820} title={detail?.name || 'Chi tiết khóa học'} footer={null}>
@@ -188,7 +216,7 @@ export function MyLearningPage() {
         <div style={{ marginTop: 'auto' }}>
           {e.status === 'PENDING_PAYMENT' ? <>
             <Paragraph style={{ marginBottom: 8 }}>Còn thiếu: <Text strong style={{ color: '#F26F21' }}>{money(Math.max(0, (e.tuitionInvoice?.amount || 0) - (e.tuitionInvoice?.paidAmount || 0)))}</Text></Paragraph>
-            <Link to="/tuition"><Button type="primary" block>Thanh toán VietQR</Button></Link>
+            <Link to="/tuition" state={{ invoiceId: e.tuitionInvoice?.id }}><Button type="primary" block>Thanh toán VietQR</Button></Link>
           </> : <>
             {e.class.course.deliveryMode === 'RECORDED' && <Progress percent={e.progressPercent || 0} />}
             <Link to={`/my-courses/${e.id}`}><Button type="primary" icon={<PlayCircleOutlined />} block style={{ marginTop: 8 }}>Vào học</Button></Link>

@@ -115,6 +115,7 @@ router.get('/subjects/:id', roles('STUDENT', 'ADMIN'), endpoint(async (req, res)
 
 router.get('/courses/catalog', roles('STUDENT', 'ADMIN'), endpoint(async (req, res) => {
   const filter = { status: 'ACTIVE' };
+  if (req.query.unclassified === 'true') filter.subjectId = null;
   for (const [field, choices] of Object.entries({ category: ['FPT_SUBJECT', 'CERTIFICATE'], deliveryMode: ['RECORDED', 'LIVE_ONLINE'] })) {
     if (req.query[field]) {
       if (!choices.includes(req.query[field])) throw httpError('Bộ lọc khóa học không hợp lệ');
@@ -159,22 +160,27 @@ router.post('/courses/:id/purchase', roles('STUDENT'), endpoint(async (req, res)
     const course = await lockDoc(M.Course, { id: courseId, status: 'ACTIVE' }, session);
     const student = await lockDoc(M.User, { id: req.user.id, role: 'STUDENT', status: 'ACTIVE' }, session);
     if (!course || !student) throw httpError('Khóa học hoặc tài khoản không khả dụng', 404);
+    const courseClasses = await M.Class.find({ courseId }).select('id').session(session);
+    const existing = await M.Enrollment.findOne({
+      studentId: req.user.id,
+      classId: { $in: courseClasses.map(c => c.id) },
+      status: { $in: ['ACTIVE', 'PENDING_PAYMENT'] }
+    }).session(session);
+    if (existing) {
+      const invoice = await M.TuitionInvoice.findOne({ enrollmentId: existing.id }).session(session);
+      return { enrollment: plain(existing), invoice: plain(invoice), existing: true };
+    }
+
     let classItem;
     if (course.deliveryMode === 'RECORDED') {
-      classItem = await M.Class.findOne({ classCode: `VIDEO-${course.id}` }).session(session);
+      classItem = await M.Class.findOne({ courseId, classCode: `VIDEO-${course.id}` }).session(session);
       if (!classItem) [classItem] = await M.Class.create([{
         classCode: `VIDEO-${course.id}`, courseId, teacherId: course.instructorId,
         semester: 'SELF_PACED', status: 'ONGOING', maxStudents: 2147483647
       }], { session });
     } else {
-      classItem = await lockDoc(M.Class, { id: id(req.body.classId), courseId, status: { $in: ['UPCOMING', 'ONGOING'] } }, session);
+      classItem = await lockDoc(M.Class, { id: id(req.body?.classId), courseId, status: { $in: ['UPCOMING', 'ONGOING'] } }, session);
       if (!classItem) throw httpError('Lớp Live không mở đăng ký', 404);
-    }
-    const courseClasses = await M.Class.find({ courseId }).select('id').session(session);
-    const existing = await M.Enrollment.findOne({ studentId: req.user.id, classId: { $in: courseClasses.map(c => c.id) }, status: { $in: ['ACTIVE', 'PENDING_PAYMENT'] } }).session(session);
-    if (existing) {
-      const invoice = await M.TuitionInvoice.findOne({ enrollmentId: existing.id }).session(session);
-      return { enrollment: plain(existing), invoice: plain(invoice), existing: true };
     }
     if (await M.Enrollment.exists({ classId: classItem.id, studentId: req.user.id, status: 'DROPPED' }).session(session)) throw httpError('Đăng ký trước đã ngừng học. Vui lòng liên hệ giáo vụ để đăng ký lại', 409);
     if (course.deliveryMode === 'LIVE_ONLINE') {
