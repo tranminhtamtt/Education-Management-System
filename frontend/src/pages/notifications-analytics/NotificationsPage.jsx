@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Card, Button, Tag, Space, Modal, Form, Input, Select, Typography, message, Badge } from 'antd';
+import { Table, Card, Button, Tag, Space, Modal, Form, Input, Select, Typography, message, Badge, Radio } from 'antd';
 import { PlusOutlined, NotificationOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import apiClient from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
@@ -14,6 +14,8 @@ const NotificationsPage = () => {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(false);
   const [classes, setClasses] = useState([]);
+  const [courses, setCourses] = useState([]);
+  const [targetScope, setTargetScope] = useState('BROADCAST');
 
   // Modal Gửi Thông Báo Mới (Admin)
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -45,10 +47,22 @@ const NotificationsPage = () => {
     }
   };
 
+  const fetchCourses = async () => {
+    try {
+      const res = await apiClient.get('/courses');
+      if (res.success) {
+        setCourses(res.data);
+      }
+    } catch (err) {
+      console.error('Error fetching courses:', err);
+    }
+  };
+
   useEffect(() => {
     fetchNotifications();
     if (isAdmin) {
       fetchClasses();
+      fetchCourses();
     }
   }, [isAdmin]);
 
@@ -67,11 +81,20 @@ const NotificationsPage = () => {
   const handleSendNotification = async (values) => {
     try {
       setSending(true);
-      const res = await apiClient.post('/notifications/broadcast', values);
+      const payload = {
+        title: values.title,
+        message: values.message,
+        type: values.type || 'SYSTEM',
+        targetScope: values.targetScope || 'BROADCAST',
+        courseId: values.targetScope === 'COURSE' ? values.courseId : undefined,
+        classId: values.targetScope === 'CLASS' ? values.classId : undefined
+      };
+      const res = await apiClient.post('/notifications', payload);
       if (res.success) {
-        message.success('Phát hành thông báo thành công');
+        message.success(res.message || 'Phát hành thông báo thành công');
         setCreateModalOpen(false);
         form.resetFields();
+        setTargetScope('BROADCAST');
         fetchNotifications();
       }
     } catch (err) {
@@ -202,16 +225,54 @@ const NotificationsPage = () => {
             />
           </Form.Item>
 
-          <Form.Item name="classId" label="Gửi riêng theo Lớp học phần (Để trống nếu gửi toàn trường)">
-            <Select
-              placeholder="Chọn lớp học (hoặc bỏ trống gửi toàn trường)"
-              allowClear
-              options={classes.map(c => ({
-                label: `${c.classCode} - ${c.course.name}`,
-                value: c.id
-              }))}
-            />
+          <Form.Item
+            name="targetScope"
+            label="Phạm vi phát hành thông báo"
+            initialValue="BROADCAST"
+            rules={[{ required: true }]}
+          >
+            <Radio.Group onChange={(e) => setTargetScope(e.target.value)}>
+              <Radio.Button value="BROADCAST">📢 Toàn Trung tâm (SYSTEM)</Radio.Button>
+              <Radio.Button value="COURSE">📚 Theo Khóa học</Radio.Button>
+              <Radio.Button value="CLASS">🏫 Theo Lớp học</Radio.Button>
+            </Radio.Group>
           </Form.Item>
+
+          {targetScope === 'COURSE' && (
+            <Form.Item
+              name="courseId"
+              label="Chọn môn / Khóa học"
+              rules={[{ required: true, message: 'Vui lòng chọn môn / khóa học' }]}
+            >
+              <Select
+                placeholder="Chọn môn FPT hoặc Chứng chỉ CCNA/IELTS"
+                showSearch
+                optionFilterProp="label"
+                options={courses.map(c => ({
+                  label: `[${c.category === 'CERTIFICATE' ? 'Chứng chỉ' : 'FPT'}] ${c.code} - ${c.name}`,
+                  value: c.id
+                }))}
+              />
+            </Form.Item>
+          )}
+
+          {targetScope === 'CLASS' && (
+            <Form.Item
+              name="classId"
+              label="Chọn Lớp học phần"
+              rules={[{ required: true, message: 'Vui lòng chọn lớp học phần' }]}
+            >
+              <Select
+                placeholder="Chọn lớp học phần"
+                showSearch
+                optionFilterProp="label"
+                options={classes.map(c => ({
+                  label: `${c.classCode} - ${c.course?.name || ''}`,
+                  value: c.id
+                }))}
+              />
+            </Form.Item>
+          )}
 
           <Form.Item
             name="message"

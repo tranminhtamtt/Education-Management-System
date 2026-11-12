@@ -10,6 +10,7 @@ import LoginPage from './pages/auth/LoginPage';
 import DashboardPage from './pages/dashboard/DashboardPage';
 
 // Cụm 1: Quản trị Hồ sơ & Môn học
+import UsersPage from './pages/users-courses/UsersPage';
 import StudentsPage from './pages/users-courses/StudentsPage';
 import TeachersPage from './pages/users-courses/TeachersPage';
 import CoursesPage from './pages/users-courses/CoursesPage';
@@ -44,6 +45,7 @@ const DashboardRoute = () => {
   const { user } = useAuth();
   return user?.role === 'STUDENT' ? <StudentDashboard /> : <DashboardPage />;
 };
+
 
 const TuitionReportRoute = () => {
   const { user } = useAuth();
@@ -93,6 +95,7 @@ const App = () => {
               <Route path="questions" element={<RoleRoute allowed={['STUDENT', 'TEACHER', 'ADMIN']}><CourseQuestionsRoute /></RoleRoute>} />
 
               {/* Cụm 1 */}
+              <Route path="users" element={<RoleRoute allowed={['ADMIN']}><UsersPage /></RoleRoute>} />
               <Route path="students" element={<RoleRoute allowed={['ADMIN']}><StudentsPage /></RoleRoute>} />
               <Route path="teachers" element={<RoleRoute allowed={['ADMIN']}><TeachersPage /></RoleRoute>} />
               <Route path="courses" element={<RoleRoute allowed={['ADMIN', 'TEACHER']}><CoursesPage /></RoleRoute>} />

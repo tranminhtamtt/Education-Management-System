@@ -9,7 +9,9 @@ import {
   FileTextOutlined,
   MessageOutlined,
   ReadOutlined,
-  VideoCameraOutlined
+  VideoCameraOutlined,
+  BookOutlined,
+  CheckCircleOutlined
 } from '@ant-design/icons';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, PieChart, Pie, Cell } from 'recharts';
 import apiClient from '../../api/client';
@@ -102,18 +104,19 @@ const DashboardPage = () => {
       ======================================================== */}
       {role === 'ADMIN' && adminData && (
         <>
+          {/* 4 KPI Tổng quan theo chuẩn System Admin */}
           <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
             <Col xs={24} sm={12} lg={6}>
-              <Card bordered={false}>
+              <Card bordered={false} hoverable>
                 <Statistic
-                  title="Tổng số Sinh viên"
+                  title="Tổng số Học viên"
                   value={adminData.kpi.totalStudents}
                   prefix={<UserOutlined style={{ color: '#F26F21', marginRight: 8 }} />}
                 />
               </Card>
             </Col>
             <Col xs={24} sm={12} lg={6}>
-              <Card bordered={false}>
+              <Card bordered={false} hoverable>
                 <Statistic
                   title="Tổng số Giảng viên"
                   value={adminData.kpi.totalTeachers}
@@ -122,19 +125,19 @@ const DashboardPage = () => {
               </Card>
             </Col>
             <Col xs={24} sm={12} lg={6}>
-              <Card bordered={false}>
+              <Card bordered={false} hoverable>
                 <Statistic
-                  title="Lớp đang vận hành"
-                  value={adminData.kpi.activeClasses}
+                  title="Khóa & Lớp đang mở"
+                  value={`${adminData.kpi.totalCourses || 0} Khóa / ${adminData.kpi.activeClasses || 0} Lớp`}
                   prefix={<ApartmentOutlined style={{ color: '#52c41a', marginRight: 8 }} />}
                 />
               </Card>
             </Col>
             <Col xs={24} sm={12} lg={6}>
-              <Card bordered={false}>
+              <Card bordered={false} hoverable>
                 <Statistic
-                  title="Học phí đã thu"
-                  value={adminData.financial.paidAmount}
+                  title="Doanh thu Trung tâm"
+                  value={adminData.kpi.totalRevenue || adminData.financial?.paidAmount || 0}
                   suffix="VNĐ"
                   prefix={<DollarCircleOutlined style={{ color: '#faad14', marginRight: 8 }} />}
                   formatter={(val) => Number(val).toLocaleString('vi-VN')}
@@ -143,17 +146,108 @@ const DashboardPage = () => {
             </Col>
           </Row>
 
+          {/* Thống kê chuyên sâu: Khóa FPT vs Chứng chỉ CCNA/IELTS + Hình thức & Tỷ lệ hoàn thành */}
+          <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+            <Col xs={24} lg={14}>
+              <Card
+                title={
+                  <Space>
+                    <BookOutlined style={{ color: '#F26F21' }} />
+                    <span>Thống kê Khóa học FPT vs. Chứng chỉ CCNA/IELTS</span>
+                  </Space>
+                }
+                bordered={false}
+              >
+                <div style={{ height: 280 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={adminData.courseCategoryComparison || [
+                        { name: 'Khóa học FPT', courses: 0, students: 0 },
+                        { name: 'Chứng chỉ (CCNA/IELTS)', courses: 0, students: 0 }
+                      ]}
+                      margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                    >
+                      <XAxis dataKey="name" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="courses" name="Số môn / Khóa học" fill="#F26F21" radius={[6, 6, 0, 0]} />
+                      <Bar dataKey="students" name="Số lượt Học viên ghi danh" fill="#722ED1" radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-around' }}>
+                  <Tag color="orange" style={{ padding: '4px 12px', fontSize: 13 }}>
+                    Môn FPT: {adminData.courseStats?.fptCoursesCount || 0} khóa ({adminData.courseStats?.fptEnrollments || 0} HV)
+                  </Tag>
+                  <Tag color="purple" style={{ padding: '4px 12px', fontSize: 13 }}>
+                    Chứng chỉ Quốc tế: {adminData.courseStats?.certificateCoursesCount || 0} khóa ({adminData.courseStats?.certificateEnrollments || 0} HV)
+                  </Tag>
+                </div>
+              </Card>
+            </Col>
+
+            <Col xs={24} lg={10}>
+              <Card
+                title={
+                  <Space>
+                    <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                    <span>Hình thức Đào tạo & Tỷ lệ Hoàn thành</span>
+                  </Space>
+                }
+                bordered={false}
+              >
+                <div style={{ height: 200 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={adminData.deliveryModeComparison || []}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={50}
+                        outerRadius={80}
+                        paddingAngle={5}
+                        dataKey="value"
+                        label={({ name, value }) => `${value}`}
+                      >
+                        {(adminData.deliveryModeComparison || []).map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div style={{ marginTop: 16, padding: '12px 16px', background: '#fafafa', borderRadius: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <Text strong>Tỷ lệ hoàn thành đào tạo:</Text>
+                    <Text strong style={{ color: '#52c41a' }}>
+                      {adminData.kpi.completionRate || 0}%
+                    </Text>
+                  </div>
+                  <Progress
+                    percent={adminData.kpi.completionRate || 0}
+                    strokeColor="#52c41a"
+                    status="active"
+                  />
+                </div>
+              </Card>
+            </Col>
+          </Row>
+
+          {/* Biểu đồ tài chính và kết quả học lực */}
           <Row gutter={[16, 16]}>
             <Col xs={24} lg={14}>
               <Card title="Thống kê Tài chính Học phí" bordered={false}>
-                <div style={{ height: 300 }}>
+                <div style={{ height: 280 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                       data={[
                         {
                           name: 'Tổng tiền',
-                          'Đã thu': adminData.financial.paidAmount,
-                          'Còn nợ': adminData.financial.debtAmount
+                          'Đã thu': adminData.financial?.paidAmount || 0,
+                          'Còn nợ': adminData.financial?.debtAmount || 0
                         }
                       ]}
                       margin={{ top: 20, right: 30, left: 40, bottom: 5 }}
@@ -169,29 +263,29 @@ const DashboardPage = () => {
                 </div>
                 <div style={{ marginTop: 12, textAlign: 'center' }}>
                   <Text type="secondary">
-                    Tỷ lệ hoàn thành công nợ: <b>{adminData.financial.paidRate}%</b>
+                    Tỷ lệ hoàn thành công nợ: <b>{adminData.financial?.paidRate || 0}%</b>
                   </Text>
-                  <Progress percent={adminData.financial.paidRate} strokeColor="#52c41a" status="active" />
+                  <Progress percent={adminData.financial?.paidRate || 0} strokeColor="#52c41a" status="active" />
                 </div>
               </Card>
             </Col>
 
             <Col xs={24} lg={10}>
               <Card title="Tỷ lệ Học lực & Qua môn toàn trường" bordered={false}>
-                <div style={{ height: 300 }}>
+                <div style={{ height: 280 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
-                        data={adminData.academicPerformance}
+                        data={adminData.academicPerformance || []}
                         cx="50%"
                         cy="50%"
                         innerRadius={60}
-                        outerRadius={100}
+                        outerRadius={95}
                         paddingAngle={5}
                         dataKey="value"
                         label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                       >
-                        {adminData.academicPerformance.map((entry, index) => (
+                        {(adminData.academicPerformance || []).map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={entry.color} />
                         ))}
                       </Pie>

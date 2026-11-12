@@ -44,22 +44,46 @@ router.get('/notifications', authenticateJWT, async (req, res) => {
   }
 });
 
-// UC10.1: Admin gửi thông báo broadcast
-router.post('/notifications/broadcast', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
+// UC10.1: Admin gửi thông báo (toàn trường, theo khóa học, lớp học hoặc cá nhân)
+const handleSendNotification = async (req, res) => {
   try {
-    const { title, message, type, classId } = req.body;
+    const { title, message, type, classId, courseId, userId } = req.body;
 
     if (!title || !message) {
       return errorResponse(res, 'Tiêu đề và nội dung thông báo là bắt buộc', 400);
     }
 
-    if (classId) {
+    if (userId) {
+      // Gửi riêng cho một người dùng cụ thể
+      await Notification.create({
+        userId: parseInt(userId),
+        title,
+        message,
+        type: type || 'SYSTEM'
+      });
+    } else if (classId) {
       // Gửi riêng cho sinh viên trong lớp học phần
       const enrollments = await Enrollment.find({ classId: parseInt(classId), status: 'ACTIVE' }).select('studentId');
+      const studentIds = [...new Set(enrollments.map(e => e.studentId))];
 
-      if (enrollments.length > 0) {
-        await Notification.insertMany(enrollments.map(e => ({
-          userId: e.studentId,
+      if (studentIds.length > 0) {
+        await Notification.insertMany(studentIds.map(uid => ({
+          userId: uid,
+          title,
+          message,
+          type: type || 'SYSTEM'
+        })));
+      }
+    } else if (courseId) {
+      // Gửi cho toàn bộ học viên theo khóa học (FPT hoặc Chứng chỉ CCNA/IELTS)
+      const classes = await Class.find({ courseId: parseInt(courseId) }).select('id');
+      const classIds = classes.map(c => c.id);
+      const enrollments = await Enrollment.find({ classId: { $in: classIds }, status: 'ACTIVE' }).select('studentId');
+      const studentIds = [...new Set(enrollments.map(e => e.studentId))];
+
+      if (studentIds.length > 0) {
+        await Notification.insertMany(studentIds.map(uid => ({
+          userId: uid,
           title,
           message,
           type: type || 'SYSTEM'
@@ -80,7 +104,10 @@ router.post('/notifications/broadcast', authenticateJWT, authorizeRoles('ADMIN')
     console.error('Error broadcasting notification:', error);
     return errorResponse(res, 'Lỗi gửi thông báo', 500);
   }
-});
+};
+
+router.post('/notifications', authenticateJWT, authorizeRoles('ADMIN'), handleSendNotification);
+router.post('/notifications/broadcast', authenticateJWT, authorizeRoles('ADMIN'), handleSendNotification);
 
 // Đánh dấu tất cả là đã đọc (đăng ký trước /:id/read)
 router.patch('/notifications/read-all', authenticateJWT, async (req, res) => {
@@ -277,7 +304,7 @@ router.patch('/requests/:id/review', authenticateJWT, authorizeRoles('ADMIN'), a
 // 3. REPORT & ANALYTICS (UC12.1 - UC12.2)
 // ==========================================
 
-// UC12.1: Admin Dashboard KPI & Biểu đồ
+// UC12.1: Admin Dashboard KPI & Biểu đồ (4 KPI tổng, thống kê khóa học FPT vs. Chứng chỉ CCNA/IELTS)
 router.get('/analytics/admin-overview', authenticateJWT, authorizeRoles('ADMIN'), async (req, res) => {
   try {
     const [
@@ -287,15 +314,43 @@ router.get('/analytics/admin-overview', authenticateJWT, authorizeRoles('ADMIN')
       activeClasses,
       tuitionAggregate,
       gradesStats,
-      pendingRequestsCount
+      pendingRequestsCount,
+      fptCoursesCount,
+      certificateCoursesCount,
+      recordedCoursesCount,
+      liveCoursesCount,
+      totalEnrollments,
+      completedEnrollments
     ] = await Promise.all([
       User.countDocuments({ role: 'STUDENT', status: 'ACTIVE' }),
       User.countDocuments({ role: 'TEACHER', status: 'ACTIVE' }),
-      Course.countDocuments(),
-      Class.countDocuments({ status: 'ONGOING' }),
+      Course.countDocuments({ status: 'ACTIVE' }),
+      Class.countDocuments({ status: { $in: ['UPCOMING', 'ONGOING'] } }),
       TuitionInvoice.aggregate([{ $group: { _id: null, amount: { $sum: '$amount' }, paidAmount: { $sum: '$paidAmount' } } }]),
       Grade.aggregate([{ $match: { totalScore: { $ne: null } } }, { $group: { _id: '$isPassed', n: { $sum: 1 } } }]),
-      StudentRequest.countDocuments({ status: 'PENDING' })
+      StudentRequest.countDocuments({ status: 'PENDING' }),
+      Course.countDocuments({ category: 'FPT_SUBJECT' }),
+      Course.countDocuments({ category: 'CERTIFICATE' }),
+      Course.countDocuments({ deliveryMode: 'RECORDED' }),
+      Course.countDocuments({ deliveryMode: 'LIVE_ONLINE' }),
+      Enrollment.countDocuments(),
+      Enrollment.countDocuments({ $or: [{ progressPercent: 100 }, { status: 'COMPLETED' }] })
+    ]);
+
+    // Thống kê số lượng ghi danh theo nhóm FPT vs Chứng chỉ
+    const [fptCourseIds, certCourseIds] = await Promise.all([
+      Course.find({ category: 'FPT_SUBJECT' }).distinct('id'),
+      Course.find({ category: 'CERTIFICATE' }).distinct('id')
+    ]);
+
+    const [fptClassIds, certClassIds] = await Promise.all([
+      Class.find({ courseId: { $in: fptCourseIds } }).distinct('id'),
+      Class.find({ courseId: { $in: certCourseIds } }).distinct('id')
+    ]);
+
+    const [fptEnrollments, certificateEnrollments] = await Promise.all([
+      Enrollment.countDocuments({ classId: { $in: fptClassIds } }),
+      Enrollment.countDocuments({ classId: { $in: certClassIds } })
     ]);
 
     const totalAmount = Number(tuitionAggregate[0]?.amount || 0);
@@ -305,15 +360,21 @@ router.get('/analytics/admin-overview', authenticateJWT, authorizeRoles('ADMIN')
     const passedCount = gradesStats.find(g => g._id === true)?.n || 0;
     const failedCount = gradesStats.find(g => g._id === false)?.n || 0;
 
+    const completionRate = totalEnrollments > 0
+      ? parseFloat(((completedEnrollments / totalEnrollments) * 100).toFixed(1))
+      : (passedCount + failedCount > 0 ? parseFloat(((passedCount / (passedCount + failedCount)) * 100).toFixed(1)) : 0);
+
     return successResponse(
       res,
       {
         kpi: {
           totalStudents,
           totalTeachers,
-          totalCourses,
+          totalCourses: totalCourses || (fptCoursesCount + certificateCoursesCount),
           activeClasses,
-          pendingRequestsCount
+          pendingRequestsCount,
+          totalRevenue: paidAmount,
+          completionRate
         },
         financial: {
           totalAmount,
@@ -324,6 +385,22 @@ router.get('/analytics/admin-overview', authenticateJWT, authorizeRoles('ADMIN')
         academicPerformance: [
           { name: 'Đạt (Passed)', value: passedCount, color: '#52c41a' },
           { name: 'Chưa đạt (Failed)', value: failedCount, color: '#ff4d4f' }
+        ],
+        courseStats: {
+          fptCoursesCount,
+          certificateCoursesCount,
+          recordedCoursesCount,
+          liveCoursesCount,
+          fptEnrollments,
+          certificateEnrollments
+        },
+        courseCategoryComparison: [
+          { name: 'Khóa học FPT', courses: fptCoursesCount, students: fptEnrollments, color: '#F26F21' },
+          { name: 'Chứng chỉ (CCNA/IELTS)', courses: certificateCoursesCount, students: certificateEnrollments, color: '#722ED1' }
+        ],
+        deliveryModeComparison: [
+          { name: 'Video tự học (RECORDED)', value: recordedCoursesCount, color: '#1677FF' },
+          { name: 'Học trực tuyến (LIVE_ONLINE)', value: liveCoursesCount, color: '#52C41A' }
         ]
       },
       'Lấy số liệu KPI tổng quan Admin thành công'
