@@ -67,7 +67,7 @@ const exportDebtCsv = (rows, year) => {
   URL.revokeObjectURL(url);
 };
 
-const TuitionReportPage = ({ embedded = false }) => {
+const TuitionReportPage = ({ showDetails = true }) => {
   const navigate = useNavigate();
   const [year, setYear] = useState(dayjs().year());
   const [range, setRange] = useState(null);
@@ -112,17 +112,9 @@ const TuitionReportPage = ({ embedded = false }) => {
   return (
     <Spin spinning={loading}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          {embedded ? (
-            <Title level={5} style={{ margin: 0 }}>
-              Tổng quan thanh toán khóa học
-            </Title>
-          ) : (
-            <Title level={4} style={{ margin: 0 }}>
-              Báo cáo thanh toán khóa học
-            </Title>
-          )}
-        </div>
+        <Title level={4} style={{ margin: 0 }}>
+          Báo cáo thanh toán khóa học
+        </Title>
         <Space wrap>
           <DatePicker
             id="revenue-year-picker"
@@ -232,7 +224,7 @@ const TuitionReportPage = ({ embedded = false }) => {
       </Row>
 
       {/* ===== Hóa đơn chưa thanh toán đủ ===== */}
-      <Card
+      {showDetails && <Card
         bordered={false}
         style={{ marginBottom: 16 }}
         title={
@@ -254,8 +246,8 @@ const TuitionReportPage = ({ embedded = false }) => {
         <Table
           rowKey="id"
           size="small"
-          dataSource={embedded ? debtList.slice(0, 5) : debtList}
-          pagination={embedded ? false : { pageSize: 8 }}
+          dataSource={debtList}
+          pagination={{ pageSize: 8 }}
           scroll={{ x: 900 }}
           rowClassName={(r) => (r.isOverdue ? 'tuition-row-overdue' : '')}
           columns={[
@@ -283,16 +275,9 @@ const TuitionReportPage = ({ embedded = false }) => {
             }
           ]}
         />
-        {embedded && debtList.length > 5 && (
-          <div style={{ textAlign: 'center', marginTop: 8 }}>
-            <Button type="link" onClick={() => navigate('/tuition-report')}>
-              Xem toàn bộ {debtList.length} hóa đơn →
-            </Button>
-          </div>
-        )}
-      </Card>
+      </Card>}
 
-      <Row gutter={[16, 16]}>
+      {showDetails && <Row gutter={[16, 16]}>
         <Col xs={24} lg={12}>
           <Card bordered={false} title="Thanh toán theo khóa học">
             <Table
@@ -330,9 +315,9 @@ const TuitionReportPage = ({ embedded = false }) => {
             />
           </Card>
         </Col>
-      </Row>
+      </Row>}
 
-      <ReceiptModal open={!!receiptPaymentId} paymentId={receiptPaymentId} onClose={() => setReceiptPaymentId(null)} />
+      {showDetails && <ReceiptModal open={!!receiptPaymentId} paymentId={receiptPaymentId} onClose={() => setReceiptPaymentId(null)} />}
     </Spin>
   );
 };

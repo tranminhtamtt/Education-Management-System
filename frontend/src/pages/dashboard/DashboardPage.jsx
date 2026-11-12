@@ -95,7 +95,7 @@ const DashboardPage = () => {
       {/* ========================================================
           0. GIAO DIỆN ACCOUNTANT DASHBOARD (Người 3)
       ======================================================== */}
-      {role === 'ACCOUNTANT' && <TuitionReportPage />}
+      {role === 'ACCOUNTANT' && <TuitionReportPage showDetails={false} />}
 
       {/* ========================================================
           1. GIAO DIỆN ADMIN DASHBOARD
