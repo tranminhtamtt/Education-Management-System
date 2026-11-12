@@ -8,7 +8,10 @@ import {
   TrophyOutlined,
   WarningOutlined,
   CalendarOutlined,
-  FileTextOutlined
+  FileTextOutlined,
+  MessageOutlined,
+  ReadOutlined,
+  VideoCameraOutlined
 } from '@ant-design/icons';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, PieChart, Pie, Cell } from 'recharts';
 import apiClient from '../../api/client';
@@ -292,35 +295,46 @@ const DashboardPage = () => {
       ======================================================== */}
       {role === 'TEACHER' && (
         <Row gutter={[16, 16]}>
-          <Col xs={24} sm={12} lg={6}>
+          <Col xs={24} sm={12} lg={8} xl={4}>
             <Card bordered={false}>
-              <Statistic title="Lớp phụ trách" value={teacherData?.summary.classCount || 0} prefix={<ApartmentOutlined style={{ color: '#F26F21' }} />} />
+              <Statistic title="Khóa học quay sẵn" value={teacherData?.summary.recordedCourseCount || 0} prefix={<ReadOutlined style={{ color: '#F26F21' }} />} />
             </Card>
           </Col>
-          <Col xs={24} sm={12} lg={6}>
+          <Col xs={24} sm={12} lg={8} xl={4}>
             <Card bordered={false}>
-              <Statistic title="Ca dạy mỗi tuần" value={teacherData?.summary.weeklySessionCount || 0} prefix={<CalendarOutlined style={{ color: '#1890ff' }} />} />
+              <Statistic title="Lớp trực tuyến" value={teacherData?.summary.liveClassCount || 0} prefix={<VideoCameraOutlined style={{ color: '#1890ff' }} />} />
             </Card>
           </Col>
-          <Col xs={24} sm={12} lg={6}>
+          <Col xs={24} sm={12} lg={8} xl={4}>
             <Card bordered={false}>
-              <Statistic title="Bài tập" value={teacherData?.summary.assignmentCount || 0} prefix={<FileTextOutlined style={{ color: '#52c41a' }} />} />
+              <Statistic title="Học viên đang học" value={teacherData?.summary.activeLearnerCount || 0} prefix={<TeamOutlined style={{ color: '#52c41a' }} />} />
             </Card>
           </Col>
-          <Col xs={24} sm={12} lg={6}>
+          <Col xs={24} sm={12} lg={12} xl={4}>
             <Card bordered={false}>
-              <Statistic title="Cảnh báo vắng trên 20%" value={teacherData?.summary.warningCount || 0} prefix={<WarningOutlined style={{ color: '#ff4d4f' }} />} />
+              <Statistic title="Bài tập chờ chấm" value={teacherData?.summary.pendingGradingCount || 0} prefix={<FileTextOutlined style={{ color: '#fa8c16' }} />} />
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} lg={12} xl={4}>
+            <Card bordered={false}>
+              <Statistic title="Câu hỏi mới" value={teacherData?.summary.newQuestionCount || 0} prefix={<MessageOutlined style={{ color: '#722ed1' }} />} />
             </Card>
           </Col>
           <Col xs={24}>
             <Card
-              title="Teacher Dashboard"
+              title="Tổng quan giảng dạy"
               bordered={false}
-              extra={<Space><Button onClick={() => navigate('/attendance')}>Điểm danh</Button><Button type="primary" onClick={() => navigate('/assignments')}>Bài tập & chấm bài</Button></Space>}
+              extra={<Space wrap>
+                <Button onClick={() => navigate('/teacher-content')}>Nội dung & lớp học</Button>
+                <Button onClick={() => navigate('/attendance')}>Điểm danh</Button>
+                <Button onClick={() => navigate('/grades')}>Nhập điểm cuối khóa</Button>
+                <Button type="primary" onClick={() => navigate('/assignments')}>Bài tập & chấm bài</Button>
+                <Button onClick={() => navigate('/questions')}>Hỏi đáp</Button>
+              </Space>}
             >
               <Space direction="vertical" style={{ width: '100%' }} size="large">
                 <div>
-                  <Text strong>Lớp học phần</Text>
+                  <Text strong>Khóa học và lớp được phân công</Text>
                   <Table
                     size="small"
                     rowKey="id"
@@ -329,15 +343,19 @@ const DashboardPage = () => {
                     locale={{ emptyText: 'Bạn chưa được phân công lớp nào' }}
                     columns={[
                       { title: 'Lớp', dataIndex: 'classCode', render: code => <Text strong>{code}</Text> },
+                      { title: 'Khóa học', dataIndex: 'courseName' },
+                      { title: 'Hình thức', dataIndex: 'deliveryMode', render: mode => <Tag color={mode === 'LIVE_ONLINE' ? 'blue' : 'purple'}>{mode}</Tag> },
                       { title: 'Học kỳ', dataIndex: 'semester' },
                       { title: 'Trạng thái', dataIndex: 'status' },
-                      { title: 'Sinh viên', dataIndex: 'studentCount' },
-                      { title: 'Bài tập', dataIndex: 'assignmentCount' }
+                      { title: 'Học viên', dataIndex: 'activeLearnerCount' },
+                      { title: 'Phòng học', dataIndex: 'meetUrl', render: url => url
+                        ? <Button type="link" href={url} target="_blank" rel="noreferrer">Vào lớp</Button>
+                        : <Text type="secondary">Chưa có link</Text> }
                     ]}
                   />
                 </div>
                 <div>
-                  <Text strong>Lịch giảng dạy trong tuần</Text>
+                  <Text strong>Lịch giảng dạy hàng tuần</Text>
                   <Table
                     size="small"
                     rowKey="id"
@@ -349,7 +367,10 @@ const DashboardPage = () => {
                       { title: 'Ca', dataIndex: 'shift', render: shift => <Tag color="orange">Slot {shift}</Tag> },
                       { title: 'Thời gian', render: (_, item) => `${item.startTime} – ${item.endTime}` },
                       { title: 'Lớp', dataIndex: 'classCode' },
-                      { title: 'Phòng', dataIndex: 'room' }
+                      { title: 'Phòng', dataIndex: 'room' },
+                      { title: 'Tham gia', dataIndex: 'meetUrl', render: url => url
+                        ? <Button type="link" href={url} target="_blank" rel="noreferrer">Zoom / Meet</Button>
+                        : <Text type="secondary">Chưa có link</Text> }
                     ]}
                   />
                 </div>
@@ -370,7 +391,10 @@ const DashboardPage = () => {
                     { title: 'Thời gian', render: (_, r) => `${r.startTime} - ${r.endTime}` },
                     { title: 'Lớp', dataIndex: 'classCode', render: (c) => <Text strong>{c}</Text> },
                     { title: 'Môn học', dataIndex: 'courseName' },
-                    { title: 'Phòng học', dataIndex: 'room', render: (r) => <Tag color="blue">{r}</Tag> }
+                    { title: 'Phòng học', dataIndex: 'room', render: (r) => <Tag color="blue">{r}</Tag> },
+                    { title: 'Tham gia', dataIndex: 'meetUrl', render: url => url
+                      ? <Button type="link" href={url} target="_blank" rel="noreferrer">Vào lớp</Button>
+                      : <Text type="secondary">Chưa có link</Text> }
                   ]}
                 />
               )}

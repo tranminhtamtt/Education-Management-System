@@ -9,6 +9,7 @@ const attendanceAssignmentsRouter = require('./modules/attendance-assignments');
 const gradesTuitionRouter = require('./modules/grades-tuition');
 const notificationsAnalyticsRouter = require('./modules/notifications-analytics');
 const curriculumRouter = require('./modules/curriculum');
+const teacherRouter = require('./modules/teacher');
 
 const path = require('path');
 const { connectDB, mongoose } = require('./config/db');
@@ -40,6 +41,7 @@ app.get('/api/health', (req, res) => {
 
 // Đăng ký 5 Cụm API Endpoints chuẩn hóa (/api/v1)
 app.use('/api/v1', usersCoursesRouter);
+app.use('/api/v1', teacherRouter);
 app.use('/api/v1', require('./modules/accountant'));
 app.use('/api/v1', classesSchedulesRouter);
 app.use('/api/v1', attendanceAssignmentsRouter);
