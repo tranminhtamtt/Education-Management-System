@@ -41,7 +41,19 @@ const Sidebar = () => {
         { key: '/payment-operations', icon: <AuditOutlined />, label: 'Giao dịch thanh toán' },
         { key: '/notifications', icon: <NotificationOutlined />, label: 'Thông báo' }
       ]
-    : [
+    : role === 'STUDENT' ? [
+        // Trung tâm khóa học: không có mục "Kết quả học tập" (không ràng buộc điểm số)
+        { key: '/dashboard', icon: <DashboardOutlined />, label: 'Không gian học tập' },
+        { key: '/catalog', icon: <BookOutlined />, label: 'Khám phá khóa học' },
+        { key: '/my-courses', icon: <ApartmentOutlined />, label: 'Khóa học của tôi' },
+        { key: '/schedule', icon: <CalendarOutlined />, label: 'Lịch học Live' },
+        { key: '/attendance', icon: <CheckSquareOutlined />, label: 'Chuyên cần' },
+        { key: '/assignments', icon: <FileTextOutlined />, label: 'Bài tập & nộp bài' },
+        { key: '/questions', icon: <AuditOutlined />, label: 'Hỏi đáp giảng viên' },
+        { key: '/tuition', icon: <DollarCircleOutlined />, label: 'Học phí & VietQR' },
+        { key: '/requests', icon: <FileTextOutlined />, label: 'Đơn từ' },
+        { key: '/notifications', icon: <NotificationOutlined />, label: 'Thông báo' }
+      ] : [
     {
       key: '/dashboard',
       icon: <DashboardOutlined />,
@@ -107,19 +119,19 @@ const Sidebar = () => {
       icon: <FileTextOutlined />,
       label: getRoleLabel(role, 'Bài tập & Nộp bài', 'Bài tập & chấm bài', 'Quản lý Bài tập')
     },
-    // Giảng viên nhập điểm cuối khóa; học viên xem bảng điểm.
-    ...(['ADMIN', 'STUDENT', 'TEACHER'].includes(role)
+    // Quản trị và giảng viên quản lý điểm cuối khóa.
+    ...(['ADMIN', 'TEACHER'].includes(role)
       ? [{
           key: '/grades',
           icon: <TrophyOutlined />,
-          label: role === 'STUDENT' ? 'Bảng điểm & GPA' : 'Đánh giá cuối khóa'
+          label: 'Đánh giá cuối khóa'
         }]
       : []),
-    ...(['TEACHER', 'STUDENT'].includes(role)
+    ...(['TEACHER', 'ADMIN'].includes(role)
       ? [{
           key: '/questions',
           icon: <MessageOutlined />,
-          label: role === 'TEACHER' ? 'Hỏi đáp học viên' : 'Hỏi đáp khóa học'
+          label: 'Hỏi đáp học viên'
         }]
       : []),
     // Khung chương trình (FAP Curriculum)

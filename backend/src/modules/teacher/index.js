@@ -3,11 +3,13 @@ const router = express.Router();
 const authenticateJWT = require('../../middlewares/auth.middleware');
 const authorizeRoles = require('../../middlewares/role.middleware');
 const {
-  Assignment, Attendance, Class, Course, CourseLesson, CourseQuestion,
-  Enrollment, Notification, Schedule, Submission
+  Assignment, Attendance, Class, Course, CourseQuestion,
+  Enrollment, Schedule, Submission
 } = require('../../models');
 const { plain } = require('../../utils/query');
 const { successResponse, errorResponse } = require('../../utils/formatResponse');
+
+const { teacherQuestionScope } = require('../student/questionScope');
 
 const activeStatuses = new Set(['UPCOMING', 'ONGOING']);
 
@@ -20,69 +22,7 @@ async function getTeacherScope(teacherId) {
     $or: [{ instructorId: teacherId }, { id: { $in: assignedCourseIds } }]
   }).sort({ courseCode: 1 })).map(plain);
   const classIds = classes.map(item => item.id);
-  const courseIds = courses.map(item => item.id);
-  const lessons = courseIds.length
-    ? await CourseLesson.find({ courseId: { $in: courseIds } }).select('id courseId')
-    : [];
-  return { classes, courses, classIds, courseIds, lessonIds: lessons.map(item => item.id) };
-}
-
-function questionScope({ classIds, lessonIds }) {
-  return { $or: [
-    { classId: { $in: classIds } },
-    { lessonId: { $in: lessonIds } }
-  ] };
-}
-
-function parseQuestionInput(body = {}) {
-  const questionTitle = String(body.questionTitle || '').trim();
-  const questionContent = String(body.questionContent || '').trim();
-  const classId = body.classId ? Number.parseInt(body.classId, 10) : null;
-  const lessonId = body.lessonId ? Number.parseInt(body.lessonId, 10) : null;
-
-  if (!questionTitle || !questionContent || questionTitle.length > 200 || questionContent.length > 10000) {
-    return { error: { status: 400, message: 'Vui lòng nhập tiêu đề và nội dung câu hỏi hợp lệ' } };
-  }
-  if (!classId && !lessonId) {
-    return { error: { status: 400, message: 'Câu hỏi cần gắn với lớp hoặc bài giảng' } };
-  }
-  if ((classId && !Number.isSafeInteger(classId)) || (lessonId && !Number.isSafeInteger(lessonId))) {
-    return { error: { status: 400, message: 'Lớp hoặc bài giảng không hợp lệ' } };
-  }
-
-  return { questionTitle, questionContent, classId, lessonId };
-}
-
-async function getStudentQuestionContext({ classId, lessonId, studentId }) {
-  const lesson = lessonId ? await CourseLesson.findOne({ id: lessonId }) : null;
-  if (lessonId && !lesson) {
-    return { error: { status: 404, message: 'Không tìm thấy bài giảng' } };
-  }
-
-  let classItem = classId ? await Class.findOne({ id: classId }).populate('course') : null;
-  if (classId && !classItem) {
-    return { error: { status: 404, message: 'Không tìm thấy lớp học' } };
-  }
-  if (classItem && !await Enrollment.exists({ classId, studentId, status: 'ACTIVE' })) {
-    return { error: { status: 403, message: 'Bạn chưa ghi danh lớp học này' } };
-  }
-  if (classItem && lesson && classItem.courseId !== lesson.courseId) {
-    return { error: { status: 400, message: 'Bài giảng không thuộc khóa học của lớp' } };
-  }
-  if (!classItem && lesson) {
-    const candidateClasses = await Class.find({ courseId: lesson.courseId }).select('id');
-    const enrollment = await Enrollment.findOne({
-      classId: { $in: candidateClasses.map(item => item.id) },
-      studentId,
-      status: 'ACTIVE'
-    }).sort({ enrolledAt: -1 });
-    if (!enrollment) {
-      return { error: { status: 403, message: 'Bạn chưa ghi danh khóa học này' } };
-    }
-    classItem = await Class.findOne({ id: enrollment.classId }).populate('course');
-  }
-
-  return { lesson, classItem };
+  return { classes, courses, classIds };
 }
 
 router.get('/teacher/dashboard', authenticateJWT, authorizeRoles('TEACHER'), async (req, res) => {
@@ -106,9 +46,8 @@ router.get('/teacher/dashboard', authenticateJWT, authorizeRoles('TEACHER'), asy
           score: null
         })
       : 0;
-    const pendingQuestions = scope.classIds.length || scope.lessonIds.length
-      ? await CourseQuestion.countDocuments({ ...questionScope(scope), status: 'PENDING' })
-      : 0;
+    const questionScope = await teacherQuestionScope(req.user.id);
+    const pendingQuestions = await CourseQuestion.countDocuments({ ...questionScope, status: 'PENDING' });
     const absences = activeClassIds.length
       ? await Attendance.find({ classId: { $in: activeClassIds }, status: 'ABSENT_UNEXCUSED' })
       : [];
@@ -234,103 +173,6 @@ router.patch('/teacher/classes/:id', authenticateJWT, authorizeRoles('TEACHER'),
   } catch (error) {
     console.error('Error updating teacher class link:', error);
     return errorResponse(res, 'Lỗi cập nhật link lớp học', 500);
-  }
-});
-
-router.get('/questions', authenticateJWT, authorizeRoles('TEACHER', 'STUDENT'), async (req, res) => {
-  try {
-    const status = req.query.status ? String(req.query.status).toUpperCase() : null;
-    if (status && !['PENDING', 'ANSWERED', 'RESOLVED'].includes(status)) {
-      return errorResponse(res, 'Trạng thái Q&A không hợp lệ', 400);
-    }
-    const where = status ? { status } : {};
-    if (req.user.role === 'STUDENT') {
-      where.studentId = req.user.id;
-    } else {
-      const scope = await getTeacherScope(req.user.id);
-      if (!scope.classIds.length && !scope.lessonIds.length) {
-        return successResponse(res, [], 'Chưa có câu hỏi');
-      }
-      Object.assign(where, questionScope(scope));
-    }
-
-    const questions = (await CourseQuestion.find(where)
-      .sort({ status: 1, createdAt: -1, id: -1 })
-      .populate([
-        { path: 'student', select: 'id code fullName email' },
-        { path: 'class', populate: { path: 'course', select: 'courseCode name' } },
-        { path: 'lesson', populate: { path: 'course', select: 'courseCode name' } },
-        { path: 'answeredBy', select: 'id fullName' }
-      ])).map(plain);
-    return successResponse(res, questions, 'Lấy danh sách hỏi đáp thành công');
-  } catch (error) {
-    console.error('Error fetching course questions:', error);
-    return errorResponse(res, 'Lỗi lấy danh sách hỏi đáp', 500);
-  }
-});
-
-router.post('/questions', authenticateJWT, authorizeRoles('STUDENT'), async (req, res) => {
-  try {
-    const input = parseQuestionInput(req.body);
-    if (input.error) return errorResponse(res, input.error.message, input.error.status);
-    const context = await getStudentQuestionContext({ ...input, studentId: req.user.id });
-    if (context.error) return errorResponse(res, context.error.message, context.error.status);
-    const { classItem, lesson } = context;
-
-    const question = await CourseQuestion.create({
-      studentId: req.user.id,
-      classId: classItem?.id || null,
-      lessonId: lesson?.id || null,
-      questionTitle: input.questionTitle,
-      questionContent: input.questionContent
-    });
-    const teacherId = classItem?.teacherId || classItem?.course?.instructorId;
-    if (teacherId) {
-      await Notification.create({
-        userId: teacherId,
-        title: `Câu hỏi mới: ${input.questionTitle}`,
-        message: `Học viên vừa gửi câu hỏi trong lớp ${classItem?.classCode || classItem?.course?.courseCode}.`,
-        type: 'QA'
-      });
-    }
-    return successResponse(res, plain(question), 'Đã gửi câu hỏi cho giảng viên', 201);
-  } catch (error) {
-    console.error('Error creating course question:', error);
-    return errorResponse(res, 'Lỗi gửi câu hỏi', 500);
-  }
-});
-
-router.patch('/questions/:id/answer', authenticateJWT, authorizeRoles('TEACHER'), async (req, res) => {
-  try {
-    const id = Number.parseInt(req.params.id, 10);
-    const teacherAnswer = String(req.body.teacherAnswer || '').trim();
-    if (!Number.isSafeInteger(id)) return errorResponse(res, 'ID câu hỏi không hợp lệ', 400);
-    if (!teacherAnswer || teacherAnswer.length > 10000) {
-      return errorResponse(res, 'Nội dung trả lời không được để trống và tối đa 10.000 ký tự', 400);
-    }
-    const scope = await getTeacherScope(req.user.id);
-    const question = await CourseQuestion.findOne({
-      id,
-      ...questionScope(scope)
-    });
-    if (!question) return errorResponse(res, 'Không tìm thấy câu hỏi thuộc lớp hoặc khóa học của bạn', 404);
-    if (question.status === 'RESOLVED') return errorResponse(res, 'Câu hỏi đã được đóng', 409);
-
-    question.teacherAnswer = teacherAnswer;
-    question.status = 'ANSWERED';
-    question.answeredById = req.user.id;
-    question.answeredAt = new Date();
-    await question.save();
-    await Notification.create({
-      userId: question.studentId,
-      title: 'Giảng viên đã trả lời câu hỏi',
-      message: `Câu hỏi "${question.questionTitle}" đã có phản hồi.`,
-      type: 'QA'
-    });
-    return successResponse(res, plain(question), 'Đã gửi câu trả lời');
-  } catch (error) {
-    console.error('Error answering course question:', error);
-    return errorResponse(res, 'Lỗi gửi câu trả lời', 500);
   }
 });
 

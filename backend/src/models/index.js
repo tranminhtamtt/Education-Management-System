@@ -76,6 +76,7 @@ const StudentProfileSchema = new Schema({
   dob: { type: Date, default: null },
   gender: { type: String, enum: ['MALE', 'FEMALE', 'OTHER'], default: 'MALE' },
   address: { type: String, default: null },
+  targetGoal: { type: String, default: null, maxlength: 500 },
   enrollmentYear: { type: Number, default: 2026 }
 }, { _id: false });
 
@@ -102,13 +103,32 @@ const User = define('User', 'users', {
 });
 
 // ---------------------------------------------------------------------------
+// 2a. subjects — Môn học FPT (giữ nguyên kỳ trong khung chương trình) hoặc Chứng chỉ.
+//     Một môn / chứng chỉ có thể có NHIỀU khóa học (video quay sẵn hoặc lớp Live).
+// ---------------------------------------------------------------------------
+const Subject = define('Subject', 'subjects', {
+  code: { type: String, required: true, unique: true, maxlength: 50 },
+  name: { type: String, required: true, maxlength: 150 },
+  category: { type: String, enum: ['FPT_SUBJECT', 'CERTIFICATE'], required: true, index: true },
+  term: { type: Number, default: null, min: 1, max: 9 }, // Kỳ trong khung FPT (null với chứng chỉ)
+  credits: { type: Number, default: null },
+  prerequisites: { type: [String], default: [] },
+  description: { type: String, default: null },
+  status: { type: String, enum: ['ACTIVE', 'INACTIVE'], default: 'ACTIVE' },
+  ...ts
+}, {}, s =>
+  s.virtual('courses', many('Course', 'subjectId'))
+);
+
+// ---------------------------------------------------------------------------
 // 2. courses
 // ---------------------------------------------------------------------------
 const Course = define('Course', 'courses', {
+  subjectId: { type: Number, default: null, index: true },
   courseCode: { type: String, required: true, unique: true, maxlength: 50 },
   name: { type: String, required: true, maxlength: 150 },
   category: { type: String, enum: ['FPT_SUBJECT', 'CERTIFICATE'], default: 'FPT_SUBJECT', index: true },
-  deliveryMode: { type: String, enum: ['RECORDED', 'LIVE_ONLINE'], default: 'RECORDED', index: true },
+  deliveryMode: { type: String, enum: ['RECORDED', 'LIVE_ONLINE'], default: 'LIVE_ONLINE', index: true },
   level: { type: String, enum: ['BEGINNER', 'INTERMEDIATE', 'ADVANCED'], default: 'BEGINNER' },
   instructorId: { type: Number, default: null, index: true },
   thumbnailUrl: { type: String, default: null },
@@ -120,26 +140,10 @@ const Course = define('Course', 'courses', {
   status: { type: String, enum: ['ACTIVE', 'INACTIVE'], default: 'ACTIVE' },
   ...ts
 }, {}, s => {
-  s.virtual('instructor', ref('User', 'instructorId'));
   s.virtual('classes', many('Class', 'courseId'));
+  s.virtual('subject', ref('Subject', 'subjectId'));
+  s.virtual('instructor', ref('User', 'instructorId'));
   s.virtual('lessons', many('CourseLesson', 'courseId', { options: { sort: { orderIndex: 1 } } }));
-});
-
-// ---------------------------------------------------------------------------
-// 2b. course_lessons (Bài giảng Video & Chương mục - UC3.2)
-// ---------------------------------------------------------------------------
-const CourseLesson = define('CourseLesson', 'course_lessons', {
-  courseId: { type: Number, required: true, index: true },
-  sectionTitle: { type: String, default: 'Chương 1' },
-  title: { type: String, required: true, maxlength: 200 },
-  orderIndex: { type: Number, default: 1 },
-  videoUrl: { type: String, default: null },
-  materialUrl: { type: String, default: null },
-  durationMinutes: { type: Number, default: 0 },
-  isPreview: { type: Boolean, default: false },
-  ...ts
-}, {}, s => {
-  s.virtual('course', ref('Course', 'courseId'));
 });
 
 // ---------------------------------------------------------------------------
@@ -170,7 +174,9 @@ const Enrollment = define('Enrollment', 'enrollments', {
   classId: { type: Number, required: true },
   studentId: { type: Number, required: true, index: true },
   enrolledAt: { type: Date, default: Date.now },
-  status: { type: String, enum: ['ACTIVE', 'DROPPED'], default: 'ACTIVE' }
+  status: { type: String, enum: ['PENDING_PAYMENT', 'ACTIVE', 'DROPPED'], default: 'ACTIVE' },
+  progressPercent: { type: Number, default: 0, min: 0, max: 100 },
+  completedLessonsCount: { type: Number, default: 0, min: 0 }
 }, {}, s => {
   s.index({ classId: 1, studentId: 1 }, { unique: true });
   s.virtual('class', ref('Class', 'classId'));
@@ -222,6 +228,7 @@ const Assignment = define('Assignment', 'assignments', {
 });
 
 const Submission = define('Submission', 'submissions', {
+  content: { type: String, default: null, maxlength: 10000 },
   assignmentId: { type: Number, required: true },
   studentId: { type: Number, required: true },
   fileUrl: { type: String, required: true },
@@ -382,7 +389,8 @@ const Notification = define('Notification', 'notifications', {
 const StudentRequest = define('StudentRequest', 'student_requests', {
   studentId: { type: Number, required: true, index: true },
   classId: { type: Number, default: null },
-  requestType: { type: String, enum: ['ABSENCE', 'REMARK', 'CONFIRMATION'], required: true },
+  // Loại đơn của học viên trung tâm. REMARK (phúc khảo) chỉ giữ để đọc dữ liệu cũ.
+  requestType: { type: String, enum: ['ABSENCE', 'CLASS_TRANSFER', 'DEFERRAL', 'REFUND', 'PAYMENT_ISSUE', 'CONFIRMATION', 'FEEDBACK', 'REMARK'], required: true },
   sessionDate: { type: Date, default: null },
   reason: { type: String, required: true },
   attachmentUrl: { type: String, default: null },
@@ -394,24 +402,48 @@ const StudentRequest = define('StudentRequest', 'student_requests', {
   s.virtual('class', ref('Class', 'classId'));
 });
 
-// ---------------------------------------------------------------------------
-// 19. course_questions (Q&A per live class or recorded lesson)
-// ---------------------------------------------------------------------------
+const CourseLesson = define('CourseLesson', 'course_lessons', {
+  courseId: { type: Number, required: true, index: true },
+  sectionTitle: { type: String, default: 'Nội dung khóa học' },
+  orderIndex: { type: Number, required: true, min: 1 },
+  title: { type: String, required: true, maxlength: 200 },
+  videoUrl: { type: String, default: null },
+  materialUrl: { type: String, default: null },
+  durationMinutes: { type: Number, default: 0, min: 0 },
+  isPreview: { type: Boolean, default: false },
+  ...ts
+}, {}, s => {
+  s.virtual('course', ref('Course', 'courseId'));
+  s.index({ courseId: 1, orderIndex: 1 }, { unique: true });
+});
+
+const LessonProgress = define('LessonProgress', 'lesson_progress', {
+  enrollmentId: { type: Number, required: true, index: true },
+  lessonId: { type: Number, required: true },
+  studentId: { type: Number, required: true, index: true },
+  courseId: { type: Number, required: true },
+  isCompleted: { type: Boolean, default: false },
+  completedAt: { type: Date, default: null },
+  lastWatchedSecond: { type: Number, default: 0, min: 0 }
+}, {}, s => s.index({ enrollmentId: 1, lessonId: 1 }, { unique: true }));
+
 const CourseQuestion = define('CourseQuestion', 'course_questions', {
   studentId: { type: Number, required: true, index: true },
-  classId: { type: Number, default: null, index: true },
-  lessonId: { type: Number, default: null, index: true },
+  classId: { type: Number, required: true, index: true },
+  teacherId: { type: Number, default: null, index: true }, // Giảng viên nhận câu hỏi (đang dạy khóa của học viên)
+  lessonId: { type: Number, default: null },
   questionTitle: { type: String, required: true, maxlength: 200 },
   questionContent: { type: String, required: true, maxlength: 10000 },
   attachmentUrl: { type: String, default: null },
-  status: { type: String, enum: ['PENDING', 'ANSWERED', 'RESOLVED'], default: 'PENDING', index: true },
+  status: { type: String, enum: ['PENDING', 'ANSWERED', 'RESOLVED'], default: 'PENDING' },
   teacherAnswer: { type: String, default: null, maxlength: 10000 },
   answeredById: { type: Number, default: null },
   answeredAt: { type: Date, default: null },
   ...ts
 }, {}, s => {
-  s.virtual('student', ref('User', 'studentId'));
   s.virtual('class', ref('Class', 'classId'));
+  s.virtual('student', ref('User', 'studentId'));
+  s.virtual('teacher', ref('User', 'teacherId'));
   s.virtual('lesson', ref('CourseLesson', 'lessonId'));
   s.virtual('answeredBy', ref('User', 'answeredById'));
   s.index({ classId: 1, status: 1 });
@@ -419,10 +451,13 @@ const CourseQuestion = define('CourseQuestion', 'course_questions', {
 });
 
 module.exports = {
+  Subject,
+  CourseLesson,
+  LessonProgress,
+  CourseQuestion,
   Counter,
   User,
   Course,
-  CourseLesson,
   Class,
   Enrollment,
   Schedule,
@@ -439,7 +474,6 @@ module.exports = {
   PaymentAuditLog,
   Notification,
   StudentRequest,
-  CourseQuestion,
   TRANSACTION_STATUSES,
   DISCREPANCY_REASONS,
   nextIds

@@ -27,6 +27,8 @@ const AssignmentsPage = () => {
   const [currentAssignment, setCurrentAssignment] = useState(null);
   const [submittingFile, setSubmittingFile] = useState(false);
   const [fileList, setFileList] = useState([]);
+  const [submissionLink, setSubmissionLink] = useState('');
+  const [submissionContent, setSubmissionContent] = useState('');
 
   // Modal Xem Danh Sách Bài Nộp & Chấm Điểm (Teacher)
   const [gradingModalOpen, setGradingModalOpen] = useState(false);
@@ -41,11 +43,12 @@ const AssignmentsPage = () => {
 
   const fetchClasses = async () => {
     try {
-      const res = await apiClient.get('/classes', { params: { status: 'ONGOING' } });
-      if (res.success && res.data.length > 0) {
-        setClasses(res.data);
-        setSelectedClassId(isStudent ? 'ALL' : res.data[0].id);
-      }
+      const res = await apiClient.get(isStudent ? '/my-courses' : '/classes', isStudent ? {} : { params: { status: 'ONGOING' } });
+      const available = isStudent ? (res.data || []).filter(e => e.status === 'ACTIVE').map(e => e.class) : res.data;
+      if (res.success && available.length > 0) {
+        setClasses(available);
+        setSelectedClassId(isStudent ? 'ALL' : available[0].id);
+      } else { setClasses([]); setAssignments([]); }
     } catch (err) {
       console.error('Error fetching classes:', err);
     }
@@ -133,14 +136,16 @@ const AssignmentsPage = () => {
 
   // Nộp bài tập (Student)
   const handleSubmitWork = async () => {
-    if (fileList.length === 0) {
-      message.warning('Vui lòng chọn file bài làm để nộp');
+    if (fileList.length === 0 && !submissionLink.trim()) {
+      message.warning('Vui lòng chọn file hoặc nhập link bài làm');
       return;
     }
     try {
       setSubmittingFile(true);
       const formData = new FormData();
-      formData.append('file', fileList[0].originFileObj);
+      if (fileList.length) formData.append('file', fileList[0].originFileObj);
+      if (submissionLink.trim()) formData.append('link', submissionLink.trim());
+      if (submissionContent.trim()) formData.append('content', submissionContent.trim());
 
       const res = await apiClient.post(`/assignments/${currentAssignment.id}/submissions`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
@@ -307,6 +312,9 @@ const AssignmentsPage = () => {
                 style={{ backgroundColor: '#F26F21', borderColor: '#F26F21' }}
                 onClick={() => {
                   setCurrentAssignment(r);
+                  setFileList([]);
+                  setSubmissionLink('');
+                  setSubmissionContent('');
                   setSubmitModalOpen(true);
                 }}
               >
@@ -321,7 +329,7 @@ const AssignmentsPage = () => {
   return (
     <div>
       <Card
-        title="Quản lý Bài tập Lớp học"
+        title={isStudent ? 'Bài tập & nộp bài' : 'Quản lý Bài tập Lớp học'}
         extra={
           isTeacherOrAdmin && (
             <Button
@@ -335,16 +343,16 @@ const AssignmentsPage = () => {
           )
         }
       >
-        <Space style={{ marginBottom: 20 }} wrap>
-          <Text strong>Chọn Lớp Học:</Text>
+        <Space style={{ marginBottom: 20, width: '100%' }} wrap>
+          <Text strong>{isStudent ? 'Khóa học:' : 'Chọn Lớp Học:'}</Text>
           <Select
-            style={{ width: 320 }}
+            style={{ width: 360, maxWidth: '100%' }}
             value={selectedClassId}
             onChange={setSelectedClassId}
             options={[
-              ...(isStudent ? [{ label: '📚 Tất cả các môn đang học kỳ này (SP26)', value: 'ALL' }] : []),
+              ...(isStudent ? [{ label: '📚 Tất cả khóa đang học', value: 'ALL' }] : []),
               ...classes.map(c => ({
-                label: `${c.classCode} - ${c.course.name}`,
+                label: isStudent ? `${c.course.name} (${c.classCode.startsWith('VIDEO-') ? 'Video' : c.classCode})` : `${c.classCode} - ${c.course.name}`,
                 value: c.id
               }))
             ]}
@@ -357,6 +365,8 @@ const AssignmentsPage = () => {
           dataSource={assignments}
           loading={loading}
           pagination={{ pageSize: 10 }}
+          scroll={{ x: 900 }}
+          locale={{ emptyText: isStudent ? 'Chưa có bài tập nào. Khóa video tự học thường không có bài tập do giảng viên giao.' : undefined }}
         />
       </Card>
 
@@ -426,6 +436,12 @@ const AssignmentsPage = () => {
         okText="Xác nhận nộp bài"
         cancelText="Hủy"
       >
+          <Space direction="vertical" style={{ width: '100%', marginBottom: 16 }}>
+            <Text>Link bài làm (GitHub / Google Drive) hoặc đính kèm file bên dưới</Text>
+            <Input placeholder="https://github.com/..." value={submissionLink} onChange={e => setSubmissionLink(e.target.value)} />
+            <Input.TextArea placeholder="Ghi chú bài làm" value={submissionContent} onChange={e => setSubmissionContent(e.target.value)} maxLength={10000} rows={3} />
+            <Text type="secondary">Nộp lại sẽ xóa điểm và nhận xét cũ để giảng viên chấm phiên bản mới.</Text>
+          </Space>
         <div style={{ marginBottom: 16 }}>
           <Text type="secondary">
             Hạn chót: <b>{dayjs(currentAssignment?.dueDate).format('HH:mm DD/MM/YYYY')}</b>

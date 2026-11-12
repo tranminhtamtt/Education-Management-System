@@ -101,3 +101,88 @@ body {
 .tuition-row-overdue:hover > td {
   background: #ffe7e6 !important;
 }
+
+/* ===== Responsive: chống tràn chữ ra khỏi khung ===== */
+.ant-typography,
+.ant-card-body,
+.ant-list-item,
+.ant-alert-message,
+.ant-alert-description,
+.ant-modal-title,
+.ant-table-cell {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Tiêu đề Card + nút bên phải xuống dòng khi màn hình hẹp */
+.ant-card-head-wrapper {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ant-card-head-title {
+  white-space: normal !important;
+  min-width: 0;
+}
+.ant-card-extra {
+  margin-inline-start: 0 !important;
+  max-width: 100%;
+}
+
+/* Tag dài được xuống dòng thay vì tràn */
+.ant-tag {
+  white-space: normal;
+  max-width: 100%;
+  height: auto;
+  line-height: 20px;
+}
+
+.ant-radio-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+}
+
+/* Bảng luôn cuộn ngang trong khung khi không đủ chỗ */
+.ant-table-wrapper {
+  max-width: 100%;
+}
+.ant-table-container {
+  overflow-x: auto;
+}
+
+/* Thẻ cùng hàng cao bằng nhau */
+.equal-height-col {
+  display: flex;
+}
+.equal-height-col > .ant-card {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.equal-height-col > .ant-card > .ant-card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+@media (max-width: 576px) {
+  .ant-card-head {
+    padding: 0 12px;
+  }
+  .ant-card-body {
+    padding: 12px !important;
+  }
+  .ant-statistic-content {
+    font-size: 20px !important;
+  }
+  .ant-modal {
+    max-width: calc(100vw - 16px) !important;
+  }
+}

@@ -295,7 +295,7 @@ test('teacher workflow scopes dashboard, content, attendance, grading, and Q&A t
   assert.equal((await call('/teacher/dashboard', ['TEACHER', 3])).body.data.summary.newQuestionCount, 1);
   assert.equal((await call(`/questions/${question.body.data.id}/answer`, ['TEACHER', 4], 'PATCH', {
     teacherAnswer: 'Not your class'
-  })).status, 404);
+  })).status, 403);
   const answer = await call(`/questions/${question.body.data.id}/answer`, ['TEACHER', 3], 'PATCH', {
     teacherAnswer: 'Check the route table.'
   });
